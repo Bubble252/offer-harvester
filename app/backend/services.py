@@ -9,6 +9,7 @@ from html.parser import HTMLParser
 from typing import List, Optional
 from urllib.parse import urlparse
 
+from llm_client import extract_advisor_profile_with_llm
 from models import (
     AdvisorProfile,
     AdvisorSource,
@@ -77,6 +78,73 @@ def first_match(text: str, patterns: List[str]) -> str:
 
 def keyword_hits(text: str, keywords: List[str]) -> List[str]:
     return [kw for kw in keywords if kw and kw.lower() in text.lower()]
+
+
+def values_from_llm_items(items) -> List[str]:
+    values = []
+    if not isinstance(items, list):
+        return values
+    for item in items:
+        if isinstance(item, dict):
+            value = str(item.get("value", "")).strip()
+            evidence = str(item.get("evidence", "")).strip()
+            confidence = float(item.get("confidence") or 0)
+            if value and evidence and confidence >= 0.5:
+                values.append(value)
+        elif isinstance(item, str) and item.strip():
+            values.append(item.strip())
+    return list(dict.fromkeys(values))
+
+
+def merge_advisor_profile_with_llm(
+    advisor: AdvisorProfile, llm_data: Optional[dict], source_ids: List[str]
+) -> AdvisorProfile:
+    if not llm_data:
+        return advisor
+    data = advisor.model_dump() if hasattr(advisor, "model_dump") else advisor.dict()
+    scalar_fields = [
+        "name_zh",
+        "name_en",
+        "title",
+        "school",
+        "college",
+        "department",
+        "lab_name",
+        "email",
+    ]
+    for field in scalar_fields:
+        value = str(llm_data.get(field, "")).strip()
+        if value and not data.get(field):
+            data[field] = value
+
+    list_fields = [
+        "research_directions",
+        "representative_papers",
+        "research_projects",
+        "admission_requirements",
+        "preferred_student_profile",
+        "recent_focus",
+    ]
+    for field in list_fields:
+        values = values_from_llm_items(llm_data.get(field))
+        merged = list(dict.fromkeys((data.get(field) or []) + values))
+        data[field] = merged
+        if values:
+            data.setdefault("evidence_map", {})[field] = source_ids
+
+    recruiting_status = llm_data.get("recruiting_status")
+    if recruiting_status in {"open", "closed", "unknown"} and data.get("recruiting_status") == "unknown":
+        data["recruiting_status"] = recruiting_status
+        if recruiting_status != "unknown":
+            data.setdefault("evidence_map", {})["recruiting"] = source_ids
+
+    risks = llm_data.get("risk_notes") if isinstance(llm_data.get("risk_notes"), list) else []
+    missing = llm_data.get("missing_fields") if isinstance(llm_data.get("missing_fields"), list) else []
+    notes = [str(item).strip() for item in risks + missing if str(item).strip()]
+    data["risk_notes"] = list(dict.fromkeys((data.get("risk_notes") or []) + notes))
+    data["keywords"] = list(dict.fromkeys((data.get("keywords") or []) + data.get("research_directions", [])))
+    data["identity_confirmed"] = bool(data.get("name_zh") and (data.get("school") or data.get("college") or data.get("homepage_url")))
+    return AdvisorProfile(**data)
 
 
 def validate_public_url(url: str) -> str:
@@ -255,7 +323,7 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
         "projects": source_ids if research_projects else [],
         "risks": source_ids if risk_notes else [],
     }
-    return AdvisorProfile(
+    advisor = AdvisorProfile(
         name_zh=name,
         name_en=name_en,
         title=title,
@@ -282,6 +350,15 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
         source_ids=source_ids,
         evidence_map=evidence_map,
     )
+    try:
+        llm_data = extract_advisor_profile_with_llm(text)
+        return merge_advisor_profile_with_llm(advisor, llm_data, source_ids)
+    except Exception as exc:
+        data = advisor.model_dump() if hasattr(advisor, "model_dump") else advisor.dict()
+        data["risk_notes"] = list(
+            dict.fromkeys(data.get("risk_notes", []) + [f"LLM 增强解析未完成：{exc}"])
+        )
+        return AdvisorProfile(**data)
 
 
 def make_match(

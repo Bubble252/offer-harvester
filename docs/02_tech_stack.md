@@ -264,6 +264,16 @@ Local Workspace Storage
 - 所有解析结果保留来源字段
 - 生成材料时引用来源，不把模型推测当成事实
 
+LLM 增强解析作为 Agent 能力的一部分接入，但不能替代证据链：
+
+- 默认先执行规则解析，保证无 API key 时也能工作
+- 配置 `OPENAI_API_KEY` 和 `OPENAI_MODEL` 后，使用 GPT-5.5 / OpenAI-compatible Chat Completions 增强导师字段抽取
+- LLM 只从已抓取或用户粘贴的原文中抽取，不允许补写未知字段
+- LLM 输出必须是结构化 JSON，关键列表字段需要包含 `value`、`evidence` 和 `confidence`
+- 系统只合并有证据句且置信度达到阈值的字段
+- 真实 API key 只能放本地 `.env` 或 shell 环境变量，不能写入代码、文档、测试或示例数据
+- `.env` 必须被 `.gitignore` 忽略，CI 中的 secret 扫描测试会阻止 `sk-...` 形式密钥进入仓库
+
 可选来源字段：
 
 ```json

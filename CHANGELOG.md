@@ -11,3 +11,5 @@
   outline, including task status and download endpoints.
 - Advisor intake flow with source fallback, detailed advisor fields, evidence
   mapping, multi-source profile updates, and one-click target creation.
+- Optional LLM-enhanced advisor extraction through local environment variables,
+  with rule-based fallback, evidence-gated merging, and secret redaction.

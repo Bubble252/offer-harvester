@@ -295,6 +295,10 @@ GET  /api/report
 - [x] 前端打通“保存导师画像 -> 创建申请目标 -> 进入目标详情”
 - [x] 后端补充对应 API、数据校验和错误返回
 - [x] 增加导师来源失败兜底、目标创建和证据绑定测试
+- [x] 规划 GPT-5.5 / OpenAI-compatible API 作为 Agent 增强解析能力
+- [x] 接入本地环境变量读取，不把 API key 写入代码、文档或 commit
+- [ ] 验证真实 GPT-5.5 API 能增强导师字段解析
+  - 2026-08-17：已验证调用链路和失败回退；官方 `api.openai.com/v1` 返回 `401 invalid_api_key`，待确认该 key 对应的服务商 `OPENAI_BASE_URL` 后复验
 - [ ] 增加导师画像人工编辑保存接口
 - [ ] 增加真实网页抓取的端到端样例验证
 - [ ] 按 `feat/advisor-intake` 分支和 `feat(advisor): 打通导师信息采集与目标创建` commit 规范提交

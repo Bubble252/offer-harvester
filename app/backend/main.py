@@ -42,6 +42,7 @@ from services import (
     parse_advisor_profile,
 )
 from storage import Workspace
+from llm_client import llm_configured
 from integrations.presentation_engine import LocalPptxAdapter, PresentationRequest
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -115,6 +116,11 @@ def get_presentation_task_or_404(task_id: str) -> PresentationTaskRecord:
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/llm/status")
+def llm_status():
+    return {"configured": llm_configured()}
 
 
 @app.post("/api/profile/upload")

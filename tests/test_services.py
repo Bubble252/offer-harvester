@@ -14,6 +14,7 @@ from services import (
     make_interview_questions,
     make_match,
     make_ppt_outline,
+    merge_advisor_profile_with_llm,
     parse_advisor_profile,
     validate_public_url,
 )
@@ -126,3 +127,36 @@ def test_failed_url_source_records_reason_and_manual_fallback():
     assert source.content_hash.startswith("sha256:")
     assert advisor.name_zh == "赵六"
     assert "数据挖掘" in advisor.research_directions
+
+
+def test_llm_advisor_merge_requires_evidence_for_list_fields():
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="孙七教授，研究方向包括可信机器学习。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    enriched = merge_advisor_profile_with_llm(
+        advisor,
+        {
+            "school": "样例大学",
+            "research_directions": [
+                {"value": "可信机器学习", "evidence": "研究方向包括可信机器学习", "confidence": 0.9},
+                {"value": "量子计算", "evidence": "", "confidence": 0.9},
+                {"value": "机器人", "evidence": "没有足够证据", "confidence": 0.2},
+            ],
+            "admission_requirements": [
+                {"value": "欢迎有机器学习基础的同学申请", "evidence": "欢迎有机器学习基础的同学申请", "confidence": 0.8}
+            ],
+            "recruiting_status": "open",
+        },
+        [source.source_id],
+    )
+
+    assert enriched.school == "样例大学"
+    assert "可信机器学习" in enriched.research_directions
+    assert "量子计算" not in enriched.research_directions
+    assert "机器人" not in enriched.research_directions
+    assert enriched.admission_requirements == ["欢迎有机器学习基础的同学申请"]
+    assert enriched.evidence_map["admission_requirements"] == [source.source_id]
