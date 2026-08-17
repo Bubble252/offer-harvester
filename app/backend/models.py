@@ -1,0 +1,203 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
+from uuid import uuid4
+
+from pydantic import BaseModel, Field
+
+
+def new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex[:12]}"
+
+
+def now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+class StudentProfile(BaseModel):
+    profile_id: str = Field(default_factory=lambda: new_id("profile"))
+    name: str = "未命名学生"
+    education: str = ""
+    gpa: str = ""
+    rank: str = ""
+    research_interests: List[str] = Field(default_factory=list)
+    projects: List[str] = Field(default_factory=list)
+    publications: List[str] = Field(default_factory=list)
+    competitions: List[str] = Field(default_factory=list)
+    skills: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    raw_text: str = ""
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class AdvisorSourceCreate(BaseModel):
+    source_type: Literal[
+        "advisor_homepage",
+        "lab_homepage",
+        "admission_notice",
+        "publication_page",
+        "manual_text",
+        "school_profile",
+        "other",
+    ] = "advisor_homepage"
+    url: str = ""
+    manual_text: str = ""
+    title: str = ""
+    trusted: bool = True
+
+
+class AdvisorSource(BaseModel):
+    source_id: str = Field(default_factory=lambda: new_id("src"))
+    source_type: str = "advisor_homepage"
+    url: str = ""
+    title: str = ""
+    fetch_status: Literal["success", "failed", "manual"] = "manual"
+    fetched_at: str = Field(default_factory=now_iso)
+    content_hash: str = ""
+    raw_text: str = ""
+    cleaned_text: str = ""
+    language: str = "zh"
+    trusted: bool = True
+    notes: str = ""
+
+
+class AdvisorProfile(BaseModel):
+    advisor_id: str = Field(default_factory=lambda: new_id("advisor"))
+    name_zh: str = ""
+    title: str = ""
+    school: str = ""
+    college: str = ""
+    lab_name: str = ""
+    homepage_url: str = ""
+    email: str = ""
+    research_directions: List[str] = Field(default_factory=list)
+    recent_focus: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
+    recruiting_status: Literal["open", "closed", "unknown"] = "unknown"
+    student_type: List[str] = Field(default_factory=list)
+    source_ids: List[str] = Field(default_factory=list)
+    last_verified_at: str = Field(default_factory=now_iso)
+
+
+class TargetCreate(BaseModel):
+    name: str
+    target_type: Literal["advisor", "lab", "program"] = "advisor"
+    advisor_id: str = ""
+    school: str = ""
+    college: str = ""
+    program_name: str = ""
+    degree_track: Literal["master", "phd", "direct_phd", "unknown"] = "unknown"
+    application_round: Literal[
+        "summer_camp", "pre_recommendation", "final_recommendation", "other"
+    ] = "summer_camp"
+    deadline: str = ""
+    source_ids: List[str] = Field(default_factory=list)
+
+
+class Target(BaseModel):
+    target_id: str = Field(default_factory=lambda: new_id("target"))
+    name: str
+    target_type: str = "advisor"
+    advisor_id: str = ""
+    school: str = ""
+    college: str = ""
+    program_name: str = ""
+    degree_track: str = "unknown"
+    application_round: str = "summer_camp"
+    deadline: str = ""
+    contact_required: bool = True
+    materials_required: List[str] = Field(
+        default_factory=lambda: ["中文简历", "成绩单", "科研项目介绍", "个人陈述"]
+    )
+    status: str = "researching"
+    priority: Literal["high", "medium", "low"] = "medium"
+    source_ids: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class MatchReport(BaseModel):
+    match_id: str = Field(default_factory=lambda: new_id("match"))
+    profile_id: str = ""
+    target_id: str
+    fit_score: int
+    tier: Literal["strong_fit", "reasonable_fit", "weak_fit", "unknown"]
+    summary: str
+    strengths: List[Dict[str, Any]] = Field(default_factory=list)
+    gaps: List[Dict[str, Any]] = Field(default_factory=list)
+    recommended_actions: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class GeneratedMaterial(BaseModel):
+    material_id: str = Field(default_factory=lambda: new_id("mat"))
+    target_id: str
+    material_type: str
+    title: str
+    content: str
+    evidence: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ApplicationRecord(BaseModel):
+    application_id: str = Field(default_factory=lambda: new_id("app"))
+    target_id: str
+    status: str = "researching"
+    deadline: str = ""
+    last_contact_at: str = ""
+    next_action: str = ""
+    materials: List[Dict[str, Any]] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class ApplicationUpdate(BaseModel):
+    status: Optional[
+        Literal[
+            "draft",
+            "researching",
+            "ready_to_contact",
+            "contacted",
+            "replied",
+            "materials_preparing",
+            "submitted",
+            "shortlisted",
+            "interview_scheduled",
+            "interview_done",
+            "accepted",
+            "rejected",
+            "withdrawn",
+        ]
+    ] = None
+    deadline: Optional[str] = None
+    last_contact_at: Optional[str] = None
+    next_action: Optional[str] = None
+    notes: Optional[List[str]] = None
+
+
+class MaterialQualityReport(BaseModel):
+    quality_id: str = Field(default_factory=lambda: new_id("quality"))
+    material_id: str
+    target_id: str
+    passed: bool
+    checks: List[Dict[str, Any]] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] = "low"
+    created_at: str = Field(default_factory=now_iso)
+
+
+class PresentationGenerationRequest(BaseModel):
+    outline_material_id: str = ""
+
+
+class PresentationTaskRecord(BaseModel):
+    task_id: str = Field(default_factory=lambda: new_id("ppt_task"))
+    target_id: str
+    outline_material_id: str
+    status: Literal["queued", "running", "completed", "failed"] = "queued"
+    progress: int = 0
+    output_filename: str = ""
+    message: str = ""
+    error: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)

@@ -1,0 +1,13 @@
+{
+  "profile_id": "profile_sample",
+  "name": "匿名学生",
+  "education": "某大学计算机科学与技术专业",
+  "gpa": "3.85/4.00",
+  "rank": "前 10%",
+  "research_interests": ["多模态学习", "大模型应用"],
+  "projects": ["多模态论文问答系统", "科研文献检索工具"],
+  "publications": [],
+  "competitions": ["大学生创新训练计划"],
+  "skills": ["Python", "PyTorch", "信息检索", "数据分析"],
+  "risks": ["正式论文成果不足"]
+}

@@ -1,0 +1,8 @@
+{
+  "target_id": "target_sample",
+  "name": "某大学计算机学院某教授课题组",
+  "target_type": "advisor",
+  "degree_track": "direct_phd",
+  "application_round": "summer_camp",
+  "status": "researching"
+}

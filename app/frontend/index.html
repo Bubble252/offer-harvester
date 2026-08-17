@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>保研硕博申请工作台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">GA</div>
+          <div>
+            <strong>申请工作台</strong>
+            <span>保研硕博申请</span>
+          </div>
+        </div>
+        <nav class="nav-list" aria-label="工作区导航">
+          <button class="nav-item active" data-view="dashboard">概览</button>
+          <button class="nav-item" data-view="profile">学生资料</button>
+          <button class="nav-item" data-view="advisors">导师资料</button>
+          <button class="nav-item" data-view="targets">申请目标</button>
+          <button class="nav-item" data-view="materials">材料中心</button>
+          <button class="nav-item" data-view="report">进度报告</button>
+        </nav>
+        <div class="sidebar-note">
+          本地保存。请在发送材料前复核导师信息与个人经历。
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="workspace-header">
+          <div>
+            <p class="eyebrow">稳妥申请模式</p>
+            <h1 id="pageTitle">申请概览</h1>
+          </div>
+          <button class="secondary-button" id="refreshBtn">刷新数据</button>
+        </header>
+
+        <section class="view active" data-view-panel="dashboard">
+          <div class="metrics" id="metrics"></div>
+          <div class="content-grid two-columns">
+            <section class="surface">
+              <div class="section-heading">
+                <div>
+                  <h2>下一步行动</h2>
+                  <p>按申请状态安排准备工作。</p>
+                </div>
+              </div>
+              <div class="action-list" id="nextActions"></div>
+            </section>
+            <section class="surface">
+              <div class="section-heading">
+                <div>
+                  <h2>最近生成材料</h2>
+                  <p>所有内容均保留证据关联。</p>
+                </div>
+                <button class="text-button" data-view-link="materials">查看全部</button>
+              </div>
+              <div class="material-list" id="recentMaterials"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="profile">
+          <div class="content-grid split-form">
+            <section class="surface">
+              <div class="section-heading">
+                <div>
+                  <h2>建立学生画像</h2>
+                  <p>粘贴简历、成绩、科研项目、论文和竞赛信息。</p>
+                </div>
+              </div>
+              <label for="profileText">原始资料</label>
+              <textarea id="profileText" rows="18" placeholder="例如：&#10;姓名&#10;学校和专业&#10;GPA / 排名&#10;项目：问题、方法、个人贡献和结果"></textarea>
+              <div class="button-row">
+                <button id="saveProfileBtn">生成学生画像</button>
+              </div>
+            </section>
+            <section class="surface">
+              <div class="section-heading">
+                <div>
+                  <h2>已保存画像</h2>
+                  <p>字段可在下一轮补充后重新生成。</p>
+                </div>
+              </div>
+              <div class="detail-view" id="profileView"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="advisors">
+          <div class="content-grid split-form">
+            <section class="surface">
+              <div class="section-heading">
+                <div>
+                  <h2>添加真实导师资料</h2>
+                  <p>优先使用学校、学院或实验室公开页面。</p>
+                </div>
+              </div>
+              <label for="sourceType">来源类型</label>
+              <select id="sourceType">
+                <option value="advisor_homepage">导师主页</option>
+                <option value="lab_homepage">实验室主页</option>
+                <option value="admission_notice">招生通知</option>
+                <option value="publication_page">论文主页</option>
+                <option value="manual_text">手动文本</option>
+                <option value="other">其他</option>
+              </select>
+              <label for="advisorUrl">公开 URL</label>
+              <input id="advisorUrl" placeholder="https://..." />
+              <label for="advisorText">抓取失败时粘贴正文</label>
+              <textarea id="advisorText" rows="10" placeholder="粘贴导师主页、实验室主页或招生通知正文"></textarea>
+              <div class="button-row">
+                <button id="saveAdvisorBtn">保存并解析</button>
+              </div>
+            </section>
+            <section class="surface">
+              <div class="section-heading">
+                <div>
+                  <h2>导师与来源</h2>
+                  <p>解析内容必须能回溯到保存的来源。</p>
+                </div>
+              </div>
+              <div class="stack-list" id="advisorList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="targets">
+          <section class="surface">
+            <div class="section-heading">
+              <div>
+                <h2>创建申请目标</h2>
+                <p>每个导师、实验室或项目独立跟踪。</p>
+              </div>
+            </div>
+            <div class="target-form">
+              <div>
+                <label for="targetName">目标名称</label>
+                <input id="targetName" placeholder="某大学某学院某教授课题组" />
+              </div>
+              <div>
+                <label for="advisorSelect">绑定导师</label>
+                <select id="advisorSelect"></select>
+              </div>
+              <div>
+                <label for="degreeTrack">申请类型</label>
+                <select id="degreeTrack">
+                  <option value="master">硕士</option>
+                  <option value="direct_phd">直博</option>
+                  <option value="phd">博士</option>
+                  <option value="unknown">不确定</option>
+                </select>
+              </div>
+              <div>
+                <label for="applicationRound">申请轮次</label>
+                <select id="applicationRound">
+                  <option value="summer_camp">夏令营</option>
+                  <option value="pre_recommendation">预推免</option>
+                  <option value="final_recommendation">九推</option>
+                  <option value="other">其他</option>
+                </select>
+              </div>
+              <div>
+                <label for="deadline">截止日期</label>
+                <input id="deadline" type="date" />
+              </div>
+              <div class="form-submit">
+                <button id="createTargetBtn">创建目标</button>
+              </div>
+            </div>
+          </section>
+          <section class="surface table-surface">
+            <div class="section-heading">
+              <div>
+                <h2>目标池</h2>
+                <p>选择目标后可生成材料和更新状态。</p>
+              </div>
+            </div>
+            <div class="target-table" id="targetList"></div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="materials">
+          <div class="content-grid material-layout">
+            <section class="surface">
+              <div class="section-heading">
+                <div>
+                  <h2>生成申请材料</h2>
+                  <p>每次生成会附带基础证据与风险检查。</p>
+                </div>
+              </div>
+              <label for="targetSelect">当前目标</label>
+              <select id="targetSelect"></select>
+              <div class="command-list">
+                <button id="matchBtn">生成匹配分析</button>
+                <button id="emailBtn">生成套磁邮件</button>
+                <button id="questionsBtn">生成面试问题</button>
+                <button id="pptBtn">生成 PPT 大纲</button>
+                <button id="pptxBtn">生成可编辑 PPTX</button>
+              </div>
+              <div class="stack-list" id="generatedList"></div>
+              <div id="presentationTaskView"></div>
+            </section>
+            <section class="surface material-preview">
+              <div class="section-heading">
+                <div>
+                  <h2 id="materialTitle">材料预览</h2>
+                  <p id="materialMeta">选择或生成一份材料。</p>
+                </div>
+                <a class="text-button hidden" id="downloadMaterialBtn" download>下载 Markdown</a>
+              </div>
+              <pre id="materialView" class="document-view">尚未选择材料</pre>
+              <div id="qualityView"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="report">
+          <section class="surface">
+            <div class="section-heading">
+              <div>
+                <h2>申请进度报告</h2>
+                <p>基于已保存数据汇总，不包含录取预测。</p>
+              </div>
+              <button id="generateReportBtn">生成报告</button>
+            </div>
+            <pre id="reportView" class="document-view">尚未生成报告</pre>
+          </section>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
