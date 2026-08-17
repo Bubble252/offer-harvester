@@ -267,7 +267,8 @@ Local Workspace Storage
 LLM 增强解析作为 Agent 能力的一部分接入，但不能替代证据链：
 
 - 默认先执行规则解析，保证无 API key 时也能工作
-- 配置 `OPENAI_API_KEY` 和 `OPENAI_MODEL` 后，使用 GPT-5.5 / OpenAI-compatible Chat Completions 增强导师字段抽取
+- 配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 和 `OPENAI_WIRE_API` 后，使用 GPT-5.5 / OpenAI-compatible API 增强导师字段抽取
+- 当前 `cc-switch` 中的 GPT-5.5 Codex provider 使用 `OPENAI_BASE_URL=https://www.aikeys.one` 和 `OPENAI_WIRE_API=responses`
 - LLM 只从已抓取或用户粘贴的原文中抽取，不允许补写未知字段
 - LLM 输出必须是结构化 JSON，关键列表字段需要包含 `value`、`evidence` 和 `confidence`
 - 系统只合并有证据句且置信度达到阈值的字段

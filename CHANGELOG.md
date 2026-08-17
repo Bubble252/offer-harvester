@@ -13,3 +13,4 @@
   mapping, multi-source profile updates, and one-click target creation.
 - Optional LLM-enhanced advisor extraction through local environment variables,
   with rule-based fallback, evidence-gated merging, and secret redaction.
+- Responses API support for the GPT-5.5 provider configured in cc-switch.

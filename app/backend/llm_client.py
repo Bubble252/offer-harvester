@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import re
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -35,39 +35,85 @@ def llm_configured() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_MODEL"))
 
 
-def chat_completion_json(messages: List[Dict[str, str]], timeout: int = 45) -> Dict[str, Any]:
+def api_endpoint(base_url: str, path: str) -> str:
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        return base + path
+    return base + "/v1" + path
+
+
+def request_json(endpoint: str, payload: Dict[str, Any], api_key: str, timeout: int) -> Dict[str, Any]:
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = redact_secret(exc.read().decode("utf-8", errors="ignore")[:500])
+        raise RuntimeError(f"LLM request failed: HTTP {exc.code} {body}") from exc
+
+
+def parse_json_text(content: str) -> Dict[str, Any]:
+    content = content.strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?", "", content).strip()
+        content = re.sub(r"```$", "", content).strip()
+    return json.loads(content)
+
+
+def response_output_text(data: Dict[str, Any]) -> str:
+    if isinstance(data.get("output_text"), str):
+        return data["output_text"]
+    parts = []
+    for item in data.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") in {"output_text", "text"}:
+                parts.append(content.get("text", ""))
+    if parts:
+        return "\n".join(parts)
+    return data["choices"][0]["message"]["content"]
+
+
+def llm_json(messages: List[Dict[str, str]], timeout: int = 45) -> Dict[str, Any]:
     load_local_env()
     api_key = os.environ.get("OPENAI_API_KEY", "")
     model = os.environ.get("OPENAI_MODEL", "")
     base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+    wire_api = (os.environ.get("OPENAI_WIRE_API") or "chat").lower()
     if not api_key or not model:
         raise RuntimeError("LLM is not configured")
 
-    endpoint = base_url.rstrip("/") + "/chat/completions"
+    if wire_api == "responses":
+        endpoint = api_endpoint(base_url, "/responses")
+        instructions = "\n".join(message["content"] for message in messages if message["role"] == "system")
+        user_input = "\n\n".join(message["content"] for message in messages if message["role"] != "system")
+        payload = {
+            "model": model,
+            "instructions": instructions,
+            "input": user_input,
+            "temperature": 0.1,
+            "text": {"format": {"type": "json_object"}},
+        }
+        data = request_json(endpoint, payload, api_key, timeout)
+        return parse_json_text(response_output_text(data))
+
+    endpoint = api_endpoint(base_url, "/chat/completions")
     payload = {
         "model": model,
         "messages": messages,
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
     }
-    request = urllib.request.Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = redact_secret(exc.read().decode("utf-8", errors="ignore")[:500])
-        raise RuntimeError(f"LLM request failed: HTTP {exc.code} {body}") from exc
-
+    data = request_json(endpoint, payload, api_key, timeout)
     content = data["choices"][0]["message"]["content"]
-    return json.loads(content)
+    return parse_json_text(content)
 
 
 def extract_advisor_profile_with_llm(source_text: str) -> Optional[Dict[str, Any]]:
@@ -105,4 +151,4 @@ def extract_advisor_profile_with_llm(source_text: str) -> Optional[Dict[str, Any
             ),
         },
     ]
-    return chat_completion_json(messages)
+    return llm_json(messages)
