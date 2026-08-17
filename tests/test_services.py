@@ -160,3 +160,32 @@ def test_llm_advisor_merge_requires_evidence_for_list_fields():
     assert "机器人" not in enriched.research_directions
     assert enriched.admission_requirements == ["欢迎有机器学习基础的同学申请"]
     assert enriched.evidence_map["admission_requirements"] == [source.source_id]
+
+
+def test_updated_advisor_fields_can_feed_target_creation():
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="周八教授，研究方向包括多模态学习。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    advisor.school = "修正大学"
+    advisor.college = "人工智能学院"
+    advisor.lab_name = "可信智能实验室"
+    advisor.research_directions = ["多模态学习", "可信 AI"]
+    advisor.identity_confirmed = True
+
+    target = Target(
+        name=f"{advisor.school} {advisor.college} {advisor.name_zh} 课题组",
+        advisor_id=advisor.advisor_id,
+        school=advisor.school,
+        college=advisor.college,
+        program_name=advisor.lab_name,
+        source_ids=advisor.source_ids,
+    )
+
+    assert target.school == "修正大学"
+    assert target.college == "人工智能学院"
+    assert target.program_name == "可信智能实验室"
+    assert source.source_id in target.source_ids

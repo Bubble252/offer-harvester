@@ -300,7 +300,7 @@ GET  /api/report
 - [x] 验证真实 GPT-5.5 API 能增强导师字段解析
   - 2026-08-17：已确认 `cc-switch` 当前 Codex provider 使用 `OPENAI_BASE_URL=https://www.aikeys.one`、`OPENAI_WIRE_API=responses`、`OPENAI_MODEL=gpt-5.5`
   - 2026-08-17：已用导师样例完成真实调用，LLM 增强结果能合并研究方向和招生要求；失败时仍保留规则解析回退
-- [ ] 增加导师画像人工编辑保存接口
+- [x] 增加导师画像人工编辑保存接口
 - [ ] 增加真实网页抓取的端到端样例验证
 - [ ] 按 `feat/advisor-intake` 分支和 `feat(advisor): 打通导师信息采集与目标创建` commit 规范提交
 

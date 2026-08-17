@@ -75,6 +75,17 @@ function tagList(values) {
   return `<div class="tag-row">${values.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}</div>`;
 }
 
+function listToText(values) {
+  return (values || []).join("\n");
+}
+
+function textToList(value) {
+  return String(value || "")
+    .split(/\n|；|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function showView(view) {
   document.querySelectorAll("[data-view-panel]").forEach((node) => {
     node.classList.toggle("active", node.dataset.viewPanel === view);
@@ -183,11 +194,39 @@ function renderAdvisors() {
       ${risks.length ? `<div class="risk-line">${escapeHtml(risks.join("；"))}</div>` : ""}
       <div class="button-row compact-actions">
         ${source ? `<button data-source-id="${escapeHtml(source.source_id)}">查看来源正文</button>` : ""}
+        <button data-edit-advisor-id="${escapeHtml(advisor.advisor_id)}">编辑导师画像</button>
         <button data-create-target-advisor-id="${escapeHtml(advisor.advisor_id)}">创建申请目标</button>
       </div>
     </div>`;
   });
   $("advisorList").innerHTML = items.length ? items.join("") : "<div class='empty-state'>尚未保存导师资料。</div>";
+}
+
+function showAdvisorEditor(advisorId) {
+  const advisor = state.advisors.find((item) => item.advisor_id === advisorId);
+  if (!advisor) return toast("未找到导师画像");
+  $("editAdvisorId").value = advisor.advisor_id;
+  $("editNameZh").value = advisor.name_zh || "";
+  $("editNameEn").value = advisor.name_en || "";
+  $("editTitle").value = advisor.title || "";
+  $("editEmail").value = advisor.email || "";
+  $("editSchool").value = advisor.school || "";
+  $("editCollege").value = advisor.college || advisor.department || "";
+  $("editLabName").value = advisor.lab_name || "";
+  $("editRecruitingStatus").value = advisor.recruiting_status || "unknown";
+  $("editResearchDirections").value = listToText(advisor.research_directions);
+  $("editAdmissionRequirements").value = listToText(advisor.admission_requirements);
+  $("editPreferredStudentProfile").value = listToText(advisor.preferred_student_profile);
+  $("editRepresentativePapers").value = listToText(advisor.representative_papers);
+  $("editResearchProjects").value = listToText(advisor.research_projects);
+  $("editRiskNotes").value = listToText(advisor.risk_notes);
+  $("editIdentityConfirmed").checked = Boolean(advisor.identity_confirmed);
+  $("advisorEditor").classList.remove("hidden");
+}
+
+function hideAdvisorEditor() {
+  $("editAdvisorId").value = "";
+  $("advisorEditor").classList.add("hidden");
 }
 
 function renderTargets() {
@@ -338,6 +377,40 @@ async function createTarget() {
   await refresh();
 }
 
+async function saveAdvisorEdit() {
+  const advisorId = $("editAdvisorId").value;
+  if (!advisorId) return toast("请先选择导师画像");
+  const directions = textToList($("editResearchDirections").value);
+  const payload = {
+    name_zh: $("editNameZh").value.trim(),
+    name_en: $("editNameEn").value.trim(),
+    title: $("editTitle").value.trim(),
+    email: $("editEmail").value.trim(),
+    school: $("editSchool").value.trim(),
+    college: $("editCollege").value.trim(),
+    department: $("editCollege").value.trim(),
+    lab_name: $("editLabName").value.trim(),
+    recruiting_status: $("editRecruitingStatus").value,
+    research_directions: directions,
+    recent_focus: directions.slice(0, 3),
+    keywords: directions,
+    admission_requirements: textToList($("editAdmissionRequirements").value),
+    preferred_student_profile: textToList($("editPreferredStudentProfile").value),
+    representative_papers: textToList($("editRepresentativePapers").value),
+    research_projects: textToList($("editResearchProjects").value),
+    risk_notes: textToList($("editRiskNotes").value),
+    identity_confirmed: $("editIdentityConfirmed").checked,
+  };
+  try {
+    await api(`/api/advisors/${advisorId}`, { method: "PUT", body: JSON.stringify(payload) });
+    toast("导师画像已保存");
+    hideAdvisorEditor();
+    await refresh();
+  } catch (error) {
+    toast(`导师画像保存失败：${error.message}`);
+  }
+}
+
 async function createTargetFromAdvisor(advisorId) {
   try {
     const result = await api(`/api/advisors/${advisorId}/target`, {
@@ -464,10 +537,14 @@ $("pptBtn").addEventListener("click", () => generate("materials/ppt-outline", "P
 $("pptxBtn").addEventListener("click", generatePptx);
 $("generateReportBtn").addEventListener("click", generateReport);
 $("targetSelect").addEventListener("change", renderGeneratedMaterials);
+$("saveAdvisorEditBtn").addEventListener("click", saveAdvisorEdit);
+$("cancelAdvisorEditBtn").addEventListener("click", hideAdvisorEditor);
 
 $("advisorList").addEventListener("click", (event) => {
   const sourceId = event.target.dataset.sourceId;
   if (sourceId) showSource(sourceId);
+  const editAdvisorId = event.target.dataset.editAdvisorId;
+  if (editAdvisorId) showAdvisorEditor(editAdvisorId);
   const advisorId = event.target.dataset.createTargetAdvisorId;
   if (advisorId) createTargetFromAdvisor(advisorId);
 });

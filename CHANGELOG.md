@@ -14,3 +14,5 @@
 - Optional LLM-enhanced advisor extraction through local environment variables,
   with rule-based fallback, evidence-gated merging, and secret redaction.
 - Responses API support for the GPT-5.5 provider configured in cc-switch.
+- Advisor profile editing in the Web UI, backed by a `PUT /api/advisors/{id}`
+  endpoint so manually corrected fields feed target creation and materials.

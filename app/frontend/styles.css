@@ -393,6 +393,22 @@ h2 {
   font-size: 13px;
 }
 
+.advisor-editor {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.advisor-editor h3 {
+  font-size: 15px;
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
 .risk-line {
   margin-top: 8px;
   color: var(--amber);
@@ -499,6 +515,10 @@ h2 {
 
   .target-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .editor-grid {
+    grid-template-columns: 1fr;
   }
 
   .target-row {

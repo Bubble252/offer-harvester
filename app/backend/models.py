@@ -97,6 +97,35 @@ class AdvisorProfile(BaseModel):
     last_verified_at: str = Field(default_factory=now_iso)
 
 
+class AdvisorProfileUpdate(BaseModel):
+    name_zh: Optional[str] = None
+    name_en: Optional[str] = None
+    title: Optional[str] = None
+    school: Optional[str] = None
+    college: Optional[str] = None
+    department: Optional[str] = None
+    lab_name: Optional[str] = None
+    homepage_url: Optional[str] = None
+    lab_url: Optional[str] = None
+    scholar_url: Optional[str] = None
+    dblp_url: Optional[str] = None
+    email: Optional[str] = None
+    education: Optional[str] = None
+    career: Optional[List[str]] = None
+    honors: Optional[List[str]] = None
+    research_directions: Optional[List[str]] = None
+    representative_papers: Optional[List[str]] = None
+    research_projects: Optional[List[str]] = None
+    recent_focus: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    recruiting_status: Optional[Literal["open", "closed", "unknown"]] = None
+    student_type: Optional[List[str]] = None
+    admission_requirements: Optional[List[str]] = None
+    preferred_student_profile: Optional[List[str]] = None
+    risk_notes: Optional[List[str]] = None
+    identity_confirmed: Optional[bool] = None
+
+
 class TargetCreate(BaseModel):
     name: str = ""
     target_type: Literal["advisor", "lab", "program"] = "advisor"

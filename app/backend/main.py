@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from models import (
     AdvisorTargetCreate,
     AdvisorProfile,
+    AdvisorProfileUpdate,
     AdvisorSource,
     AdvisorSourceCreate,
     ApplicationRecord,
@@ -191,6 +192,22 @@ def list_advisors():
 @app.get("/api/advisors/{advisor_id}")
 def get_advisor(advisor_id: str):
     return get_advisor_or_404(advisor_id)
+
+
+@app.put("/api/advisors/{advisor_id}")
+def update_advisor(advisor_id: str, updates: AdvisorProfileUpdate):
+    advisor = get_advisor_or_404(advisor_id)
+    data = dump(advisor)
+    changes = {key: value for key, value in dump(updates).items() if value is not None}
+    if "source_ids" in changes or "advisor_id" in changes:
+        raise HTTPException(status_code=400, detail="Advisor identity fields cannot be replaced")
+    data.update(changes)
+    data["last_verified_at"] = now_iso()
+    if data.get("research_directions") and not data.get("keywords"):
+        data["keywords"] = data["research_directions"]
+    advisor = AdvisorProfile(**data)
+    workspace.write("advisors", dump(advisor), "advisor_id")
+    return advisor
 
 
 @app.post("/api/advisors/{advisor_id}/target")
