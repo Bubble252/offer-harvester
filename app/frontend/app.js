@@ -143,13 +143,19 @@ function renderAdvisorOptions() {
   const select = $("advisorSelect");
   const current = select.value;
   select.innerHTML = "<option value=''>不绑定导师</option>";
+  const attachSelect = $("advisorAttachSelect");
+  const attachCurrent = attachSelect.value;
+  attachSelect.innerHTML = "<option value=''>创建新导师画像</option>";
   state.advisors.forEach((advisor) => {
     const option = document.createElement("option");
     option.value = advisor.advisor_id;
     option.textContent = advisor.name_zh || advisor.homepage_url || advisor.advisor_id;
     select.appendChild(option);
+    const attachOption = option.cloneNode(true);
+    attachSelect.appendChild(attachOption);
   });
   select.value = state.advisors.some((advisor) => advisor.advisor_id === current) ? current : "";
+  attachSelect.value = state.advisors.some((advisor) => advisor.advisor_id === attachCurrent) ? attachCurrent : "";
 }
 
 function renderAdvisors() {
@@ -159,11 +165,26 @@ function renderAdvisors() {
     const sourceText = source
       ? `${source.source_type} · ${source.fetch_status}${source.url ? ` · ${source.url}` : ""}`
       : "来源待补充";
+    const evidenceCount = advisor.source_ids ? advisor.source_ids.length : 0;
+    const risks = advisor.risk_notes && advisor.risk_notes.length ? advisor.risk_notes : [];
+    const requirements = advisor.admission_requirements && advisor.admission_requirements.length
+      ? advisor.admission_requirements.slice(0, 2).join("；")
+      : "招生要求待补充";
     return `<div class="list-item">
       <div class="item-title">${escapeHtml(advisor.name_zh || "未识别姓名")} ${escapeHtml(advisor.title)}</div>
       <div class="item-meta">${escapeHtml(sourceText)}</div>
-      <div class="tag-row">${tagList(advisor.research_directions)}</div>
-      ${source ? `<button data-source-id="${escapeHtml(source.source_id)}">查看来源正文</button>` : ""}
+      <div class="advisor-grid">
+        <div><span class="detail-label">机构</span>${escapeHtml([advisor.school, advisor.college || advisor.department].filter(Boolean).join(" · ") || "待补充")}</div>
+        <div><span class="detail-label">实验室</span>${escapeHtml(advisor.lab_name || "待补充")}</div>
+        <div><span class="detail-label">招生</span>${escapeHtml(`${advisor.recruiting_status || "unknown"} · ${requirements}`)}</div>
+        <div><span class="detail-label">证据</span>${evidenceCount} 条来源 · ${advisor.identity_confirmed ? "身份信息较完整" : "身份需复核"}</div>
+      </div>
+      ${tagList(advisor.research_directions)}
+      ${risks.length ? `<div class="risk-line">${escapeHtml(risks.join("；"))}</div>` : ""}
+      <div class="button-row compact-actions">
+        ${source ? `<button data-source-id="${escapeHtml(source.source_id)}">查看来源正文</button>` : ""}
+        <button data-create-target-advisor-id="${escapeHtml(advisor.advisor_id)}">创建申请目标</button>
+      </div>
     </div>`;
   });
   $("advisorList").innerHTML = items.length ? items.join("") : "<div class='empty-state'>尚未保存导师资料。</div>";
@@ -276,16 +297,18 @@ async function saveProfile() {
 
 async function saveAdvisor() {
   const payload = {
+    advisor_id: $("advisorAttachSelect").value,
     source_type: $("sourceType").value,
     url: $("advisorUrl").value.trim(),
     manual_text: $("advisorText").value.trim(),
-    trusted: true,
+    trusted: $("sourceTrusted").checked,
   };
   if (!payload.url && !payload.manual_text) return toast("请提供公开 URL 或粘贴正文");
   try {
     const result = await api("/api/advisor-sources", { method: "POST", body: JSON.stringify(payload) });
     $("advisorUrl").value = "";
     $("advisorText").value = "";
+    $("advisorAttachSelect").value = result.advisor.advisor_id;
     toast(result.source.fetch_status === "success" ? "导师资料已抓取并解析" : "已保存手动资料或抓取失败兜底");
     await refresh();
   } catch (error) {
@@ -313,6 +336,27 @@ async function createTarget() {
   $("deadline").value = "";
   toast("申请目标已创建");
   await refresh();
+}
+
+async function createTargetFromAdvisor(advisorId) {
+  try {
+    const result = await api(`/api/advisors/${advisorId}/target`, {
+      method: "POST",
+      body: JSON.stringify({
+        degree_track: $("degreeTrack").value,
+        application_round: $("applicationRound").value,
+        deadline: $("deadline").value,
+        priority: "medium",
+      }),
+    });
+    toast("已从导师画像创建申请目标");
+    await refresh();
+    $("targetSelect").value = result.target.target_id;
+    renderGeneratedMaterials();
+    showView("targets");
+  } catch (error) {
+    toast(`创建申请目标失败：${error.message}`);
+  }
 }
 
 function currentTargetId() {
@@ -424,6 +468,8 @@ $("targetSelect").addEventListener("change", renderGeneratedMaterials);
 $("advisorList").addEventListener("click", (event) => {
   const sourceId = event.target.dataset.sourceId;
   if (sourceId) showSource(sourceId);
+  const advisorId = event.target.dataset.createTargetAdvisorId;
+  if (advisorId) createTargetFromAdvisor(advisorId);
 });
 $("targetList").addEventListener("click", (event) => {
   const targetId = event.target.dataset.targetId;

@@ -105,13 +105,20 @@
                 <option value="lab_homepage">实验室主页</option>
                 <option value="admission_notice">招生通知</option>
                 <option value="publication_page">论文主页</option>
+                <option value="school_profile">学校教师主页</option>
                 <option value="manual_text">手动文本</option>
                 <option value="other">其他</option>
               </select>
+              <label for="advisorAttachSelect">追加到已有导师</label>
+              <select id="advisorAttachSelect"></select>
               <label for="advisorUrl">公开 URL</label>
               <input id="advisorUrl" placeholder="https://..." />
               <label for="advisorText">抓取失败时粘贴正文</label>
               <textarea id="advisorText" rows="10" placeholder="粘贴导师主页、实验室主页或招生通知正文"></textarea>
+              <label class="checkbox-row">
+                <input id="sourceTrusted" type="checkbox" checked />
+                <span>标记为可信公开来源</span>
+              </label>
               <div class="button-row">
                 <button id="saveAdvisorBtn">保存并解析</button>
               </div>

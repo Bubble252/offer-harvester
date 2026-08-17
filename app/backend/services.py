@@ -56,6 +56,25 @@ def split_terms(text: str) -> List[str]:
     return [item.strip() for item in candidates if len(item.strip()) >= 2]
 
 
+def pick_lines(text: str, tokens: List[str], limit: int = 5) -> List[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    hits = []
+    for line in lines:
+        if any(token in line for token in tokens) and line not in hits:
+            hits.append(line[:180])
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def first_match(text: str, patterns: List[str]) -> str:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
 def keyword_hits(text: str, keywords: List[str]) -> List[str]:
     return [kw for kw in keywords if kw and kw.lower() in text.lower()]
 
@@ -146,6 +165,7 @@ def create_advisor_source(payload: AdvisorSourceCreate) -> AdvisorSource:
     cleaned_text = normalize_text(raw_text)
     fetch_status = "manual"
     title = payload.title
+    fetch_error = ""
     if payload.url:
         try:
             raw, cleaned = fetch_url_text(payload.url)
@@ -154,6 +174,7 @@ def create_advisor_source(payload: AdvisorSourceCreate) -> AdvisorSource:
             fetch_status = "success"
             title = title or payload.url
         except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            fetch_error = str(exc)
             fetch_status = "failed" if not raw_text else "manual"
             cleaned_text = cleaned_text or f"URL 抓取失败：{exc}"
     return AdvisorSource(
@@ -169,6 +190,7 @@ def create_advisor_source(payload: AdvisorSourceCreate) -> AdvisorSource:
         raw_text=raw_text,
         cleaned_text=cleaned_text,
         trusted=payload.trusted,
+        fetch_error=fetch_error,
     )
 
 
@@ -190,20 +212,75 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
     name = ""
     title = ""
     for token in split_terms(text[:500]):
-        match = re.search(r"([\u4e00-\u9fa5]{2,4})(教授|副教授|研究员|讲师)", token)
+        match = re.search(r"([\u4e00-\u9fa5]{2,4}?)(副教授|助理教授|教授|研究员|讲师)", token)
         if match:
             name, title = match.group(1), match.group(2)
             break
+    if not title:
+        title = first_match(text, [r"(副教授|助理教授|教授|研究员|讲师|博士生导师|硕士生导师)"])
+    school = first_match(text, [r"([\u4e00-\u9fa5A-Za-z]+大学)", r"([\u4e00-\u9fa5A-Za-z]+研究院)"])
+    college = first_match(text, [r"([\u4e00-\u9fa5A-Za-z]+学院)", r"([\u4e00-\u9fa5A-Za-z]+系)"])
+    if school and college.startswith(school):
+        college = college[len(school) :]
+    lab_name = first_match(text, [r"([\u4e00-\u9fa5A-Za-z0-9]+实验室)", r"([\u4e00-\u9fa5A-Za-z0-9]+课题组)"])
+    for prefix in [school + college, school, college]:
+        if prefix and lab_name.startswith(prefix):
+            lab_name = lab_name[len(prefix) :]
+    name_en = first_match(text, [r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b"])
+    recruiting_status = "unknown"
+    if any(token in text for token in ["招收", "招生", "欢迎报考", "欢迎申请", "接收推免"]):
+        recruiting_status = "open"
+    if any(token in text for token in ["暂不招生", "停止招生", "名额已满"]):
+        recruiting_status = "closed"
+    representative_papers = pick_lines(text, ["论文", "paper", "arXiv", "会议", "期刊", "发表"], 5)
+    research_projects = pick_lines(text, ["项目", "课题", "基金", "NSFC", "重点研发"], 5)
+    admission_requirements = pick_lines(text, ["招生", "招收", "要求", "推免", "硕士", "博士", "直博"], 6)
+    preferred_student_profile = pick_lines(text, ["欢迎", "希望", "要求", "基础", "能力", "编程", "数学"], 5)
+    risk_notes = []
+    if not sources:
+        risk_notes.append("缺少导师来源")
+    if sources and not any(source.trusted for source in sources):
+        risk_notes.append("当前来源均未标记为可信")
+    if not directions:
+        risk_notes.append("未识别到明确研究方向")
+    if not email_match:
+        risk_notes.append("未识别到公开邮箱")
+    source_ids = [source.source_id for source in sources]
+    evidence_map = {
+        "identity": source_ids if name or title or school or college else [],
+        "research_directions": source_ids if directions else [],
+        "recruiting": source_ids if recruiting_status != "unknown" or admission_requirements else [],
+        "contact": source_ids if email_match else [],
+        "papers": source_ids if representative_papers else [],
+        "projects": source_ids if research_projects else [],
+        "risks": source_ids if risk_notes else [],
+    }
     return AdvisorProfile(
         name_zh=name,
+        name_en=name_en,
         title=title,
+        school=school,
+        college=college,
+        department=college,
+        lab_name=lab_name,
         homepage_url=url,
+        lab_url=next((source.url for source in sources if source.source_type == "lab_homepage"), ""),
+        scholar_url=next((source.url for source in sources if "scholar.google" in source.url), ""),
+        dblp_url=next((source.url for source in sources if "dblp" in source.url), ""),
         email=email_match.group(0) if email_match else "",
         research_directions=directions,
+        representative_papers=representative_papers,
+        research_projects=research_projects,
         recent_focus=directions[:3],
         keywords=directions,
+        recruiting_status=recruiting_status,
         student_type=student_type,
-        source_ids=[source.source_id for source in sources],
+        admission_requirements=admission_requirements,
+        preferred_student_profile=preferred_student_profile,
+        risk_notes=risk_notes,
+        identity_confirmed=bool(name and (school or college or url)),
+        source_ids=source_ids,
+        evidence_map=evidence_map,
     )
 
 

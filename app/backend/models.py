@@ -32,6 +32,7 @@ class StudentProfile(BaseModel):
 
 
 class AdvisorSourceCreate(BaseModel):
+    advisor_id: str = ""
     source_type: Literal[
         "advisor_homepage",
         "lab_homepage",
@@ -59,29 +60,45 @@ class AdvisorSource(BaseModel):
     cleaned_text: str = ""
     language: str = "zh"
     trusted: bool = True
+    fetch_error: str = ""
     notes: str = ""
 
 
 class AdvisorProfile(BaseModel):
     advisor_id: str = Field(default_factory=lambda: new_id("advisor"))
     name_zh: str = ""
+    name_en: str = ""
     title: str = ""
     school: str = ""
     college: str = ""
+    department: str = ""
     lab_name: str = ""
     homepage_url: str = ""
+    lab_url: str = ""
+    scholar_url: str = ""
+    dblp_url: str = ""
     email: str = ""
+    education: str = ""
+    career: List[str] = Field(default_factory=list)
+    honors: List[str] = Field(default_factory=list)
     research_directions: List[str] = Field(default_factory=list)
+    representative_papers: List[str] = Field(default_factory=list)
+    research_projects: List[str] = Field(default_factory=list)
     recent_focus: List[str] = Field(default_factory=list)
     keywords: List[str] = Field(default_factory=list)
     recruiting_status: Literal["open", "closed", "unknown"] = "unknown"
     student_type: List[str] = Field(default_factory=list)
+    admission_requirements: List[str] = Field(default_factory=list)
+    preferred_student_profile: List[str] = Field(default_factory=list)
+    risk_notes: List[str] = Field(default_factory=list)
+    identity_confirmed: bool = False
     source_ids: List[str] = Field(default_factory=list)
+    evidence_map: Dict[str, List[str]] = Field(default_factory=dict)
     last_verified_at: str = Field(default_factory=now_iso)
 
 
 class TargetCreate(BaseModel):
-    name: str
+    name: str = ""
     target_type: Literal["advisor", "lab", "program"] = "advisor"
     advisor_id: str = ""
     school: str = ""
@@ -93,6 +110,17 @@ class TargetCreate(BaseModel):
     ] = "summer_camp"
     deadline: str = ""
     source_ids: List[str] = Field(default_factory=list)
+
+
+class AdvisorTargetCreate(BaseModel):
+    name: str = ""
+    degree_track: Literal["master", "phd", "direct_phd", "unknown"] = "unknown"
+    application_round: Literal[
+        "summer_camp", "pre_recommendation", "final_recommendation", "other"
+    ] = "summer_camp"
+    deadline: str = ""
+    priority: Literal["high", "medium", "low"] = "medium"
+    next_action: str = ""
 
 
 class Target(BaseModel):

@@ -14,7 +14,9 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from models import (
+    AdvisorTargetCreate,
     AdvisorProfile,
+    AdvisorSource,
     AdvisorSourceCreate,
     ApplicationRecord,
     ApplicationUpdate,
@@ -80,6 +82,13 @@ def advisor_for_target(target: Target) -> Optional[AdvisorProfile]:
     return AdvisorProfile(**item) if item else None
 
 
+def get_advisor_or_404(advisor_id: str) -> AdvisorProfile:
+    item = workspace.read("advisors", advisor_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Advisor not found")
+    return AdvisorProfile(**item)
+
+
 def latest_match(target_id: str):
     matches = [item for item in workspace.list("matches") if item["target_id"] == target_id]
     return MatchReport(**matches[-1]) if matches else None
@@ -140,7 +149,17 @@ def update_profile(profile: StudentProfile):
 def create_source(payload: AdvisorSourceCreate):
     source = create_advisor_source(payload)
     workspace.write("advisor_sources", dump(source), "source_id")
-    advisor = parse_advisor_profile([source])
+    sources = [source]
+    advisor_id = payload.advisor_id
+    if advisor_id:
+        existing = get_advisor_or_404(advisor_id)
+        for source_id in existing.source_ids:
+            item = workspace.read("advisor_sources", source_id)
+            if item:
+                sources.append(AdvisorSource(**item))
+    advisor = parse_advisor_profile(sources)
+    if advisor_id:
+        advisor.advisor_id = advisor_id
     workspace.write("advisors", dump(advisor), "advisor_id")
     return {"source": source, "advisor": advisor}
 
@@ -163,8 +182,47 @@ def list_advisors():
     return workspace.list("advisors")
 
 
+@app.get("/api/advisors/{advisor_id}")
+def get_advisor(advisor_id: str):
+    return get_advisor_or_404(advisor_id)
+
+
+@app.post("/api/advisors/{advisor_id}/target")
+def create_target_from_advisor(advisor_id: str, payload: AdvisorTargetCreate):
+    advisor = get_advisor_or_404(advisor_id)
+    display_name = advisor.name_zh or advisor.name_en or "未命名导师"
+    target_name = payload.name or " ".join(
+        item
+        for item in [advisor.school, advisor.college, display_name, "课题组"]
+        if item
+    )
+    if not target_name.strip():
+        raise HTTPException(status_code=400, detail="Advisor profile is too sparse")
+    target = Target(
+        name=target_name,
+        target_type="advisor",
+        advisor_id=advisor.advisor_id,
+        school=advisor.school,
+        college=advisor.college or advisor.department,
+        program_name=advisor.lab_name,
+        degree_track=payload.degree_track,
+        application_round=payload.application_round,
+        deadline=payload.deadline,
+        priority=payload.priority,
+        source_ids=advisor.source_ids,
+    )
+    workspace.write("targets", dump(target), "target_id")
+    next_action = payload.next_action or "复核导师来源证据，并准备一页科研项目摘要"
+    app_record = ensure_application(target)
+    app_record.next_action = next_action
+    workspace.write("applications", dump(app_record), "application_id")
+    return {"target": target, "application": app_record}
+
+
 @app.post("/api/targets")
 def create_target(payload: TargetCreate):
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Target name is required")
     target = Target(**dump(payload))
     workspace.write("targets", dump(target), "target_id")
     app_record = ensure_application(target)

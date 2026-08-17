@@ -4,9 +4,9 @@
   --ink: #15202b;
   --muted: #637381;
   --line: #dbe3e8;
-  --blue: #1769aa;
-  --blue-dark: #0f548c;
-  --teal: #087f79;
+  --blue: #6d4aff;
+  --blue-dark: #5634d9;
+  --teal: #6f42c1;
   --amber: #9a6700;
   --red: #b42318;
   --nav: #152632;
@@ -67,6 +67,17 @@ textarea {
   line-height: 1.5;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
 label {
   display: block;
   margin: 14px 0 6px;
@@ -118,7 +129,7 @@ h2 {
   height: 34px;
   place-items: center;
   border-radius: 6px;
-  background: #2c91b9;
+  background: #7c5cff;
   font-size: 12px;
   font-weight: 800;
 }
@@ -150,7 +161,7 @@ h2 {
 .nav-item:hover,
 .nav-item.active {
   color: #fff;
-  background: #234052;
+  background: #3a315c;
 }
 
 .sidebar-note {
@@ -369,9 +380,28 @@ h2 {
 .tag {
   padding: 3px 7px;
   border-radius: 4px;
-  background: #e8f3f8;
-  color: #17627d;
+  background: #efeafd;
+  color: #5634a3;
   font-size: 12px;
+}
+
+.advisor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 14px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.risk-line {
+  margin-top: 8px;
+  color: var(--amber);
+  font-size: 13px;
+}
+
+.compact-actions {
+  justify-content: flex-start;
+  margin-top: 10px;
 }
 
 .list-item,
