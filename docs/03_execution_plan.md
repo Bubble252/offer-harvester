@@ -877,7 +877,7 @@ git push -u origin feat/agent-review-workflow
 - [x] 生成面试展示 PPT
 - [x] 生成模拟面试题
 - [x] 生成申请状态 Dashboard
-- [ ] 录制 Demo 或截图
+- [x] 录制 Demo 或截图
 
 最终演示路径：
 
@@ -889,6 +889,19 @@ git push -u origin feat/agent-review-workflow
 -> 生成面试 PPT
 -> 查看模拟面试题
 -> 更新申请状态
+```
+
+已完成截图：
+
+```text
+docs/assets/demo/01-dashboard.png
+docs/assets/demo/02-profile-evidence.png
+docs/assets/demo/03-advisor-sources.png
+docs/assets/demo/04-target-tracker.png
+docs/assets/demo/05-match-report.png
+docs/assets/demo/06-material-quality.png
+docs/assets/demo/07-pptx-download.png
+docs/assets/demo/08-progress-report.png
 ```
 
 ## 阶段 10：工程规范与开源安全守卫
@@ -986,7 +999,7 @@ git push -u origin feat/presentation-engine-adapter
 - [x] 最终代码框架不允许出现借鉴项目复制体，代码命名也避免直接使用原项目名
 - [x] 第一版不把强化学习放进 MVP
 - [x] 需要规划 MVP 之后的强化学习接入
-- [ ] 是否需要做简历项目展示用的视频或截图？
+- [x] 是否需要做简历项目展示用的视频或截图？
 - [x] 可复用 skill 从一开始采用 portable 结构，优先放在 `.agents/skills/grad-apply-workflow/`
 - [x] 第一阶段不提供 `.codex/skills/` 或 `.claude/commands/` 薄指针入口，后续按需要再加
 - [x] Agent 工作流第一优先级确定为“套磁邮件 drafter-reviewer-auditor”
@@ -997,14 +1010,8 @@ git push -u origin feat/presentation-engine-adapter
 
 ## 当前建议
 
-当前已经完成工程守卫、portable skill 主目录、用户原始资料落盘、字段级证据、字段级确认状态、套磁邮件 `MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent` 主链路、独立质量检查模块，以及 `AdvisorExtractionAgent -> MatchAnalysisAgent` 第二条 Agent 链路。
+当前已经完成工程守卫、portable skill 主目录、用户原始资料落盘、字段级证据、字段级确认状态、套磁邮件 `MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent` 主链路、独立质量检查模块、`AdvisorExtractionAgent -> MatchAnalysisAgent` 第二条 Agent 链路，以及阶段 9 演示截图。
 
-建议下一步完成阶段 9 的展示素材：
-
-```text
-打开 `WORKSPACE_DIR=workspace.demo` 的本地服务
--> 检查 Dashboard、学生画像、导师来源、匹配报告、材料中心和 PPTX 下载
--> 录制 2-3 分钟 Demo 或截取核心页面图片
-```
+建议下一步进入阶段 11A，先扩展演示文稿接口边界，支持参考 PPT 模板、生成引擎名称、fallback 原因和质量评分；PPTAgent 深度运行时仍保持可选，不复制外部项目源码。
 
 继续保持当前边界：不把参考项目复制进最终代码框架，以本项目自有保研业务代码为主体，只在必要位置保留适配器和可审计的底层复用。PPTAgent 深度集成仍后置到阶段 11。
