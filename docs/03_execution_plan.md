@@ -868,15 +868,15 @@ git push -u origin feat/agent-review-workflow
 
 任务：
 
-- [ ] 构造一个匿名学生样例
-- [ ] 选择一个真实目标导师样例
-- [ ] 保存导师主页/实验室主页/招生通知来源
-- [ ] 准备输入材料
-- [ ] 生成匹配报告
-- [ ] 生成套磁邮件
-- [ ] 生成面试展示 PPT
-- [ ] 生成模拟面试题
-- [ ] 生成申请状态 Dashboard
+- [x] 构造一个匿名学生样例
+- [x] 选择一个真实目标导师样例
+- [x] 保存导师主页/实验室主页/招生通知来源
+- [x] 准备输入材料
+- [x] 生成匹配报告
+- [x] 生成套磁邮件
+- [x] 生成面试展示 PPT
+- [x] 生成模拟面试题
+- [x] 生成申请状态 Dashboard
 - [ ] 录制 Demo 或截图
 
 最终演示路径：
@@ -999,13 +999,12 @@ git push -u origin feat/presentation-engine-adapter
 
 当前已经完成工程守卫、portable skill 主目录、用户原始资料落盘、字段级证据、字段级确认状态、套磁邮件 `MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent` 主链路、独立质量检查模块，以及 `AdvisorExtractionAgent -> MatchAnalysisAgent` 第二条 Agent 链路。
 
-建议下一步进入阶段 9 演示案例准备：
+建议下一步完成阶段 9 的展示素材：
 
 ```text
-构造匿名学生样例
--> 选择真实导师样例
--> 跑通资料、导师、目标、匹配、套磁、PPT、面试问题
--> 生成截图或录屏素材
+打开 `WORKSPACE_DIR=workspace.demo` 的本地服务
+-> 检查 Dashboard、学生画像、导师来源、匹配报告、材料中心和 PPTX 下载
+-> 录制 2-3 分钟 Demo 或截取核心页面图片
 ```
 
 继续保持当前边界：不把参考项目复制进最终代码框架，以本项目自有保研业务代码为主体，只在必要位置保留适配器和可审计的底层复用。PPTAgent 深度集成仍后置到阶段 11。

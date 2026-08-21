@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -56,7 +57,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-workspace = Workspace(str(PROJECT_ROOT / "workspace"))
+workspace = Workspace(os.environ.get("WORKSPACE_DIR") or str(PROJECT_ROOT / "workspace"))
 ppt_adapter = LocalPptxAdapter()
 
 

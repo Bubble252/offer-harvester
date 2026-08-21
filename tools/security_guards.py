@@ -14,6 +14,7 @@ IGNORED_PARTS = {
     ".venv",
     "__pycache__",
     "workspace",
+    "workspace.demo",
 }
 
 TEXT_SUFFIXES = {
@@ -41,6 +42,7 @@ REQUIRED_GITIGNORE_RULES = {
     ".env",
     ".env.*",
     "workspace/",
+    "workspace.demo/",
     "*.key",
     ".venv/",
     ".ruff_cache/",
@@ -48,6 +50,7 @@ REQUIRED_GITIGNORE_RULES = {
 
 FORBIDDEN_TRACKED_PREFIXES = (
     "workspace/",
+    "workspace.demo/",
     "runs/",
     "app/backend/data/",
 )

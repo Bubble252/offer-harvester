@@ -16,6 +16,7 @@ IGNORED_PARTS = {
     ".pytest_cache",
     "__pycache__",
     "workspace",
+    "workspace.demo",
     "runs",
 }
 
