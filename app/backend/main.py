@@ -8,17 +8,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agents import run_contact_email_workflow
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-
+from llm_client import llm_configured
 from models import (
-    AdvisorTargetCreate,
     AdvisorProfile,
     AdvisorProfileUpdate,
     AdvisorSource,
     AdvisorSourceCreate,
+    AdvisorTargetCreate,
     ApplicationRecord,
     ApplicationUpdate,
     GeneratedMaterial,
@@ -31,19 +32,18 @@ from models import (
     now_iso,
 )
 from services import (
-    build_profile_from_text,
     audit_material,
+    build_profile_from_text,
     build_workspace_report,
     create_advisor_source,
     ensure_application,
-    make_contact_email,
     make_interview_questions,
     make_match,
     make_ppt_outline,
     parse_advisor_profile,
 )
 from storage import Workspace
-from llm_client import llm_configured
+
 from integrations.presentation_engine import LocalPptxAdapter, PresentationRequest
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -215,9 +215,7 @@ def create_target_from_advisor(advisor_id: str, payload: AdvisorTargetCreate):
     advisor = get_advisor_or_404(advisor_id)
     display_name = advisor.name_zh or advisor.name_en or "未命名导师"
     target_name = payload.name or " ".join(
-        item
-        for item in [advisor.school, advisor.college, display_name, "课题组"]
-        if item
+        item for item in [advisor.school, advisor.college, display_name, "课题组"] if item
     )
     if not target_name.strip():
         raise HTTPException(status_code=400, detail="Advisor profile is too sparse")
@@ -296,13 +294,26 @@ def generate_contact_email(target_id: str):
     if not profile:
         raise HTTPException(status_code=400, detail="Profile is required")
     target = get_target_or_404(target_id)
-    material = make_contact_email(
+    result = run_contact_email_workflow(
         profile,
         target,
         advisor_for_target(target),
         latest_match(target_id),
     )
-    return save_material_with_quality(material)
+    for version in result.versions:
+        workspace.write("material_versions", dump(version), "version_id")
+    workspace.write("generated", dump(result.material), "material_id")
+    workspace.write("quality_reports", dump(result.quality), "quality_id")
+    workspace.write("agent_runs", dump(result.agent_run), "run_id")
+    return {
+        "material": result.material,
+        "quality": result.quality,
+        "draft": result.draft,
+        "review": result.review,
+        "evidence_audit": result.evidence_audit,
+        "revision": result.revision,
+        "agent_run": result.agent_run,
+    }
 
 
 @app.post("/api/targets/{target_id}/materials/interview-questions")
@@ -328,6 +339,11 @@ def generate_ppt_outline(target_id: str):
 @app.get("/api/generated")
 def list_generated():
     return workspace.list("generated")
+
+
+@app.get("/api/agent-runs")
+def list_agent_runs():
+    return workspace.list("agent_runs")
 
 
 @app.get("/api/generated/{material_id}")
@@ -421,9 +437,7 @@ def download_presentation(task_id: str):
         raise HTTPException(status_code=404, detail="Presentation output not found")
     return FileResponse(
         path,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ),
+        media_type=("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
         filename=path.name,
     )
 

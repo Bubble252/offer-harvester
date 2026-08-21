@@ -13,13 +13,16 @@ class Workspace:
         self.root.mkdir(parents=True, exist_ok=True)
         for name in [
             "profiles",
+            "user_documents",
             "advisor_sources",
             "advisors",
             "targets",
             "matches",
             "applications",
             "generated",
+            "material_versions",
             "quality_reports",
+            "agent_runs",
             "presentation_tasks",
             "reports",
         ]:

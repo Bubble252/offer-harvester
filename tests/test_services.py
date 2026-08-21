@@ -4,7 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app" / "backend"))
 
-from models import AdvisorSourceCreate, Target
+from agents import run_contact_email_workflow
+from agents.evidence_audit_agent import EvidenceAuditAgent
+from models import AdvisorSourceCreate, GeneratedMaterial, Target
 from services import (
     audit_material,
     build_profile_from_text,
@@ -18,6 +20,7 @@ from services import (
     parse_advisor_profile,
     validate_public_url,
 )
+from storage import Workspace
 
 
 def test_mvp_generation_flow_with_manual_advisor_text():
@@ -55,6 +58,71 @@ def test_mvp_generation_flow_with_manual_advisor_text():
     assert "5 分钟" in outline.content
 
 
+def test_contact_email_agent_workflow_records_review_audit_and_versions():
+    profile = build_profile_from_text(
+        """
+        匿名学生
+        某大学计算机学院
+        项目：多模态论文问答系统，使用 Python 和 PyTorch 实现检索增强问答。
+        """
+    )
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="张三教授，研究方向包括多模态学习和大模型推理，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学张三教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=[source.source_id],
+    )
+    match = make_match(profile, target, advisor)
+
+    result = run_contact_email_workflow(profile, target, advisor, match)
+
+    assert result.material.material_type == "contact_email"
+    assert result.review.reviewer == "MaterialReviewAgent"
+    assert result.evidence_audit.auditor == "EvidenceAuditAgent"
+    assert result.evidence_audit.passed
+    assert result.quality.passed
+    assert result.agent_run.status == "completed"
+    assert result.agent_run.output_summary["material_id"] == result.material.material_id
+    assert [version.stage for version in result.versions] == ["draft", "final"]
+    assert result.versions[0].source_run_id == result.agent_run.run_id
+
+
+def test_contact_email_agent_flags_missing_advisor_source():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    advisor = parse_advisor_profile([])
+    advisor.research_directions = ["智能体系统"]
+    target = Target(name="未知导师课题组", advisor_id=advisor.advisor_id)
+
+    result = run_contact_email_workflow(profile, target, advisor, None)
+
+    assert not result.review.passed
+    assert "review_required" in result.agent_run.risk_tags
+    assert result.evidence_audit.needs_confirmation
+
+
+def test_evidence_audit_fails_when_required_sources_are_missing():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="缺少证据的套磁邮件",
+        content="老师您好，我关注智能体系统方向。",
+        evidence=[],
+    )
+
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+
+    assert not audit.passed
+    assert audit.unsupported_claims
+
+
 def test_source_hash_url_guard_quality_audit_and_progress_report():
     source = create_advisor_source(
         AdvisorSourceCreate(
@@ -81,6 +149,14 @@ def test_source_hash_url_guard_quality_audit_and_progress_report():
     assert quality.risk_level == "low"
     assert source.source_id in material.evidence
     assert "不预测录取结果" in report["content"]
+
+
+def test_workspace_creates_agent_and_version_directories(tmp_path):
+    workspace = Workspace(str(tmp_path))
+
+    assert (workspace.root / "agent_runs").is_dir()
+    assert (workspace.root / "material_versions").is_dir()
+    assert (workspace.root / "user_documents").is_dir()
 
 
 def test_advisor_profile_keeps_detailed_fields_and_evidence():
@@ -142,12 +218,20 @@ def test_llm_advisor_merge_requires_evidence_for_list_fields():
         {
             "school": "样例大学",
             "research_directions": [
-                {"value": "可信机器学习", "evidence": "研究方向包括可信机器学习", "confidence": 0.9},
+                {
+                    "value": "可信机器学习",
+                    "evidence": "研究方向包括可信机器学习",
+                    "confidence": 0.9,
+                },
                 {"value": "量子计算", "evidence": "", "confidence": 0.9},
                 {"value": "机器人", "evidence": "没有足够证据", "confidence": 0.2},
             ],
             "admission_requirements": [
-                {"value": "欢迎有机器学习基础的同学申请", "evidence": "欢迎有机器学习基础的同学申请", "confidence": 0.8}
+                {
+                    "value": "欢迎有机器学习基础的同学申请",
+                    "evidence": "欢迎有机器学习基础的同学申请",
+                    "confidence": 0.8,
+                }
             ],
             "recruiting_status": "open",
         },

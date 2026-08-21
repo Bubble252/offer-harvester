@@ -273,7 +273,7 @@ function renderGeneratedMaterials() {
     : "<div class='empty-state'>选择目标后生成材料会显示在这里。</div>";
 }
 
-function renderMaterial(material, quality = null) {
+function renderMaterial(material, quality = null, workflow = null) {
   state.selectedMaterial = material;
   $("materialTitle").textContent = material.title;
   $("materialMeta").textContent = `${material.material_type} · ${material.created_at}`;
@@ -281,14 +281,36 @@ function renderMaterial(material, quality = null) {
   const download = $("downloadMaterialBtn");
   download.href = `/api/generated/${encodeURIComponent(material.material_id)}/download`;
   download.classList.remove("hidden");
-  if (!quality) {
+  const sections = [];
+  if (quality) {
+    const messages = quality.checks
+      .map((check) => `<li>${check.passed ? "通过" : "需复核"}：${escapeHtml(check.message)}</li>`)
+      .join("");
+    sections.push(`<div class="quality-summary ${quality.risk_level}"><strong>${quality.passed ? "基础质量检查通过" : "建议人工复核"}，风险：${escapeHtml(quality.risk_level)}</strong><ul>${messages}</ul></div>`);
+  }
+  if (workflow && workflow.review) {
+    const review = workflow.review;
+    const issues = (review.issues || [])
+      .map((issue) => `<li>${escapeHtml(issue.message || issue.type)}</li>`)
+      .join("");
+    const optional = (review.optional_improvements || [])
+      .map((item) => `<li>${escapeHtml(item)}</li>`)
+      .join("");
+    sections.push(`<div class="quality-summary ${review.risk_level}"><strong>Reviewer：${review.passed ? "通过" : "需要修改"}</strong><ul>${issues || optional || "<li>未发现必须修改项。</li>"}</ul></div>`);
+  }
+  if (workflow && workflow.evidence_audit) {
+    const audit = workflow.evidence_audit;
+    const claims = (audit.claims || [])
+      .slice(0, 6)
+      .map((claim) => `<li>${escapeHtml(claim.status)}：${escapeHtml(claim.message)}</li>`)
+      .join("");
+    sections.push(`<div class="quality-summary ${audit.passed ? "low" : "high"}"><strong>Evidence Auditor：${audit.passed ? "证据通过" : "证据需复核"}</strong><ul>${claims}</ul></div>`);
+  }
+  if (!sections.length) {
     $("qualityView").innerHTML = "";
     return;
   }
-  const messages = quality.checks
-    .map((check) => `<li>${check.passed ? "通过" : "需复核"}：${escapeHtml(check.message)}</li>`)
-    .join("");
-  $("qualityView").innerHTML = `<div class="quality-summary ${quality.risk_level}"><strong>${quality.passed ? "基础质量检查通过" : "建议人工复核"}，风险：${escapeHtml(quality.risk_level)}</strong><ul>${messages}</ul></div>`;
+  $("qualityView").innerHTML = sections.join("");
 }
 
 function renderAll() {
@@ -443,7 +465,7 @@ async function generate(path, label) {
   if (!id) return;
   try {
     const result = await api(`/api/targets/${id}/${path}`, { method: "POST" });
-    renderMaterial(result.material || result, result.quality || null);
+    renderMaterial(result.material || result, result.quality || null, result.agent_run ? result : null);
     toast(`${label}已生成`);
     await refresh();
   } catch (error) {

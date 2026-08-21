@@ -243,6 +243,31 @@ class MaterialQualityReport(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
+class MaterialVersion(BaseModel):
+    version_id: str = Field(default_factory=lambda: new_id("matver"))
+    material_id: str
+    target_id: str
+    material_type: str
+    stage: Literal["draft", "reviewed", "user_edited", "final"] = "draft"
+    content: str
+    source_run_id: str = ""
+    notes: List[Dict[str, Any]] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class AgentRun(BaseModel):
+    run_id: str = Field(default_factory=lambda: new_id("run"))
+    target_id: str
+    workflow: str
+    status: Literal["running", "completed", "failed"] = "running"
+    input_summary: Dict[str, Any] = Field(default_factory=dict)
+    output_summary: Dict[str, Any] = Field(default_factory=dict)
+    risk_tags: List[str] = Field(default_factory=list)
+    error: str = ""
+    started_at: str = Field(default_factory=now_iso)
+    ended_at: str = ""
+
+
 class PresentationGenerationRequest(BaseModel):
     outline_material_id: str = ""
 
