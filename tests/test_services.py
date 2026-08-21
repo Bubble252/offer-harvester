@@ -5,7 +5,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app" / "backend"))
 
 from agents import run_contact_email_workflow
+from agents.advisor_extraction_agent import AdvisorExtractionAgent
 from agents.evidence_audit_agent import EvidenceAuditAgent
+from agents.match_analysis_agent import MatchAnalysisAgent
 from models import AdvisorSourceCreate, GeneratedMaterial, Target
 from services import (
     audit_material,
@@ -143,6 +145,58 @@ def test_contact_email_agent_workflow_records_review_audit_and_versions():
     assert all(event.run_id == result.agent_run.run_id for event in result.events)
     assert result.events[2].payload["material_id"] == result.material.material_id
     assert "content" not in result.events[2].payload
+
+
+def test_advisor_extraction_agent_records_events_and_risks():
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="张三教授，研究方向包括多模态学习和大模型推理，招收硕士学生。",
+        )
+    )
+
+    result = AdvisorExtractionAgent().extract([source])
+
+    assert result.advisor.source_ids == [source.source_id]
+    assert result.agent_run.workflow == "advisor_intake.extraction"
+    assert result.agent_run.status == "completed"
+    assert result.agent_run.output_summary["advisor_id"] == result.advisor.advisor_id
+    assert [event.event_type for event in result.events] == [
+        "workflow_started",
+        "extraction_started",
+        "extraction_completed",
+    ]
+
+
+def test_match_analysis_agent_adds_evidence_and_risk_summary():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统",
+        source_document_ids=["doc_resume"],
+    )
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="李四教授，研究方向包括多模态学习，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学李四教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=advisor.source_ids,
+    )
+
+    result = MatchAnalysisAgent().analyze(profile, target, advisor)
+
+    assert result.report.target_id == target.target_id
+    assert result.agent_run.workflow == "advisor_match.analysis"
+    assert result.agent_run.output_summary["match_id"] == result.report.match_id
+    assert [event.event_type for event in result.events] == [
+        "workflow_started",
+        "match_started",
+        "match_completed",
+    ]
+    assert any(gap.get("dimension") == "student_confirmation" for gap in result.report.gaps)
 
 
 def test_contact_email_agent_flags_missing_advisor_source():

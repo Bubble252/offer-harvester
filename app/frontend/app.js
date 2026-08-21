@@ -373,6 +373,39 @@ function renderMaterial(material, quality = null, workflow = null) {
   $("qualityView").innerHTML = sections.join("");
 }
 
+function renderMatchReport(report) {
+  state.selectedMaterial = null;
+  $("materialTitle").textContent = "匹配分析报告";
+  $("materialMeta").textContent = `${report.tier || "unknown"} · ${report.fit_score ?? 0} 分`;
+  const strengths = (report.strengths || [])
+    .map((item) => `- ${item.point || item.dimension || "匹配点待补充"}`)
+    .join("\n");
+  const gaps = (report.gaps || [])
+    .map((item) => `- ${item.point || "风险项待补充"}${item.suggestion ? `；建议：${item.suggestion}` : ""}`)
+    .join("\n");
+  const actions = (report.recommended_actions || []).map((item) => `- ${item}`).join("\n");
+  $("materialView").textContent = [
+    `# 匹配分析报告`,
+    "",
+    `匹配等级：${report.tier || "unknown"}`,
+    `匹配分数：${report.fit_score ?? 0}`,
+    "",
+    `## 总结`,
+    report.summary || "暂无总结。",
+    "",
+    `## 匹配点`,
+    strengths || "- 暂未识别到明确匹配点。",
+    "",
+    `## 风险与缺口`,
+    gaps || "- 暂未识别到主要风险。",
+    "",
+    `## 下一步`,
+    actions || "- 补充学生资料和导师来源后重新分析。",
+  ].join("\n");
+  $("downloadMaterialBtn").classList.add("hidden");
+  $("qualityView").innerHTML = "";
+}
+
 function renderAll() {
   renderMetrics();
   renderDashboard();
@@ -554,7 +587,11 @@ async function generate(path, label) {
   if (!id) return;
   try {
     const result = await api(`/api/targets/${id}/${path}`, { method: "POST" });
-    renderMaterial(result.material || result, result.quality || null, result.agent_run ? result : null);
+    if (path === "match") {
+      renderMatchReport(result);
+    } else {
+      renderMaterial(result.material || result, result.quality || null, result.agent_run ? result : null);
+    }
     toast(`${label}已生成`);
     await refresh();
   } catch (error) {

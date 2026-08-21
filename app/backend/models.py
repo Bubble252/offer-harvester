@@ -298,6 +298,10 @@ class WorkflowEvent(BaseModel):
     workflow: str
     event_type: Literal[
         "workflow_started",
+        "extraction_started",
+        "extraction_completed",
+        "match_started",
+        "match_completed",
         "draft_started",
         "draft_completed",
         "review_started",

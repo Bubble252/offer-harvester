@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agents import run_contact_email_workflow
+from agents import AdvisorExtractionAgent, MatchAnalysisAgent, run_contact_email_workflow
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -39,9 +39,7 @@ from services import (
     create_advisor_source,
     ensure_application,
     make_interview_questions,
-    make_match,
     make_ppt_outline,
-    parse_advisor_profile,
 )
 from storage import Workspace
 
@@ -198,11 +196,18 @@ def create_source(payload: AdvisorSourceCreate):
             item = workspace.read("advisor_sources", source_id)
             if item:
                 sources.append(AdvisorSource(**item))
-    advisor = parse_advisor_profile(sources)
-    if advisor_id:
-        advisor.advisor_id = advisor_id
+    result = AdvisorExtractionAgent().extract(sources, advisor_id=advisor_id)
+    advisor = result.advisor
     workspace.write("advisors", dump(advisor), "advisor_id")
-    return {"source": source, "advisor": advisor}
+    workspace.write("agent_runs", dump(result.agent_run), "run_id")
+    for event in result.events:
+        workspace.write("workflow_events", dump(event), "event_id")
+    return {
+        "source": source,
+        "advisor": advisor,
+        "agent_run": result.agent_run,
+        "events": result.events,
+    }
 
 
 @app.get("/api/advisor-sources")
@@ -309,8 +314,12 @@ def update_target(target_id: str, updates: dict):
 @app.post("/api/targets/{target_id}/match")
 def generate_match(target_id: str):
     target = get_target_or_404(target_id)
-    report = make_match(latest_profile(), target, advisor_for_target(target))
+    result = MatchAnalysisAgent().analyze(latest_profile(), target, advisor_for_target(target))
+    report = result.report
     workspace.write("matches", dump(report), "match_id")
+    workspace.write("agent_runs", dump(result.agent_run), "run_id")
+    for event in result.events:
+        workspace.write("workflow_events", dump(event), "event_id")
     return report
 
 

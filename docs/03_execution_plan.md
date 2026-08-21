@@ -423,8 +423,8 @@ git push -u origin feat/quality-review-pipeline
 需要转化成 skill / Agent 协议的内容：
 
 - [ ] `student-profile-intake`：把现有 `build_profile_from_text` 升级为“资料读取 -> 冲突检查 -> 用户确认 -> 结构化画像”的协议
-- [ ] `advisor-intake`：把现有 `create_advisor_source` + `parse_advisor_profile` 升级为“来源采集 -> 身份消歧 -> 字段证据绑定 -> 人工复核”的协议
-- [ ] `advisor-match-review`：把现有 `make_match` 升级为多维度匹配评估协议，要求每个结论有学生证据和导师证据
+- [x] `advisor-intake`：把现有 `create_advisor_source` + `parse_advisor_profile` 升级为“来源采集 -> 身份消歧 -> 字段证据绑定 -> 人工复核”的协议
+- [x] `advisor-match-review`：把现有 `make_match` 升级为多维度匹配评估协议，要求每个结论有学生证据和导师证据
 - [ ] `material-drafter`：把现有 `make_contact_email`、`make_ppt_outline` 等模板生成能力升级为草稿生成协议
 - [ ] `material-reviewer`：把现有 `audit_material` 升级为 reviewer 协议，专门检查空泛、夸大、模板化和导师方向不贴合
 - [ ] `evidence-auditor`：新增独立证据审计协议，逐句检查材料声明是否来自学生画像、导师来源或用户确认记录
@@ -698,8 +698,8 @@ app/backend/agents/
 - [x] 套磁邮件 Evidence Auditor 已检查未确认学生字段，并将其写入 `needs_confirmation`
 - [x] 套磁邮件生成器已避开用户标记为 `rejected` 的学生字段
 - [x] 前端学生画像页已支持字段级确认状态保存
-- [ ] 第二阶段再将导师资料解析拆成 `AdvisorExtractionAgent`，保留规则解析作为 fallback
-- [ ] 第二阶段再将匹配分析拆成 `MatchAnalysisAgent`，输出维度评分、证据引用和风险项
+- [x] 第二阶段再将导师资料解析拆成 `AdvisorExtractionAgent`，保留规则解析作为 fallback
+- [x] 第二阶段再将匹配分析拆成 `MatchAnalysisAgent`，输出维度评分、证据引用和风险项
 - [ ] 设计后续 RL 数据采集字段，但默认不把真实用户数据用于公开训练
 - [x] 增加单元测试覆盖 Agent fallback、review fail、evidence fail、LLM 未配置四类路径
 
@@ -997,15 +997,15 @@ git push -u origin feat/presentation-engine-adapter
 
 ## 当前建议
 
-当前已经完成工程守卫、portable skill 主目录、用户原始资料落盘、字段级证据、字段级确认状态、套磁邮件 `MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent` 主链路，以及独立质量检查模块。
+当前已经完成工程守卫、portable skill 主目录、用户原始资料落盘、字段级证据、字段级确认状态、套磁邮件 `MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent` 主链路、独立质量检查模块，以及 `AdvisorExtractionAgent -> MatchAnalysisAgent` 第二条 Agent 链路。
 
-建议下一步进入第二条 Agent 链路：
+建议下一步进入阶段 9 演示案例准备：
 
 ```text
-AdvisorExtractionAgent
--> MatchAnalysisAgent
--> 字段证据和质量检查复用
--> 准备阶段 9 的匿名演示案例
+构造匿名学生样例
+-> 选择真实导师样例
+-> 跑通资料、导师、目标、匹配、套磁、PPT、面试问题
+-> 生成截图或录屏素材
 ```
 
 继续保持当前边界：不把参考项目复制进最终代码框架，以本项目自有保研业务代码为主体，只在必要位置保留适配器和可审计的底层复用。PPTAgent 深度集成仍后置到阶段 11。

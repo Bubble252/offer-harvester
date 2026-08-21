@@ -20,6 +20,14 @@ advisor web page / lab page / admission notice / publication page
 5. Attach source IDs in `evidence_map`.
 6. When LLM extraction is used, accept only fields with evidence and sufficient confidence.
 
+## Current Harness
+
+- `app/backend/agents/advisor_extraction_agent.py`
+- `AdvisorExtractionAgent.extract(sources, advisor_id="")`
+- API entry: `POST /api/advisor-sources`
+- Persists `AdvisorProfile`, `AgentRun`, and `WorkflowEvent` records.
+- Rule parser fallback remains `services.parse_advisor_profile`.
+
 ## Guardrails
 
 - Do not infer unknown advisor facts from general knowledge.
