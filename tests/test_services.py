@@ -4,7 +4,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app" / "backend"))
 
-from models import AdvisorSourceCreate, Target
+from agents import run_contact_email_workflow
+from agents.advisor_extraction_agent import AdvisorExtractionAgent
+from agents.evidence_audit_agent import EvidenceAuditAgent
+from agents.match_analysis_agent import MatchAnalysisAgent
+from models import AdvisorSourceCreate, GeneratedMaterial, Target
 from services import (
     audit_material,
     build_profile_from_text,
@@ -18,6 +22,7 @@ from services import (
     parse_advisor_profile,
     validate_public_url,
 )
+from storage import Workspace
 
 
 def test_mvp_generation_flow_with_manual_advisor_text():
@@ -55,6 +60,223 @@ def test_mvp_generation_flow_with_manual_advisor_text():
     assert "5 分钟" in outline.content
 
 
+def test_profile_evidence_map_tracks_source_documents():
+    profile = build_profile_from_text(
+        """
+        匿名学生
+        某大学计算机学院
+        GPA 3.85/4.00，排名前 10%
+        项目：多模态论文问答系统，使用 Python 和 PyTorch 实现检索增强问答。
+        论文：某会议在投。
+        """,
+        source_document_ids=["doc_resume", "doc_project"],
+    )
+
+    assert profile.source_document_ids == ["doc_resume", "doc_project"]
+    assert profile.gpa == "GPA 3.85/4.00"
+    assert profile.rank == "排名前 10%"
+    assert profile.evidence_map["education"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["gpa"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["rank"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["projects"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["publications"] == ["doc_resume", "doc_project"]
+    assert profile.confirmation_map["gpa"] == "unconfirmed"
+    assert profile.confirmation_map["projects"] == "unconfirmed"
+
+
+def test_contact_email_respects_rejected_profile_fields():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：智能体系统原型开发",
+        source_document_ids=["doc_resume"],
+    )
+    profile.confirmation_map["projects"] = "rejected"
+    target = Target(name="样例目标")
+
+    material = make_contact_email(profile, target, None, None)
+
+    assert "智能体系统原型开发" not in material.content
+    assert "相关科研项目" in material.content
+
+
+def test_contact_email_agent_workflow_records_review_audit_and_versions():
+    profile = build_profile_from_text(
+        """
+        匿名学生
+        某大学计算机学院
+        项目：多模态论文问答系统，使用 Python 和 PyTorch 实现检索增强问答。
+        """
+    )
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="张三教授，研究方向包括多模态学习和大模型推理，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学张三教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=[source.source_id],
+    )
+    match = make_match(profile, target, advisor)
+
+    result = run_contact_email_workflow(profile, target, advisor, match)
+
+    assert result.material.material_type == "contact_email"
+    assert result.review.reviewer == "MaterialReviewAgent"
+    assert result.evidence_audit.auditor == "EvidenceAuditAgent"
+    assert result.evidence_audit.passed
+    assert result.quality.passed
+    assert result.agent_run.status == "completed"
+    assert result.agent_run.output_summary["material_id"] == result.material.material_id
+    assert [version.stage for version in result.versions] == ["draft", "final"]
+    assert result.versions[0].source_run_id == result.agent_run.run_id
+    assert [event.event_type for event in result.events] == [
+        "workflow_started",
+        "draft_started",
+        "draft_completed",
+        "review_started",
+        "review_completed",
+        "audit_started",
+        "audit_completed",
+        "quality_completed",
+        "final_saved",
+    ]
+    assert all(event.run_id == result.agent_run.run_id for event in result.events)
+    assert result.events[2].payload["material_id"] == result.material.material_id
+    assert "content" not in result.events[2].payload
+
+
+def test_advisor_extraction_agent_records_events_and_risks():
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="张三教授，研究方向包括多模态学习和大模型推理，招收硕士学生。",
+        )
+    )
+
+    result = AdvisorExtractionAgent().extract([source])
+
+    assert result.advisor.source_ids == [source.source_id]
+    assert result.agent_run.workflow == "advisor_intake.extraction"
+    assert result.agent_run.status == "completed"
+    assert result.agent_run.output_summary["advisor_id"] == result.advisor.advisor_id
+    assert [event.event_type for event in result.events] == [
+        "workflow_started",
+        "extraction_started",
+        "extraction_completed",
+    ]
+
+
+def test_match_analysis_agent_adds_evidence_and_risk_summary():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统",
+        source_document_ids=["doc_resume"],
+    )
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="李四教授，研究方向包括多模态学习，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学李四教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=advisor.source_ids,
+    )
+
+    result = MatchAnalysisAgent().analyze(profile, target, advisor)
+
+    assert result.report.target_id == target.target_id
+    assert result.agent_run.workflow == "advisor_match.analysis"
+    assert result.agent_run.output_summary["match_id"] == result.report.match_id
+    assert [event.event_type for event in result.events] == [
+        "workflow_started",
+        "match_started",
+        "match_completed",
+    ]
+    assert any(gap.get("dimension") == "student_confirmation" for gap in result.report.gaps)
+
+
+def test_contact_email_agent_flags_missing_advisor_source():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    advisor = parse_advisor_profile([])
+    advisor.research_directions = ["智能体系统"]
+    target = Target(name="未知导师课题组", advisor_id=advisor.advisor_id)
+
+    result = run_contact_email_workflow(profile, target, advisor, None)
+
+    assert not result.review.passed
+    assert "review_required" in result.agent_run.risk_tags
+    assert result.evidence_audit.needs_confirmation
+
+
+def test_evidence_audit_fails_when_required_sources_are_missing():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="缺少证据的套磁邮件",
+        content="老师您好，我关注智能体系统方向。",
+        evidence=[],
+    )
+
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+
+    assert not audit.passed
+    assert audit.unsupported_claims
+
+
+def test_evidence_audit_uses_profile_field_document_ids():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\nGPA 3.8/4.0，排名前 10%\n项目：智能体系统原型开发",
+        source_document_ids=["doc_transcript"],
+    )
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="含成绩的套磁邮件",
+        content="老师您好，我的 GPA 3.8/4.0，排名前 10%。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+    grade_claim = next(claim for claim in audit.claims if claim["claim_type"] == "grade_or_rank")
+
+    assert audit.passed
+    assert grade_claim["source_ids"] == ["doc_transcript"]
+    assert audit.needs_confirmation
+
+
+def test_evidence_audit_flags_unconfirmed_and_rejected_profile_fields():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：智能体系统原型开发",
+        source_document_ids=["doc_resume"],
+    )
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="含未确认字段的套磁邮件",
+        content="老师您好，我来自某大学计算机学院，做过项目：智能体系统原型开发。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+
+    assert audit.passed
+    assert any("未确认学生字段" in item for item in audit.needs_confirmation)
+
+    profile.confirmation_map["projects"] = "rejected"
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+
+    assert not audit.passed
+    assert any("已否认字段" in item for item in audit.unsupported_claims)
+
+
 def test_source_hash_url_guard_quality_audit_and_progress_report():
     source = create_advisor_source(
         AdvisorSourceCreate(
@@ -81,6 +303,110 @@ def test_source_hash_url_guard_quality_audit_and_progress_report():
     assert quality.risk_level == "low"
     assert source.source_id in material.evidence
     assert "不预测录取结果" in report["content"]
+
+
+def test_quality_audit_flags_false_publication_claim():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="虚构论文风险",
+        content="老师您好，我的论文成果已发表在某顶级会议。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    quality = audit_material(material, profile, None)
+
+    assert not quality.passed
+    assert any(check["name"] == "student_fact_consistency" for check in quality.checks)
+    assert any("论文成果表述缺少学生画像字段" in check["message"] for check in quality.checks)
+
+
+def test_quality_audit_flags_missing_advisor_evidence_and_direction_mismatch():
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="李四教授，研究方向包括多模态学习，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标", advisor_id=advisor.advisor_id)
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="缺少导师证据",
+        content="老师您好，我关注智能体系统方向，希望进一步交流。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    quality = audit_material(material, profile, advisor)
+
+    assert not quality.passed
+    assert any(
+        check["name"] == "advisor_source_present" and not check["passed"]
+        for check in quality.checks
+    )
+    assert any(
+        check["name"] == "advisor_direction_match" and not check["passed"]
+        for check in quality.checks
+    )
+
+
+def test_quality_audit_flags_overclaim():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="过度承诺",
+        content="老师您好，我认为自己一定适合贵组，并且可以保证录取后快速产出。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    quality = audit_material(material, profile, None)
+
+    assert not quality.passed
+    assert any(check["name"] == "no_admission_claim" for check in quality.checks)
+
+
+def test_workspace_creates_agent_and_version_directories(tmp_path):
+    workspace = Workspace(str(tmp_path))
+
+    assert (workspace.root / "agent_runs").is_dir()
+    assert (workspace.root / "workflow_events").is_dir()
+    assert (workspace.root / "material_versions").is_dir()
+    assert (workspace.root / "user_documents").is_dir()
+
+
+def test_workspace_saves_user_document_manifest(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    record = workspace.save_user_document(
+        "匿名学生\n项目：智能体系统原型开发".encode("utf-8"),
+        "resume.txt",
+        category="resumes",
+        source_type="local_upload",
+        notes="test upload",
+    )
+    manifest = workspace.read_user_document_manifest()
+
+    assert record.document_id
+    assert record.content_hash.startswith("sha256:")
+    assert record.path.startswith("user_documents/resumes/")
+    assert (workspace.root / record.path).read_text(encoding="utf-8").startswith("匿名学生")
+    assert manifest["documents"][0]["document_id"] == record.document_id
+    assert manifest["documents"][0]["notes"] == "test upload"
+
+
+def test_workspace_rejects_unsupported_user_document_format(tmp_path):
+    workspace = Workspace(str(tmp_path))
+
+    try:
+        workspace.save_user_document(b"secret", "profile.exe", category="resumes")
+        assert False, "unsupported format should be rejected"
+    except ValueError as exc:
+        assert "Unsupported user document format" in str(exc)
 
 
 def test_advisor_profile_keeps_detailed_fields_and_evidence():
@@ -142,12 +468,20 @@ def test_llm_advisor_merge_requires_evidence_for_list_fields():
         {
             "school": "样例大学",
             "research_directions": [
-                {"value": "可信机器学习", "evidence": "研究方向包括可信机器学习", "confidence": 0.9},
+                {
+                    "value": "可信机器学习",
+                    "evidence": "研究方向包括可信机器学习",
+                    "confidence": 0.9,
+                },
                 {"value": "量子计算", "evidence": "", "confidence": 0.9},
                 {"value": "机器人", "evidence": "没有足够证据", "confidence": 0.2},
             ],
             "admission_requirements": [
-                {"value": "欢迎有机器学习基础的同学申请", "evidence": "欢迎有机器学习基础的同学申请", "confidence": 0.8}
+                {
+                    "value": "欢迎有机器学习基础的同学申请",
+                    "evidence": "欢迎有机器学习基础的同学申请",
+                    "confidence": 0.8,
+                }
             ],
             "recruiting_status": "open",
         },
@@ -160,3 +494,32 @@ def test_llm_advisor_merge_requires_evidence_for_list_fields():
     assert "机器人" not in enriched.research_directions
     assert enriched.admission_requirements == ["欢迎有机器学习基础的同学申请"]
     assert enriched.evidence_map["admission_requirements"] == [source.source_id]
+
+
+def test_updated_advisor_fields_can_feed_target_creation():
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="周八教授，研究方向包括多模态学习。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    advisor.school = "修正大学"
+    advisor.college = "人工智能学院"
+    advisor.lab_name = "可信智能实验室"
+    advisor.research_directions = ["多模态学习", "可信 AI"]
+    advisor.identity_confirmed = True
+
+    target = Target(
+        name=f"{advisor.school} {advisor.college} {advisor.name_zh} 课题组",
+        advisor_id=advisor.advisor_id,
+        school=advisor.school,
+        college=advisor.college,
+        program_name=advisor.lab_name,
+        source_ids=advisor.source_ids,
+    )
+
+    assert target.school == "修正大学"
+    assert target.college == "人工智能学院"
+    assert target.program_name == "可信智能实验室"
+    assert source.source_id in target.source_ids

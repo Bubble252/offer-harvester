@@ -22,9 +22,7 @@ class WorkflowLogger:
     def __init__(self) -> None:
         self.events: List[WorkflowEvent] = []
 
-    def record(
-        self, event_type: str, payload: Optional[Dict[str, Any]] = None
-    ) -> WorkflowEvent:
+    def record(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> WorkflowEvent:
         event = WorkflowEvent(event_type=event_type, payload=payload or {})
         self.events.append(event)
         return event

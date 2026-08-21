@@ -15,6 +15,9 @@ def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+ProfileConfirmationStatus = Literal["unconfirmed", "confirmed", "rejected", "needs_review"]
+
+
 class StudentProfile(BaseModel):
     profile_id: str = Field(default_factory=lambda: new_id("profile"))
     name: str = "未命名学生"
@@ -28,6 +31,9 @@ class StudentProfile(BaseModel):
     skills: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
     raw_text: str = ""
+    source_document_ids: List[str] = Field(default_factory=list)
+    evidence_map: Dict[str, List[str]] = Field(default_factory=dict)
+    confirmation_map: Dict[str, ProfileConfirmationStatus] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=now_iso)
 
 
@@ -46,6 +52,23 @@ class AdvisorSourceCreate(BaseModel):
     manual_text: str = ""
     title: str = ""
     trusted: bool = True
+
+
+class UserDocumentRecord(BaseModel):
+    document_id: str = Field(default_factory=lambda: new_id("doc"))
+    category: str = "manual_inputs"
+    path: str
+    original_filename: str = ""
+    source_type: Literal["local_upload", "manual_input", "web_supplement"] = "manual_input"
+    content_hash: str = ""
+    uploaded_at: str = Field(default_factory=now_iso)
+    trusted: bool = True
+    confirmed: bool = False
+    notes: str = ""
+
+
+class UserDocumentManifest(BaseModel):
+    documents: List[UserDocumentRecord] = Field(default_factory=list)
 
 
 class AdvisorSource(BaseModel):
@@ -95,6 +118,35 @@ class AdvisorProfile(BaseModel):
     source_ids: List[str] = Field(default_factory=list)
     evidence_map: Dict[str, List[str]] = Field(default_factory=dict)
     last_verified_at: str = Field(default_factory=now_iso)
+
+
+class AdvisorProfileUpdate(BaseModel):
+    name_zh: Optional[str] = None
+    name_en: Optional[str] = None
+    title: Optional[str] = None
+    school: Optional[str] = None
+    college: Optional[str] = None
+    department: Optional[str] = None
+    lab_name: Optional[str] = None
+    homepage_url: Optional[str] = None
+    lab_url: Optional[str] = None
+    scholar_url: Optional[str] = None
+    dblp_url: Optional[str] = None
+    email: Optional[str] = None
+    education: Optional[str] = None
+    career: Optional[List[str]] = None
+    honors: Optional[List[str]] = None
+    research_directions: Optional[List[str]] = None
+    representative_papers: Optional[List[str]] = None
+    research_projects: Optional[List[str]] = None
+    recent_focus: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    recruiting_status: Optional[Literal["open", "closed", "unknown"]] = None
+    student_type: Optional[List[str]] = None
+    admission_requirements: Optional[List[str]] = None
+    preferred_student_profile: Optional[List[str]] = None
+    risk_notes: Optional[List[str]] = None
+    identity_confirmed: Optional[bool] = None
 
 
 class TargetCreate(BaseModel):
@@ -211,6 +263,58 @@ class MaterialQualityReport(BaseModel):
     passed: bool
     checks: List[Dict[str, Any]] = Field(default_factory=list)
     risk_level: Literal["low", "medium", "high"] = "low"
+    created_at: str = Field(default_factory=now_iso)
+
+
+class MaterialVersion(BaseModel):
+    version_id: str = Field(default_factory=lambda: new_id("matver"))
+    material_id: str
+    target_id: str
+    material_type: str
+    stage: Literal["draft", "reviewed", "user_edited", "final"] = "draft"
+    content: str
+    source_run_id: str = ""
+    notes: List[Dict[str, Any]] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class AgentRun(BaseModel):
+    run_id: str = Field(default_factory=lambda: new_id("run"))
+    target_id: str
+    workflow: str
+    status: Literal["running", "completed", "failed"] = "running"
+    input_summary: Dict[str, Any] = Field(default_factory=dict)
+    output_summary: Dict[str, Any] = Field(default_factory=dict)
+    risk_tags: List[str] = Field(default_factory=list)
+    error: str = ""
+    started_at: str = Field(default_factory=now_iso)
+    ended_at: str = ""
+
+
+class WorkflowEvent(BaseModel):
+    event_id: str = Field(default_factory=lambda: new_id("evt"))
+    run_id: str
+    target_id: str
+    workflow: str
+    event_type: Literal[
+        "workflow_started",
+        "extraction_started",
+        "extraction_completed",
+        "match_started",
+        "match_completed",
+        "draft_started",
+        "draft_completed",
+        "review_started",
+        "review_completed",
+        "audit_started",
+        "audit_completed",
+        "quality_completed",
+        "final_saved",
+        "workflow_failed",
+    ]
+    status: Literal["started", "completed", "failed"] = "completed"
+    agent_name: str = ""
+    payload: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_iso)
 
 

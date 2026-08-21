@@ -1,0 +1,4 @@
+interface:
+  display_name: "Grad Apply Workflow"
+  short_description: "保研申请证据审计与多 Agent 工作流执行协议规范"
+  default_prompt: "Use $grad-apply-workflow to run an evidence-grounded graduate application workflow."

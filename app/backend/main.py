@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -8,16 +9,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agents import AdvisorExtractionAgent, MatchAnalysisAgent, run_contact_email_workflow
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-
+from llm_client import llm_configured
 from models import (
-    AdvisorTargetCreate,
     AdvisorProfile,
+    AdvisorProfileUpdate,
     AdvisorSource,
     AdvisorSourceCreate,
+    AdvisorTargetCreate,
     ApplicationRecord,
     ApplicationUpdate,
     GeneratedMaterial,
@@ -27,22 +30,20 @@ from models import (
     StudentProfile,
     Target,
     TargetCreate,
+    UserDocumentManifest,
     now_iso,
 )
+from quality import audit_material
 from services import (
     build_profile_from_text,
-    audit_material,
     build_workspace_report,
     create_advisor_source,
     ensure_application,
-    make_contact_email,
     make_interview_questions,
-    make_match,
     make_ppt_outline,
-    parse_advisor_profile,
 )
 from storage import Workspace
-from llm_client import llm_configured
+
 from integrations.presentation_engine import LocalPptxAdapter, PresentationRequest
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +57,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-workspace = Workspace(str(PROJECT_ROOT / "workspace"))
+workspace = Workspace(os.environ.get("WORKSPACE_DIR") or str(PROJECT_ROOT / "workspace"))
 ppt_adapter = LocalPptxAdapter()
 
 
@@ -124,16 +125,49 @@ def llm_status():
 
 
 @app.post("/api/profile/upload")
-async def upload_profile(file: Optional[UploadFile] = File(None), text: str = Form("")):
-    content = text
+async def upload_profile(
+    file: Optional[UploadFile] = File(None),
+    text: str = Form(""),
+    category: str = Form("manual_inputs"),
+):
+    content_parts = []
+    source_document_ids = []
+    if text.strip():
+        document = workspace.save_user_document(
+            text.encode("utf-8"),
+            "profile_manual_input.txt",
+            category="manual_inputs",
+            source_type="manual_input",
+            trusted=True,
+            confirmed=False,
+            notes="学生资料页手动粘贴内容",
+        )
+        source_document_ids.append(document.document_id)
+        content_parts.append(text)
     if file:
         blob = await file.read()
-        content = blob.decode("utf-8", errors="ignore")
+        document = workspace.save_user_document(
+            blob,
+            file.filename or "uploaded_profile.txt",
+            category=category,
+            source_type="local_upload",
+            trusted=True,
+            confirmed=False,
+            notes="学生资料页上传文件",
+        )
+        source_document_ids.append(document.document_id)
+        content_parts.append(blob.decode("utf-8", errors="ignore"))
+    content = "\n\n".join(part for part in content_parts if part.strip())
     if not content.strip():
         raise HTTPException(status_code=400, detail="Profile text is required")
-    profile = build_profile_from_text(content)
+    profile = build_profile_from_text(content, source_document_ids=source_document_ids)
     workspace.write("profiles", dump(profile), "profile_id")
     return profile
+
+
+@app.get("/api/user-documents")
+def list_user_documents():
+    return UserDocumentManifest(**workspace.read_user_document_manifest())
 
 
 @app.get("/api/profile")
@@ -163,11 +197,18 @@ def create_source(payload: AdvisorSourceCreate):
             item = workspace.read("advisor_sources", source_id)
             if item:
                 sources.append(AdvisorSource(**item))
-    advisor = parse_advisor_profile(sources)
-    if advisor_id:
-        advisor.advisor_id = advisor_id
+    result = AdvisorExtractionAgent().extract(sources, advisor_id=advisor_id)
+    advisor = result.advisor
     workspace.write("advisors", dump(advisor), "advisor_id")
-    return {"source": source, "advisor": advisor}
+    workspace.write("agent_runs", dump(result.agent_run), "run_id")
+    for event in result.events:
+        workspace.write("workflow_events", dump(event), "event_id")
+    return {
+        "source": source,
+        "advisor": advisor,
+        "agent_run": result.agent_run,
+        "events": result.events,
+    }
 
 
 @app.get("/api/advisor-sources")
@@ -193,14 +234,28 @@ def get_advisor(advisor_id: str):
     return get_advisor_or_404(advisor_id)
 
 
+@app.put("/api/advisors/{advisor_id}")
+def update_advisor(advisor_id: str, updates: AdvisorProfileUpdate):
+    advisor = get_advisor_or_404(advisor_id)
+    data = dump(advisor)
+    changes = {key: value for key, value in dump(updates).items() if value is not None}
+    if "source_ids" in changes or "advisor_id" in changes:
+        raise HTTPException(status_code=400, detail="Advisor identity fields cannot be replaced")
+    data.update(changes)
+    data["last_verified_at"] = now_iso()
+    if data.get("research_directions") and not data.get("keywords"):
+        data["keywords"] = data["research_directions"]
+    advisor = AdvisorProfile(**data)
+    workspace.write("advisors", dump(advisor), "advisor_id")
+    return advisor
+
+
 @app.post("/api/advisors/{advisor_id}/target")
 def create_target_from_advisor(advisor_id: str, payload: AdvisorTargetCreate):
     advisor = get_advisor_or_404(advisor_id)
     display_name = advisor.name_zh or advisor.name_en or "未命名导师"
     target_name = payload.name or " ".join(
-        item
-        for item in [advisor.school, advisor.college, display_name, "课题组"]
-        if item
+        item for item in [advisor.school, advisor.college, display_name, "课题组"] if item
     )
     if not target_name.strip():
         raise HTTPException(status_code=400, detail="Advisor profile is too sparse")
@@ -260,8 +315,12 @@ def update_target(target_id: str, updates: dict):
 @app.post("/api/targets/{target_id}/match")
 def generate_match(target_id: str):
     target = get_target_or_404(target_id)
-    report = make_match(latest_profile(), target, advisor_for_target(target))
+    result = MatchAnalysisAgent().analyze(latest_profile(), target, advisor_for_target(target))
+    report = result.report
     workspace.write("matches", dump(report), "match_id")
+    workspace.write("agent_runs", dump(result.agent_run), "run_id")
+    for event in result.events:
+        workspace.write("workflow_events", dump(event), "event_id")
     return report
 
 
@@ -279,13 +338,29 @@ def generate_contact_email(target_id: str):
     if not profile:
         raise HTTPException(status_code=400, detail="Profile is required")
     target = get_target_or_404(target_id)
-    material = make_contact_email(
+    result = run_contact_email_workflow(
         profile,
         target,
         advisor_for_target(target),
         latest_match(target_id),
     )
-    return save_material_with_quality(material)
+    for version in result.versions:
+        workspace.write("material_versions", dump(version), "version_id")
+    for event in result.events:
+        workspace.write("workflow_events", dump(event), "event_id")
+    workspace.write("generated", dump(result.material), "material_id")
+    workspace.write("quality_reports", dump(result.quality), "quality_id")
+    workspace.write("agent_runs", dump(result.agent_run), "run_id")
+    return {
+        "material": result.material,
+        "quality": result.quality,
+        "draft": result.draft,
+        "review": result.review,
+        "evidence_audit": result.evidence_audit,
+        "revision": result.revision,
+        "events": result.events,
+        "agent_run": result.agent_run,
+    }
 
 
 @app.post("/api/targets/{target_id}/materials/interview-questions")
@@ -311,6 +386,19 @@ def generate_ppt_outline(target_id: str):
 @app.get("/api/generated")
 def list_generated():
     return workspace.list("generated")
+
+
+@app.get("/api/agent-runs")
+def list_agent_runs():
+    return workspace.list("agent_runs")
+
+
+@app.get("/api/agent-runs/{run_id}/events")
+def list_agent_run_events(run_id: str):
+    run = workspace.read("agent_runs", run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    return [event for event in workspace.list("workflow_events") if event.get("run_id") == run_id]
 
 
 @app.get("/api/generated/{material_id}")
@@ -404,9 +492,7 @@ def download_presentation(task_id: str):
         raise HTTPException(status_code=404, detail="Presentation output not found")
     return FileResponse(
         path,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ),
+        media_type=("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
         filename=path.name,
     )
 

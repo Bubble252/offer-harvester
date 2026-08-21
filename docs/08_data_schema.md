@@ -12,6 +12,73 @@
 - 模型生成内容不能覆盖原始事实，只能生成结构化摘要和建议
 - 所有匹配结论都需要 evidence 证据链
 
+## User Document Manifest：用户原始资料索引
+
+用于记录用户上传或粘贴的原始学生资料。原始资料保存在 `workspace/user_documents/`，结构化画像保存在 `workspace/profiles/`，二者不能混用。
+
+```json
+{
+  "documents": [
+    {
+      "document_id": "doc_001",
+      "category": "resumes",
+      "path": "user_documents/resumes/resume_20260821_abcd1234ef.txt",
+      "original_filename": "resume.txt",
+      "source_type": "local_upload",
+      "content_hash": "sha256:...",
+      "uploaded_at": "2026-08-21T10:00:00+08:00",
+      "trusted": true,
+      "confirmed": false,
+      "notes": "学生资料页上传文件"
+    }
+  ]
+}
+```
+
+字段说明：
+
+- `category`：`resumes`、`transcripts`、`research_projects`、`publications`、`awards`、`personal_statements`、`manual_inputs`、`web_supplements`、`misc`
+- `source_type`：`local_upload`、`manual_input`、`web_supplement`
+- `path`：相对 `workspace/` 的路径，Agent 不应绕过 manifest 随意扫描目录
+- `content_hash`：用于去重、审计和判断资料是否被替换
+- `confirmed`：是否已被用户确认可以进入正式学生画像
+
+## Student Profile：学生结构化画像
+
+用于存储从用户原始资料中抽取的学生画像。第一版字段级证据映射记录每类字段来自哪些 `document_id`，后续再扩展到逐条项目和逐条论文级别。
+
+```json
+{
+  "profile_id": "profile_001",
+  "name": "匿名学生",
+  "education": "某大学计算机学院",
+  "gpa": "3.85/4.00",
+  "rank": "前 10%",
+  "research_interests": ["多模态", "智能体"],
+  "projects": ["项目：多模态论文问答系统"],
+  "publications": ["论文：某会议在投"],
+  "competitions": ["大学生创新训练计划"],
+  "skills": ["Python", "PyTorch"],
+  "risks": [],
+  "source_document_ids": ["doc_resume", "doc_project"],
+  "evidence_map": {
+    "education": ["doc_resume"],
+    "gpa": ["doc_resume"],
+    "rank": ["doc_resume"],
+    "projects": ["doc_project"],
+    "publications": ["doc_project"],
+    "skills": ["doc_resume", "doc_project"]
+  },
+  "updated_at": "2026-08-21T10:00:00+08:00"
+}
+```
+
+字段说明：
+
+- `source_document_ids`：本次画像抽取使用过的原始资料 ID 集合
+- `evidence_map`：字段级证据映射，值必须来自 `User Document Manifest`
+- `raw_text`：后端可保存用于本地复核，但开源样例不应包含真实学生隐私
+
 ## Advisor Source：导师资料来源
 
 用于记录每一条导师相关资料的来源。来源可以是 URL 抓取，也可以是用户手动粘贴。

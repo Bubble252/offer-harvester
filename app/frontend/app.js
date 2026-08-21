@@ -5,6 +5,7 @@ const state = {
   targets: [],
   applications: [],
   materials: [],
+  userDocuments: [],
   selectedMaterial: null,
 };
 
@@ -31,6 +32,25 @@ const applicationStatuses = [
   ["accepted", "已录取"],
   ["rejected", "未录取"],
   ["withdrawn", "已放弃"],
+];
+
+const profileFields = [
+  ["name", "姓名"],
+  ["education", "教育背景"],
+  ["gpa", "GPA"],
+  ["rank", "排名"],
+  ["research_interests", "研究兴趣"],
+  ["projects", "项目经历"],
+  ["publications", "论文成果"],
+  ["competitions", "竞赛奖项"],
+  ["skills", "技能关键词"],
+];
+
+const confirmationStatuses = [
+  ["unconfirmed", "未确认"],
+  ["confirmed", "已确认"],
+  ["rejected", "已否认"],
+  ["needs_review", "需复核"],
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -73,6 +93,29 @@ function statusLabel(status) {
 function tagList(values) {
   if (!values || !values.length) return "<span class='item-meta'>待补充</span>";
   return `<div class="tag-row">${values.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}</div>`;
+}
+
+function listToText(values) {
+  return (values || []).join("\n");
+}
+
+function textToList(value) {
+  return String(value || "")
+    .split(/\n|；|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function confirmationOptions(current) {
+  return confirmationStatuses
+    .map(([value, label]) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`)
+    .join("");
+}
+
+function profileFieldValue(profile, field) {
+  const value = profile[field];
+  if (Array.isArray(value)) return tagList(value);
+  return escapeHtml(value || "待补充");
 }
 
 function showView(view) {
@@ -121,22 +164,47 @@ function renderDashboard() {
 function renderProfile() {
   if (!state.profile) {
     $("profileView").innerHTML = "<div class='empty-state'>尚未创建学生画像。</div>";
+    renderUserDocuments();
     return;
   }
   const profile = state.profile;
-  $("profileView").innerHTML = [
-    ["姓名", escapeHtml(profile.name)],
-    ["教育背景", escapeHtml(profile.education || "待补充")],
-    ["GPA", escapeHtml(profile.gpa || "待补充")],
-    ["排名", escapeHtml(profile.rank || "待补充")],
-    ["研究兴趣", tagList(profile.research_interests)],
-    ["项目经历", tagList(profile.projects)],
-    ["论文成果", tagList(profile.publications)],
-    ["竞赛奖项", tagList(profile.competitions)],
+  $("profileView").innerHTML = profileFields
+    .map(([field, label]) => {
+      const status = (profile.confirmation_map || {})[field] || "unconfirmed";
+      const evidenceIds = (profile.evidence_map || {})[field] || [];
+      return `<div class="detail-group profile-field-row">
+        <span class="detail-label">${label}</span>
+        <div class="profile-field-main">
+          <div>${profileFieldValue(profile, field)}</div>
+          <div class="field-evidence">${evidenceIds.length ? `证据：${escapeHtml(evidenceIds.join("、"))}` : "证据：待补充"}</div>
+        </div>
+        <select class="confirmation-select" data-profile-field="${field}" aria-label="${label}确认状态">
+          ${confirmationOptions(status)}
+        </select>
+      </div>`;
+    })
+    .join("");
+  $("profileView").innerHTML += [
+    ["来源资料", tagList(profile.source_document_ids)],
     ["风险项", tagList(profile.risks)],
   ]
     .map(([label, value]) => `<div class="detail-group"><span class="detail-label">${label}</span><div>${value}</div></div>`)
     .join("");
+  renderUserDocuments();
+}
+
+function renderUserDocuments() {
+  const documents = state.userDocuments || [];
+  $("userDocumentList").innerHTML = documents.length
+    ? documents
+        .slice()
+        .reverse()
+        .map((document) => `<div class="list-item">
+          <div class="item-title">${escapeHtml(document.original_filename || document.document_id)}</div>
+          <div class="item-meta">${escapeHtml(document.category)} · ${escapeHtml(document.source_type)} · ${escapeHtml(document.uploaded_at)}</div>
+        </div>`)
+        .join("")
+    : "<div class='empty-state'>尚未保存原始资料。</div>";
 }
 
 function renderAdvisorOptions() {
@@ -183,11 +251,39 @@ function renderAdvisors() {
       ${risks.length ? `<div class="risk-line">${escapeHtml(risks.join("；"))}</div>` : ""}
       <div class="button-row compact-actions">
         ${source ? `<button data-source-id="${escapeHtml(source.source_id)}">查看来源正文</button>` : ""}
+        <button data-edit-advisor-id="${escapeHtml(advisor.advisor_id)}">编辑导师画像</button>
         <button data-create-target-advisor-id="${escapeHtml(advisor.advisor_id)}">创建申请目标</button>
       </div>
     </div>`;
   });
   $("advisorList").innerHTML = items.length ? items.join("") : "<div class='empty-state'>尚未保存导师资料。</div>";
+}
+
+function showAdvisorEditor(advisorId) {
+  const advisor = state.advisors.find((item) => item.advisor_id === advisorId);
+  if (!advisor) return toast("未找到导师画像");
+  $("editAdvisorId").value = advisor.advisor_id;
+  $("editNameZh").value = advisor.name_zh || "";
+  $("editNameEn").value = advisor.name_en || "";
+  $("editTitle").value = advisor.title || "";
+  $("editEmail").value = advisor.email || "";
+  $("editSchool").value = advisor.school || "";
+  $("editCollege").value = advisor.college || advisor.department || "";
+  $("editLabName").value = advisor.lab_name || "";
+  $("editRecruitingStatus").value = advisor.recruiting_status || "unknown";
+  $("editResearchDirections").value = listToText(advisor.research_directions);
+  $("editAdmissionRequirements").value = listToText(advisor.admission_requirements);
+  $("editPreferredStudentProfile").value = listToText(advisor.preferred_student_profile);
+  $("editRepresentativePapers").value = listToText(advisor.representative_papers);
+  $("editResearchProjects").value = listToText(advisor.research_projects);
+  $("editRiskNotes").value = listToText(advisor.risk_notes);
+  $("editIdentityConfirmed").checked = Boolean(advisor.identity_confirmed);
+  $("advisorEditor").classList.remove("hidden");
+}
+
+function hideAdvisorEditor() {
+  $("editAdvisorId").value = "";
+  $("advisorEditor").classList.add("hidden");
 }
 
 function renderTargets() {
@@ -234,7 +330,7 @@ function renderGeneratedMaterials() {
     : "<div class='empty-state'>选择目标后生成材料会显示在这里。</div>";
 }
 
-function renderMaterial(material, quality = null) {
+function renderMaterial(material, quality = null, workflow = null) {
   state.selectedMaterial = material;
   $("materialTitle").textContent = material.title;
   $("materialMeta").textContent = `${material.material_type} · ${material.created_at}`;
@@ -242,14 +338,72 @@ function renderMaterial(material, quality = null) {
   const download = $("downloadMaterialBtn");
   download.href = `/api/generated/${encodeURIComponent(material.material_id)}/download`;
   download.classList.remove("hidden");
-  if (!quality) {
+  const sections = [];
+  if (quality) {
+    const messages = quality.checks
+      .map((check) => `<li>${check.passed ? "通过" : "需复核"}：${escapeHtml(check.message)}</li>`)
+      .join("");
+    sections.push(`<div class="quality-summary ${quality.risk_level}"><strong>${quality.passed ? "基础质量检查通过" : "建议人工复核"}，风险：${escapeHtml(quality.risk_level)}</strong><ul>${messages}</ul></div>`);
+  }
+  if (workflow && workflow.review) {
+    const review = workflow.review;
+    const issues = (review.issues || [])
+      .map((issue) => `<li>${escapeHtml(issue.message || issue.type)}</li>`)
+      .join("");
+    const optional = (review.optional_improvements || [])
+      .map((item) => `<li>${escapeHtml(item)}</li>`)
+      .join("");
+    sections.push(`<div class="quality-summary ${review.risk_level}"><strong>Reviewer：${review.passed ? "通过" : "需要修改"}</strong><ul>${issues || optional || "<li>未发现必须修改项。</li>"}</ul></div>`);
+  }
+  if (workflow && workflow.evidence_audit) {
+    const audit = workflow.evidence_audit;
+    const claims = (audit.claims || [])
+      .slice(0, 6)
+      .map((claim) => `<li>${escapeHtml(claim.status)}：${escapeHtml(claim.message)}</li>`)
+      .join("");
+    const confirmations = (audit.needs_confirmation || [])
+      .map((item) => `<li>需确认：${escapeHtml(item)}</li>`)
+      .join("");
+    sections.push(`<div class="quality-summary ${audit.passed ? "low" : "high"}"><strong>Evidence Auditor：${audit.passed ? "证据通过" : "证据需复核"}</strong><ul>${claims}${confirmations}</ul></div>`);
+  }
+  if (!sections.length) {
     $("qualityView").innerHTML = "";
     return;
   }
-  const messages = quality.checks
-    .map((check) => `<li>${check.passed ? "通过" : "需复核"}：${escapeHtml(check.message)}</li>`)
-    .join("");
-  $("qualityView").innerHTML = `<div class="quality-summary ${quality.risk_level}"><strong>${quality.passed ? "基础质量检查通过" : "建议人工复核"}，风险：${escapeHtml(quality.risk_level)}</strong><ul>${messages}</ul></div>`;
+  $("qualityView").innerHTML = sections.join("");
+}
+
+function renderMatchReport(report) {
+  state.selectedMaterial = null;
+  $("materialTitle").textContent = "匹配分析报告";
+  $("materialMeta").textContent = `${report.tier || "unknown"} · ${report.fit_score ?? 0} 分`;
+  const strengths = (report.strengths || [])
+    .map((item) => `- ${item.point || item.dimension || "匹配点待补充"}`)
+    .join("\n");
+  const gaps = (report.gaps || [])
+    .map((item) => `- ${item.point || "风险项待补充"}${item.suggestion ? `；建议：${item.suggestion}` : ""}`)
+    .join("\n");
+  const actions = (report.recommended_actions || []).map((item) => `- ${item}`).join("\n");
+  $("materialView").textContent = [
+    `# 匹配分析报告`,
+    "",
+    `匹配等级：${report.tier || "unknown"}`,
+    `匹配分数：${report.fit_score ?? 0}`,
+    "",
+    `## 总结`,
+    report.summary || "暂无总结。",
+    "",
+    `## 匹配点`,
+    strengths || "- 暂未识别到明确匹配点。",
+    "",
+    `## 风险与缺口`,
+    gaps || "- 暂未识别到主要风险。",
+    "",
+    `## 下一步`,
+    actions || "- 补充学生资料和导师来源后重新分析。",
+  ].join("\n");
+  $("downloadMaterialBtn").classList.add("hidden");
+  $("qualityView").innerHTML = "";
 }
 
 function renderAll() {
@@ -269,12 +423,20 @@ async function refresh() {
     } catch {
       state.profile = null;
     }
-    [state.advisors, state.sources, state.targets, state.applications, state.materials] = await Promise.all([
+    [
+      state.advisors,
+      state.sources,
+      state.targets,
+      state.applications,
+      state.materials,
+      state.userDocuments,
+    ] = await Promise.all([
       api("/api/advisors"),
       api("/api/advisor-sources"),
       api("/api/targets"),
       api("/api/applications"),
       api("/api/generated"),
+      api("/api/user-documents").then((manifest) => manifest.documents || []),
     ]);
     renderAll();
   } catch (error) {
@@ -284,15 +446,36 @@ async function refresh() {
 
 async function saveProfile() {
   const text = $("profileText").value.trim();
-  if (!text) return toast("请先粘贴学生资料");
+  const file = $("profileFile").files[0];
+  if (!text && !file) return toast("请先粘贴或上传学生资料");
   const form = new FormData();
   form.append("text", text);
+  form.append("category", $("profileCategory").value);
+  if (file) form.append("file", file);
   const response = await fetch("/api/profile/upload", { method: "POST", body: form });
   if (!response.ok) return toast("学生画像生成失败");
   state.profile = await response.json();
-  renderProfile();
-  renderMetrics();
+  $("profileFile").value = "";
+  await refresh();
   toast("学生画像已生成");
+}
+
+async function saveProfileConfirmations() {
+  if (!state.profile) return toast("尚未创建学生画像");
+  const confirmationMap = { ...(state.profile.confirmation_map || {}) };
+  document.querySelectorAll("[data-profile-field]").forEach((node) => {
+    confirmationMap[node.dataset.profileField] = node.value;
+  });
+  try {
+    state.profile = await api("/api/profile", {
+      method: "PUT",
+      body: JSON.stringify({ ...state.profile, confirmation_map: confirmationMap }),
+    });
+    renderProfile();
+    toast("字段确认状态已保存");
+  } catch (error) {
+    toast(`保存字段确认失败：${error.message}`);
+  }
 }
 
 async function saveAdvisor() {
@@ -338,6 +521,40 @@ async function createTarget() {
   await refresh();
 }
 
+async function saveAdvisorEdit() {
+  const advisorId = $("editAdvisorId").value;
+  if (!advisorId) return toast("请先选择导师画像");
+  const directions = textToList($("editResearchDirections").value);
+  const payload = {
+    name_zh: $("editNameZh").value.trim(),
+    name_en: $("editNameEn").value.trim(),
+    title: $("editTitle").value.trim(),
+    email: $("editEmail").value.trim(),
+    school: $("editSchool").value.trim(),
+    college: $("editCollege").value.trim(),
+    department: $("editCollege").value.trim(),
+    lab_name: $("editLabName").value.trim(),
+    recruiting_status: $("editRecruitingStatus").value,
+    research_directions: directions,
+    recent_focus: directions.slice(0, 3),
+    keywords: directions,
+    admission_requirements: textToList($("editAdmissionRequirements").value),
+    preferred_student_profile: textToList($("editPreferredStudentProfile").value),
+    representative_papers: textToList($("editRepresentativePapers").value),
+    research_projects: textToList($("editResearchProjects").value),
+    risk_notes: textToList($("editRiskNotes").value),
+    identity_confirmed: $("editIdentityConfirmed").checked,
+  };
+  try {
+    await api(`/api/advisors/${advisorId}`, { method: "PUT", body: JSON.stringify(payload) });
+    toast("导师画像已保存");
+    hideAdvisorEditor();
+    await refresh();
+  } catch (error) {
+    toast(`导师画像保存失败：${error.message}`);
+  }
+}
+
 async function createTargetFromAdvisor(advisorId) {
   try {
     const result = await api(`/api/advisors/${advisorId}/target`, {
@@ -370,7 +587,11 @@ async function generate(path, label) {
   if (!id) return;
   try {
     const result = await api(`/api/targets/${id}/${path}`, { method: "POST" });
-    renderMaterial(result.material || result, result.quality || null);
+    if (path === "match") {
+      renderMatchReport(result);
+    } else {
+      renderMaterial(result.material || result, result.quality || null, result.agent_run ? result : null);
+    }
     toast(`${label}已生成`);
     await refresh();
   } catch (error) {
@@ -455,6 +676,7 @@ document.querySelectorAll("[data-view-link]").forEach((button) => {
 
 $("refreshBtn").addEventListener("click", refresh);
 $("saveProfileBtn").addEventListener("click", saveProfile);
+$("saveProfileConfirmationsBtn").addEventListener("click", saveProfileConfirmations);
 $("saveAdvisorBtn").addEventListener("click", saveAdvisor);
 $("createTargetBtn").addEventListener("click", createTarget);
 $("matchBtn").addEventListener("click", () => generate("match", "匹配分析"));
@@ -464,10 +686,14 @@ $("pptBtn").addEventListener("click", () => generate("materials/ppt-outline", "P
 $("pptxBtn").addEventListener("click", generatePptx);
 $("generateReportBtn").addEventListener("click", generateReport);
 $("targetSelect").addEventListener("change", renderGeneratedMaterials);
+$("saveAdvisorEditBtn").addEventListener("click", saveAdvisorEdit);
+$("cancelAdvisorEditBtn").addEventListener("click", hideAdvisorEditor);
 
 $("advisorList").addEventListener("click", (event) => {
   const sourceId = event.target.dataset.sourceId;
   if (sourceId) showSource(sourceId);
+  const editAdvisorId = event.target.dataset.editAdvisorId;
+  if (editAdvisorId) showAdvisorEditor(editAdvisorId);
   const advisorId = event.target.dataset.createTargetAdvisorId;
   if (advisorId) createTargetFromAdvisor(advisorId);
 });

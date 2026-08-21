@@ -4,13 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>保研硕博申请工作台</title>
+    <link rel="icon" type="image/png" href="/static/assets/logo.png" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <div class="brand-mark">GA</div>
+          <img class="brand-mark" src="/static/assets/logo.png" alt="Grad Apply Workflow logo" />
           <div>
             <strong>申请工作台</strong>
             <span>保研硕博申请</span>
@@ -74,6 +75,19 @@
               </div>
               <label for="profileText">原始资料</label>
               <textarea id="profileText" rows="18" placeholder="例如：&#10;姓名&#10;学校和专业&#10;GPA / 排名&#10;项目：问题、方法、个人贡献和结果"></textarea>
+              <label for="profileFile">原始文件</label>
+              <input id="profileFile" type="file" accept=".pdf,.docx,.md,.txt,.json,.csv,.xlsx,.png,.jpg,.jpeg" />
+              <label for="profileCategory">资料类型</label>
+              <select id="profileCategory">
+                <option value="manual_inputs">手动输入</option>
+                <option value="resumes">简历</option>
+                <option value="transcripts">成绩单</option>
+                <option value="research_projects">科研项目</option>
+                <option value="publications">论文材料</option>
+                <option value="awards">奖项证书</option>
+                <option value="personal_statements">个人陈述</option>
+                <option value="misc">其他</option>
+              </select>
               <div class="button-row">
                 <button id="saveProfileBtn">生成学生画像</button>
               </div>
@@ -86,6 +100,10 @@
                 </div>
               </div>
               <div class="detail-view" id="profileView"></div>
+              <div class="button-row">
+                <button id="saveProfileConfirmationsBtn" class="secondary">保存字段确认</button>
+              </div>
+              <div class="stack-list" id="userDocumentList"></div>
             </section>
           </div>
         </section>
@@ -131,6 +149,68 @@
                 </div>
               </div>
               <div class="stack-list" id="advisorList"></div>
+              <div class="advisor-editor hidden" id="advisorEditor">
+                <h3>编辑导师画像</h3>
+                <input id="editAdvisorId" type="hidden" />
+                <div class="editor-grid">
+                  <div>
+                    <label for="editNameZh">中文名</label>
+                    <input id="editNameZh" />
+                  </div>
+                  <div>
+                    <label for="editNameEn">英文名</label>
+                    <input id="editNameEn" />
+                  </div>
+                  <div>
+                    <label for="editTitle">职称</label>
+                    <input id="editTitle" />
+                  </div>
+                  <div>
+                    <label for="editEmail">邮箱</label>
+                    <input id="editEmail" />
+                  </div>
+                  <div>
+                    <label for="editSchool">学校</label>
+                    <input id="editSchool" />
+                  </div>
+                  <div>
+                    <label for="editCollege">学院/系所</label>
+                    <input id="editCollege" />
+                  </div>
+                  <div>
+                    <label for="editLabName">实验室/课题组</label>
+                    <input id="editLabName" />
+                  </div>
+                  <div>
+                    <label for="editRecruitingStatus">招生状态</label>
+                    <select id="editRecruitingStatus">
+                      <option value="unknown">未知</option>
+                      <option value="open">开放</option>
+                      <option value="closed">关闭</option>
+                    </select>
+                  </div>
+                </div>
+                <label for="editResearchDirections">研究方向（每行一个）</label>
+                <textarea id="editResearchDirections" rows="3"></textarea>
+                <label for="editAdmissionRequirements">招生要求（每行一个）</label>
+                <textarea id="editAdmissionRequirements" rows="3"></textarea>
+                <label for="editPreferredStudentProfile">偏好学生画像（每行一个）</label>
+                <textarea id="editPreferredStudentProfile" rows="3"></textarea>
+                <label for="editRepresentativePapers">代表论文（每行一个）</label>
+                <textarea id="editRepresentativePapers" rows="3"></textarea>
+                <label for="editResearchProjects">项目经历（每行一个）</label>
+                <textarea id="editResearchProjects" rows="3"></textarea>
+                <label for="editRiskNotes">风险提示（每行一个）</label>
+                <textarea id="editRiskNotes" rows="3"></textarea>
+                <label class="checkbox-row">
+                  <input id="editIdentityConfirmed" type="checkbox" />
+                  <span>身份信息已人工确认</span>
+                </label>
+                <div class="button-row compact-actions">
+                  <button id="saveAdvisorEditBtn">保存导师画像</button>
+                  <button class="secondary-button" id="cancelAdvisorEditBtn">取消</button>
+                </div>
+              </div>
             </section>
           </div>
         </section>

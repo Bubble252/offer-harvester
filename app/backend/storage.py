@@ -1,9 +1,39 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from models import UserDocumentRecord
+
+USER_DOCUMENT_CATEGORIES = {
+    "resumes",
+    "transcripts",
+    "research_projects",
+    "publications",
+    "awards",
+    "personal_statements",
+    "manual_inputs",
+    "web_supplements",
+    "misc",
+}
+
+ALLOWED_USER_DOCUMENT_SUFFIXES = {
+    ".pdf",
+    ".docx",
+    ".md",
+    ".txt",
+    ".json",
+    ".csv",
+    ".xlsx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+}
 
 
 class Workspace:
@@ -13,17 +43,23 @@ class Workspace:
         self.root.mkdir(parents=True, exist_ok=True)
         for name in [
             "profiles",
+            "user_documents",
             "advisor_sources",
             "advisors",
             "targets",
             "matches",
             "applications",
             "generated",
+            "material_versions",
             "quality_reports",
+            "agent_runs",
+            "workflow_events",
             "presentation_tasks",
             "reports",
         ]:
             (self.root / name).mkdir(exist_ok=True)
+        for name in USER_DOCUMENT_CATEGORIES:
+            (self.root / "user_documents" / name).mkdir(exist_ok=True)
 
     def path(self, collection: str, item_id: str) -> Path:
         return self.root / collection / f"{item_id}.json"
@@ -50,3 +86,74 @@ class Workspace:
     def latest(self, collection: str) -> Optional[Dict[str, Any]]:
         items = self.list(collection)
         return items[-1] if items else None
+
+    def user_document_manifest_path(self) -> Path:
+        return self.root / "user_documents" / "manifest.json"
+
+    def read_user_document_manifest(self) -> Dict[str, Any]:
+        path = self.user_document_manifest_path()
+        if not path.exists():
+            return {"documents": []}
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def write_user_document_manifest(self, manifest: Dict[str, Any]) -> Dict[str, Any]:
+        self.user_document_manifest_path().write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return manifest
+
+    def save_user_document(
+        self,
+        content: bytes,
+        original_filename: str,
+        category: str = "manual_inputs",
+        source_type: str = "manual_input",
+        trusted: bool = True,
+        confirmed: bool = False,
+        notes: str = "",
+    ) -> UserDocumentRecord:
+        if not content:
+            raise ValueError("User document content is required")
+        category = category if category in USER_DOCUMENT_CATEGORIES else "misc"
+        filename = safe_filename(original_filename or "manual_input.txt")
+        suffix = Path(filename).suffix.lower()
+        if source_type == "manual_input" and not suffix:
+            filename = f"{filename}.txt"
+            suffix = ".txt"
+        if suffix not in ALLOWED_USER_DOCUMENT_SUFFIXES:
+            raise ValueError(f"Unsupported user document format: {suffix or 'no extension'}")
+
+        digest = hashlib.sha256(content).hexdigest()
+        timestamp = datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+        stem = Path(filename).stem or "document"
+        stored_name = f"{stem}_{timestamp}_{digest[:10]}{suffix}"
+        relative_path = Path("user_documents") / category / stored_name
+        output_path = self.root / relative_path
+        output_path.write_bytes(content)
+
+        record = UserDocumentRecord(
+            category=category,
+            path=relative_path.as_posix(),
+            original_filename=original_filename or filename,
+            source_type=source_type,  # type: ignore[arg-type]
+            content_hash=f"sha256:{digest}",
+            trusted=trusted,
+            confirmed=confirmed,
+            notes=notes,
+        )
+        manifest = self.read_user_document_manifest()
+        documents = manifest.setdefault("documents", [])
+        documents.append(record.model_dump() if hasattr(record, "model_dump") else record.dict())
+        self.write_user_document_manifest(manifest)
+        return record
+
+
+def safe_filename(value: str) -> str:
+    name = Path(value).name.strip() or "document.txt"
+    name = re.sub(r"[\x00-\x1f\x7f/\\:]+", "_", name)
+    name = re.sub(r"\s+", "_", name)
+    name = re.sub(r"[^A-Za-z0-9._\-\u4e00-\u9fff]+", "_", name)
+    if len(name) > 120:
+        suffix = Path(name).suffix
+        name = name[: 120 - len(suffix)] + suffix
+    return name or "document.txt"

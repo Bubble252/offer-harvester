@@ -16,11 +16,16 @@ from models import (
     AdvisorSourceCreate,
     ApplicationRecord,
     GeneratedMaterial,
-    MaterialQualityReport,
     MatchReport,
+    MaterialQualityReport,
     StudentProfile,
     Target,
     now_iso,
+)
+from quality.checks import (
+    profile_confirmation_map,
+    usable_list_profile_field,
+    usable_scalar_profile_field,
 )
 
 
@@ -133,17 +138,27 @@ def merge_advisor_profile_with_llm(
             data.setdefault("evidence_map", {})[field] = source_ids
 
     recruiting_status = llm_data.get("recruiting_status")
-    if recruiting_status in {"open", "closed", "unknown"} and data.get("recruiting_status") == "unknown":
+    if (
+        recruiting_status in {"open", "closed", "unknown"}
+        and data.get("recruiting_status") == "unknown"
+    ):
         data["recruiting_status"] = recruiting_status
         if recruiting_status != "unknown":
             data.setdefault("evidence_map", {})["recruiting"] = source_ids
 
     risks = llm_data.get("risk_notes") if isinstance(llm_data.get("risk_notes"), list) else []
-    missing = llm_data.get("missing_fields") if isinstance(llm_data.get("missing_fields"), list) else []
+    missing = (
+        llm_data.get("missing_fields") if isinstance(llm_data.get("missing_fields"), list) else []
+    )
     notes = [str(item).strip() for item in risks + missing if str(item).strip()]
     data["risk_notes"] = list(dict.fromkeys((data.get("risk_notes") or []) + notes))
-    data["keywords"] = list(dict.fromkeys((data.get("keywords") or []) + data.get("research_directions", [])))
-    data["identity_confirmed"] = bool(data.get("name_zh") and (data.get("school") or data.get("college") or data.get("homepage_url")))
+    data["keywords"] = list(
+        dict.fromkeys((data.get("keywords") or []) + data.get("research_directions", []))
+    )
+    data["identity_confirmed"] = bool(
+        data.get("name_zh")
+        and (data.get("school") or data.get("college") or data.get("homepage_url"))
+    )
     return AdvisorProfile(**data)
 
 
@@ -187,7 +202,10 @@ def fetch_url_text(url: str) -> tuple[str, str]:
     return html, parser.text() or normalize_text(html)
 
 
-def build_profile_from_text(text: str) -> StudentProfile:
+def build_profile_from_text(
+    text: str, source_document_ids: Optional[List[str]] = None
+) -> StudentProfile:
+    source_document_ids = source_document_ids or []
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     joined = "\n".join(lines)
     name = "未命名学生"
@@ -197,27 +215,82 @@ def build_profile_from_text(text: str) -> StudentProfile:
             break
     interests = keyword_hits(
         joined,
-        ["大模型", "多模态", "机器学习", "深度学习", "计算机视觉", "自然语言处理", "智能体", "数据挖掘", "推荐系统"],
+        [
+            "大模型",
+            "多模态",
+            "机器学习",
+            "深度学习",
+            "计算机视觉",
+            "自然语言处理",
+            "智能体",
+            "数据挖掘",
+            "推荐系统",
+        ],
     )
     skills = keyword_hits(
         joined,
-        ["Python", "PyTorch", "TensorFlow", "Java", "C++", "SQL", "Linux", "LaTeX", "FastAPI", "Vue"],
+        [
+            "Python",
+            "PyTorch",
+            "TensorFlow",
+            "Java",
+            "C++",
+            "SQL",
+            "Linux",
+            "LaTeX",
+            "FastAPI",
+            "Vue",
+        ],
     )
     projects = [
         line
         for line in lines
         if any(token in line for token in ["项目", "系统", "平台", "研究", "实验"])
     ][:8]
-    publications = [line for line in lines if any(token in line for token in ["论文", "arXiv", "会议", "期刊", "投稿"])][:5]
-    competitions = [line for line in lines if any(token in line for token in ["竞赛", "奖", "挑战杯", "互联网+"])][:6]
+    publications = [
+        line
+        for line in lines
+        if any(token in line for token in ["论文", "arXiv", "会议", "期刊", "投稿"])
+    ][:5]
+    competitions = [
+        line
+        for line in lines
+        if any(token in line for token in ["竞赛", "奖", "挑战杯", "互联网+"])
+    ][:6]
     risks = []
     if not publications:
         risks.append("暂未识别到明确论文成果")
     if not re.search(r"GPA|绩点|排名|前\s*\d+%", joined, re.I):
         risks.append("暂未识别到明确 GPA 或排名")
+    education = next((line for line in lines if "大学" in line or "学院" in line), "")
+    gpa = first_match(
+        joined,
+        [
+            r"((?:GPA|绩点)\s*[:：]?\s*\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?)",
+        ],
+    )
+    rank = first_match(
+        joined,
+        [
+            r"((?:排名\s*[:：]?\s*)?(?:前\s*)?\d+\s*%)",
+            r"(排名\s*[:：]?\s*\d+\s*/\s*\d+)",
+        ],
+    )
+    evidence_map = profile_evidence_map(
+        source_document_ids,
+        education=education,
+        text=joined,
+        interests=interests,
+        projects=projects,
+        publications=publications,
+        competitions=competitions,
+        skills=skills,
+    )
     return StudentProfile(
         name=name,
-        education=next((line for line in lines if "大学" in line or "学院" in line), ""),
+        education=education,
+        gpa=gpa,
+        rank=rank,
         research_interests=interests,
         projects=projects,
         publications=publications,
@@ -225,7 +298,52 @@ def build_profile_from_text(text: str) -> StudentProfile:
         skills=skills,
         risks=risks,
         raw_text=joined,
+        source_document_ids=source_document_ids,
+        evidence_map=evidence_map,
+        confirmation_map=profile_confirmation_map(
+            name=name,
+            education=education,
+            gpa=gpa,
+            rank=rank,
+            interests=interests,
+            projects=projects,
+            publications=publications,
+            competitions=competitions,
+            skills=skills,
+        ),
     )
+
+
+def profile_evidence_map(
+    source_document_ids: List[str],
+    education: str,
+    text: str,
+    interests: List[str],
+    projects: List[str],
+    publications: List[str],
+    competitions: List[str],
+    skills: List[str],
+) -> dict:
+    if not source_document_ids:
+        return {}
+    evidence = {}
+    if education:
+        evidence["education"] = source_document_ids
+    if re.search(r"GPA|绩点", text, re.I):
+        evidence["gpa"] = source_document_ids
+    if re.search(r"排名|前\s*\d+%", text, re.I):
+        evidence["rank"] = source_document_ids
+    if interests:
+        evidence["research_interests"] = source_document_ids
+    if projects:
+        evidence["projects"] = source_document_ids
+    if publications:
+        evidence["publications"] = source_document_ids
+    if competitions:
+        evidence["competitions"] = source_document_ids
+    if skills:
+        evidence["skills"] = source_document_ids
+    return evidence
 
 
 def create_advisor_source(payload: AdvisorSourceCreate) -> AdvisorSource:
@@ -251,9 +369,7 @@ def create_advisor_source(payload: AdvisorSourceCreate) -> AdvisorSource:
         title=title,
         fetch_status=fetch_status,
         content_hash=(
-            f"sha256:{hashlib.sha256(raw_text.encode('utf-8')).hexdigest()}"
-            if raw_text
-            else ""
+            f"sha256:{hashlib.sha256(raw_text.encode('utf-8')).hexdigest()}" if raw_text else ""
         ),
         raw_text=raw_text,
         cleaned_text=cleaned_text,
@@ -268,7 +384,18 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
     email_match = re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", text)
     directions = keyword_hits(
         text,
-        ["大模型", "多模态", "机器学习", "深度学习", "计算机视觉", "自然语言处理", "智能体", "知识图谱", "推荐系统", "数据挖掘"],
+        [
+            "大模型",
+            "多模态",
+            "机器学习",
+            "深度学习",
+            "计算机视觉",
+            "自然语言处理",
+            "智能体",
+            "知识图谱",
+            "推荐系统",
+            "数据挖掘",
+        ],
     )
     student_type = []
     if "直博" in text or "博士" in text:
@@ -290,7 +417,9 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
     college = first_match(text, [r"([\u4e00-\u9fa5A-Za-z]+学院)", r"([\u4e00-\u9fa5A-Za-z]+系)"])
     if school and college.startswith(school):
         college = college[len(school) :]
-    lab_name = first_match(text, [r"([\u4e00-\u9fa5A-Za-z0-9]+实验室)", r"([\u4e00-\u9fa5A-Za-z0-9]+课题组)"])
+    lab_name = first_match(
+        text, [r"([\u4e00-\u9fa5A-Za-z0-9]+实验室)", r"([\u4e00-\u9fa5A-Za-z0-9]+课题组)"]
+    )
     for prefix in [school + college, school, college]:
         if prefix and lab_name.startswith(prefix):
             lab_name = lab_name[len(prefix) :]
@@ -302,8 +431,12 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
         recruiting_status = "closed"
     representative_papers = pick_lines(text, ["论文", "paper", "arXiv", "会议", "期刊", "发表"], 5)
     research_projects = pick_lines(text, ["项目", "课题", "基金", "NSFC", "重点研发"], 5)
-    admission_requirements = pick_lines(text, ["招生", "招收", "要求", "推免", "硕士", "博士", "直博"], 6)
-    preferred_student_profile = pick_lines(text, ["欢迎", "希望", "要求", "基础", "能力", "编程", "数学"], 5)
+    admission_requirements = pick_lines(
+        text, ["招生", "招收", "要求", "推免", "硕士", "博士", "直博"], 6
+    )
+    preferred_student_profile = pick_lines(
+        text, ["欢迎", "希望", "要求", "基础", "能力", "编程", "数学"], 5
+    )
     risk_notes = []
     if not sources:
         risk_notes.append("缺少导师来源")
@@ -317,7 +450,9 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
     evidence_map = {
         "identity": source_ids if name or title or school or college else [],
         "research_directions": source_ids if directions else [],
-        "recruiting": source_ids if recruiting_status != "unknown" or admission_requirements else [],
+        "recruiting": source_ids
+        if recruiting_status != "unknown" or admission_requirements
+        else [],
         "contact": source_ids if email_match else [],
         "papers": source_ids if representative_papers else [],
         "projects": source_ids if research_projects else [],
@@ -332,7 +467,9 @@ def parse_advisor_profile(sources: List[AdvisorSource]) -> AdvisorProfile:
         department=college,
         lab_name=lab_name,
         homepage_url=url,
-        lab_url=next((source.url for source in sources if source.source_type == "lab_homepage"), ""),
+        lab_url=next(
+            (source.url for source in sources if source.source_type == "lab_homepage"), ""
+        ),
         scholar_url=next((source.url for source in sources if "scholar.google" in source.url), ""),
         dblp_url=next((source.url for source in sources if "dblp" in source.url), ""),
         email=email_match.group(0) if email_match else "",
@@ -370,12 +507,25 @@ def make_match(
             fit_score=0,
             tier="unknown",
             summary="尚未建立学生画像，无法进行稳妥匹配分析。",
-            gaps=[{"point": "缺少学生资料", "severity": "high", "suggestion": "先上传简历、成绩和科研项目材料"}],
+            gaps=[
+                {
+                    "point": "缺少学生资料",
+                    "severity": "high",
+                    "suggestion": "先上传简历、成绩和科研项目材料",
+                }
+            ],
         )
     advisor_keywords = advisor.keywords if advisor else []
-    profile_text = " ".join(profile.research_interests + profile.projects + profile.skills + profile.publications)
+    research_interests = usable_list_profile_field(profile, "research_interests")
+    projects = usable_list_profile_field(profile, "projects")
+    skills = usable_list_profile_field(profile, "skills")
+    publications = usable_list_profile_field(profile, "publications")
+    profile_text = " ".join(research_interests + projects + skills + publications)
     overlaps = keyword_hits(profile_text, advisor_keywords)
-    score = min(95, 45 + len(overlaps) * 12 + len(profile.publications) * 6 + len(profile.projects) * 3)
+    score = min(
+        95,
+        45 + len(overlaps) * 12 + len(publications) * 6 + len(projects) * 3,
+    )
     if not advisor_keywords:
         tier = "unknown"
         score = min(score, 55)
@@ -396,9 +546,17 @@ def make_match(
         )
     gaps = []
     for risk in profile.risks:
-        gaps.append({"point": risk, "severity": "medium", "suggestion": "在材料中用项目贡献和实验细节补足"})
+        gaps.append(
+            {"point": risk, "severity": "medium", "suggestion": "在材料中用项目贡献和实验细节补足"}
+        )
     if not advisor_keywords:
-        gaps.append({"point": "导师资料不足", "severity": "high", "suggestion": "补充导师主页、实验室主页或近期论文链接"})
+        gaps.append(
+            {
+                "point": "导师资料不足",
+                "severity": "high",
+                "suggestion": "补充导师主页、实验室主页或近期论文链接",
+            }
+        )
     summary = {
         "strong_fit": "学生经历和导师方向匹配度较高，可作为重点准备目标。",
         "reasonable_fit": "学生经历与导师方向有相关性，适合作为稳妥准备目标。",
@@ -428,14 +586,20 @@ def make_contact_email(
     match: Optional[MatchReport],
 ) -> GeneratedMaterial:
     advisor_name = advisor.name_zh or "老师" if advisor else "老师"
-    directions = "、".join(advisor.research_directions[:3]) if advisor and advisor.research_directions else "您的研究方向"
-    projects = "；".join(profile.projects[:2]) or "相关科研项目"
+    directions = (
+        "、".join(advisor.research_directions[:3])
+        if advisor and advisor.research_directions
+        else "您的研究方向"
+    )
+    education = usable_scalar_profile_field(profile, "education", "一名准备保研的本科生")
+    projects = "；".join(usable_list_profile_field(profile, "projects")[:2]) or "相关科研项目"
+    signature = usable_scalar_profile_field(profile, "name", "学生")
     subject = f"保研咨询：关于{directions}方向的硕博申请"
     body = f"""邮件标题：{subject}
 
 {advisor_name}老师您好：
 
-我是{profile.education or '一名准备保研的本科生'}，目前关注{directions}方向。阅读您的公开主页和招生信息后，我对课题组的研究内容很感兴趣，希望咨询硕博申请和后续科研训练的机会。
+我是{education}，目前关注{directions}方向。阅读您的公开主页和招生信息后，我对课题组的研究内容很感兴趣，希望咨询硕博申请和后续科研训练的机会。
 
 我的相关经历主要包括：{projects}。这些经历让我对问题建模、实验设计和结果分析有了初步训练，也希望在研究生阶段继续围绕相关方向深入学习。
 
@@ -445,7 +609,7 @@ def make_contact_email(
 
 此致
 敬礼
-{profile.name}
+{signature}
 """
     evidence = [profile.profile_id, target.target_id]
     if advisor:
@@ -473,8 +637,9 @@ def make_interview_questions(
         "你为什么对我们课题组感兴趣？",
     ]
     questions.extend([f"你如何理解{direction}方向的核心问题？" for direction in directions[:4]])
-    for risk in profile.risks:
-        questions.append(f"你的材料中存在“{risk}”，如果老师追问，你会如何解释？")
+    if usable_list_profile_field(profile, "projects"):
+        for risk in profile.risks:
+            questions.append(f"你的材料中存在“{risk}”，如果老师追问，你会如何解释？")
     content = "\n".join(f"{idx}. {question}" for idx, question in enumerate(questions, 1))
     return GeneratedMaterial(
         target_id=target.target_id,
@@ -488,19 +653,32 @@ def make_interview_questions(
 def make_ppt_outline(
     profile: StudentProfile, target: Target, advisor: Optional[AdvisorProfile]
 ) -> GeneratedMaterial:
-    directions = "、".join(advisor.research_directions[:3]) if advisor and advisor.research_directions else "目标导师方向"
-    project = profile.projects[0] if profile.projects else "代表性科研/项目经历"
+    directions = (
+        "、".join(advisor.research_directions[:3])
+        if advisor and advisor.research_directions
+        else "目标导师方向"
+    )
+    education = usable_scalar_profile_field(profile, "education", "待补充")
+    grade = usable_scalar_profile_field(
+        profile,
+        "gpa",
+        usable_scalar_profile_field(profile, "rank", "待补充"),
+    )
+    skills = usable_list_profile_field(profile, "skills")
+    projects = usable_list_profile_field(profile, "projects")
+    project = projects[0] if projects else "代表性科研/项目经历"
+    display_name = usable_scalar_profile_field(profile, "name", "学生")
     content = f"""# 5 分钟保研面试展示 PPT 大纲
 
 ## 1. 封面
-- 标题：{profile.name} - {target.name} 保研面试展示
+- 标题：{display_name} - {target.name} 保研面试展示
 - 目的：说明申请目标和展示主题
 - 讲述重点：用一句话说明自己与目标方向的关系
 
 ## 2. 教育背景与能力概览
-- 学校/专业：{profile.education or '待补充'}
-- 成绩/排名：{profile.gpa or profile.rank or '待补充'}
-- 技能关键词：{'、'.join(profile.skills[:6]) or '待补充'}
+- 学校/专业：{education}
+- 成绩/排名：{grade}
+- 技能关键词：{"、".join(skills[:6]) or "待补充"}
 - 讲述重点：突出能支撑科研训练的基础能力
 
 ## 3. 代表科研/项目经历
@@ -532,51 +710,11 @@ def audit_material(
     profile: StudentProfile,
     advisor: Optional[AdvisorProfile],
 ) -> MaterialQualityReport:
-    """Block unsupported claims from being treated as reviewed application material."""
+    """Compatibility wrapper for older imports from services."""
 
-    advisor_sources = advisor.source_ids if advisor else []
-    prohibited = ["保证录取", "稳上", "必然录取", "百分之百"]
-    found = [phrase for phrase in prohibited if phrase in material.content]
-    profile_terms = profile.projects + profile.publications + profile.competitions
-    checks = [
-        {
-            "name": "evidence_present",
-            "passed": bool(material.evidence),
-            "message": "材料已关联证据。" if material.evidence else "材料缺少可追溯证据。",
-        },
-        {
-            "name": "advisor_source_present",
-            "passed": not advisor_sources
-            or any(item in advisor_sources for item in material.evidence),
-            "message": "导师相关内容已关联来源。"
-            if advisor_sources
-            else "导师资料不足，需人工核对方向表述。",
-        },
-        {
-            "name": "no_admission_claim",
-            "passed": not found,
-            "message": "未发现录取承诺。"
-            if not found
-            else f"发现高风险表达：{'、'.join(found)}",
-        },
-        {
-            "name": "student_fact_anchor",
-            "passed": not profile_terms
-            or any(term and term in material.content for term in profile_terms),
-            "message": "材料引用了学生已记录经历。"
-            if profile_terms
-            else "学生经历较少，建议人工核对材料。",
-        },
-    ]
-    failed_count = len([item for item in checks if not item["passed"]])
-    risk_level = "high" if failed_count >= 2 else "medium" if failed_count else "low"
-    return MaterialQualityReport(
-        material_id=material.material_id,
-        target_id=material.target_id,
-        passed=failed_count == 0,
-        checks=checks,
-        risk_level=risk_level,
-    )
+    from quality import audit_material as quality_audit_material
+
+    return quality_audit_material(material, profile, advisor)
 
 
 def build_workspace_report(
