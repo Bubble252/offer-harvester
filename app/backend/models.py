@@ -29,6 +29,7 @@ class StudentProfile(BaseModel):
     risks: List[str] = Field(default_factory=list)
     raw_text: str = ""
     source_document_ids: List[str] = Field(default_factory=list)
+    evidence_map: Dict[str, List[str]] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=now_iso)
 
 

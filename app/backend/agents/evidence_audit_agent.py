@@ -117,7 +117,12 @@ class EvidenceAuditAgent:
         unsupported: List[str],
     ) -> None:
         if any(token in content for token in ["GPA", "绩点", "排名"]):
-            has_grade_source = bool(
+            source_ids = list(
+                dict.fromkeys(
+                    profile.evidence_map.get("gpa", []) + profile.evidence_map.get("rank", [])
+                )
+            )
+            has_grade_source = bool(source_ids) or bool(
                 profile.gpa
                 or profile.rank
                 or "GPA" in profile.raw_text
@@ -127,10 +132,14 @@ class EvidenceAuditAgent:
                 {
                     "claim_type": "grade_or_rank",
                     "status": "supported" if has_grade_source else "unsupported",
-                    "source_ids": [profile.profile_id] if has_grade_source else [],
-                    "message": "成绩或排名表述已在学生画像中出现。"
-                    if has_grade_source
-                    else "成绩或排名表述缺少学生画像证据。",
+                    "source_ids": source_ids or ([profile.profile_id] if has_grade_source else []),
+                    "message": "成绩或排名表述已关联字段级来源。"
+                    if source_ids
+                    else (
+                        "成绩或排名表述已在学生画像中出现。"
+                        if has_grade_source
+                        else "成绩或排名表述缺少学生画像证据。"
+                    ),
                 }
             )
             if not has_grade_source:

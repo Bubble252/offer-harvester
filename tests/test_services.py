@@ -58,6 +58,26 @@ def test_mvp_generation_flow_with_manual_advisor_text():
     assert "5 分钟" in outline.content
 
 
+def test_profile_evidence_map_tracks_source_documents():
+    profile = build_profile_from_text(
+        """
+        匿名学生
+        某大学计算机学院
+        GPA 3.85/4.00，排名前 10%
+        项目：多模态论文问答系统，使用 Python 和 PyTorch 实现检索增强问答。
+        论文：某会议在投。
+        """,
+        source_document_ids=["doc_resume", "doc_project"],
+    )
+
+    assert profile.source_document_ids == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["education"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["gpa"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["rank"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["projects"] == ["doc_resume", "doc_project"]
+    assert profile.evidence_map["publications"] == ["doc_resume", "doc_project"]
+
+
 def test_contact_email_agent_workflow_records_review_audit_and_versions():
     profile = build_profile_from_text(
         """
@@ -135,6 +155,27 @@ def test_evidence_audit_fails_when_required_sources_are_missing():
 
     assert not audit.passed
     assert audit.unsupported_claims
+
+
+def test_evidence_audit_uses_profile_field_document_ids():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\nGPA 3.8/4.0，排名前 10%\n项目：智能体系统原型开发",
+        source_document_ids=["doc_transcript"],
+    )
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="含成绩的套磁邮件",
+        content="老师您好，我的 GPA 3.8/4.0，排名前 10%。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+    grade_claim = next(claim for claim in audit.claims if claim["claim_type"] == "grade_or_rank")
+
+    assert audit.passed
+    assert grade_claim["source_ids"] == ["doc_transcript"]
 
 
 def test_source_hash_url_guard_quality_audit_and_progress_report():

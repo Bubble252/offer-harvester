@@ -521,7 +521,7 @@ workspace/
 - [x] `profiles/` 保存结构化学生画像，并记录来源 `document_id`
 - [ ] `material_versions/` 保存同一材料的 draft、reviewed、user_edited、final 等版本
 - [ ] `agent_runs/` 保存每次 drafter、reviewer、auditor 的输入摘要、输出摘要、状态和错误
-- [ ] 每个结构化字段应能追溯到 `user_documents/`、手动输入或用户确认记录
+- [x] 学生画像字段级 `evidence_map` 已能追溯到 `user_documents/` 的 `document_id`
 - [x] 学生资料以本地上传或粘贴内容为主证据源
 - [ ] 学生网页资料只能作为补充来源，例如个人主页、GitHub、Google Scholar、ORCID、论文页面、项目主页和获奖公示
 - [ ] 网页发现的学生信息不得直接覆盖本地资料，必须标记为外部来源并等待用户确认
@@ -637,6 +637,7 @@ manifest 记录每份本地资料的元信息，而不是让 Agent 随意扫描�
 - [ ] Agent 只能读取 manifest 中登记过的资料路径
 - [x] 如果 manifest 缺失，后端返回空 manifest；后续可补重建工具
 - [ ] 写入正式 `StudentProfile` 前必须经过用户确认或明确标记为未确认字段
+- [x] `StudentProfile` 已记录 `source_document_ids` 和字段级 `evidence_map`
 
 推荐读取流程：
 

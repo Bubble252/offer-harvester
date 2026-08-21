@@ -137,6 +137,7 @@ function renderProfile() {
     return;
   }
   const profile = state.profile;
+  const evidenceFields = Object.keys(profile.evidence_map || {});
   $("profileView").innerHTML = [
     ["姓名", escapeHtml(profile.name)],
     ["教育背景", escapeHtml(profile.education || "待补充")],
@@ -147,6 +148,7 @@ function renderProfile() {
     ["论文成果", tagList(profile.publications)],
     ["竞赛奖项", tagList(profile.competitions)],
     ["来源资料", tagList(profile.source_document_ids)],
+    ["字段证据", evidenceFields.length ? tagList(evidenceFields) : "待补充"],
     ["风险项", tagList(profile.risks)],
   ]
     .map(([label, value]) => `<div class="detail-group"><span class="detail-label">${label}</span><div>${value}</div></div>`)

@@ -197,7 +197,10 @@ def fetch_url_text(url: str) -> tuple[str, str]:
     return html, parser.text() or normalize_text(html)
 
 
-def build_profile_from_text(text: str) -> StudentProfile:
+def build_profile_from_text(
+    text: str, source_document_ids: Optional[List[str]] = None
+) -> StudentProfile:
+    source_document_ids = source_document_ids or []
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     joined = "\n".join(lines)
     name = "未命名学生"
@@ -254,9 +257,20 @@ def build_profile_from_text(text: str) -> StudentProfile:
         risks.append("暂未识别到明确论文成果")
     if not re.search(r"GPA|绩点|排名|前\s*\d+%", joined, re.I):
         risks.append("暂未识别到明确 GPA 或排名")
+    education = next((line for line in lines if "大学" in line or "学院" in line), "")
+    evidence_map = profile_evidence_map(
+        source_document_ids,
+        education=education,
+        text=joined,
+        interests=interests,
+        projects=projects,
+        publications=publications,
+        competitions=competitions,
+        skills=skills,
+    )
     return StudentProfile(
         name=name,
-        education=next((line for line in lines if "大学" in line or "学院" in line), ""),
+        education=education,
         research_interests=interests,
         projects=projects,
         publications=publications,
@@ -264,7 +278,41 @@ def build_profile_from_text(text: str) -> StudentProfile:
         skills=skills,
         risks=risks,
         raw_text=joined,
+        source_document_ids=source_document_ids,
+        evidence_map=evidence_map,
     )
+
+
+def profile_evidence_map(
+    source_document_ids: List[str],
+    education: str,
+    text: str,
+    interests: List[str],
+    projects: List[str],
+    publications: List[str],
+    competitions: List[str],
+    skills: List[str],
+) -> dict:
+    if not source_document_ids:
+        return {}
+    evidence = {}
+    if education:
+        evidence["education"] = source_document_ids
+    if re.search(r"GPA|绩点", text, re.I):
+        evidence["gpa"] = source_document_ids
+    if re.search(r"排名|前\s*\d+%", text, re.I):
+        evidence["rank"] = source_document_ids
+    if interests:
+        evidence["research_interests"] = source_document_ids
+    if projects:
+        evidence["projects"] = source_document_ids
+    if publications:
+        evidence["publications"] = source_document_ids
+    if competitions:
+        evidence["competitions"] = source_document_ids
+    if skills:
+        evidence["skills"] = source_document_ids
+    return evidence
 
 
 def create_advisor_source(payload: AdvisorSourceCreate) -> AdvisorSource:

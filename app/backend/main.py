@@ -161,8 +161,7 @@ async def upload_profile(
     content = "\n\n".join(part for part in content_parts if part.strip())
     if not content.strip():
         raise HTTPException(status_code=400, detail="Profile text is required")
-    profile = build_profile_from_text(content)
-    profile.source_document_ids = source_document_ids
+    profile = build_profile_from_text(content, source_document_ids=source_document_ids)
     workspace.write("profiles", dump(profile), "profile_id")
     return profile
 
