@@ -19,6 +19,8 @@
 
 ## Demo 截图
 
+完整带图说明见 [Demo Walkthrough](docs/11_demo_walkthrough.md)。
+
 - [申请概览](docs/assets/demo/01-dashboard.png)
 - [学生画像与字段证据](docs/assets/demo/02-profile-evidence.png)
 - [导师来源与画像](docs/assets/demo/03-advisor-sources.png)
