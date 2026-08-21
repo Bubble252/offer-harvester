@@ -43,8 +43,7 @@ class PresentationTask:
 class PresentationAdapter(Protocol):
     """约束外部演示文稿引擎必须提供的最小能力。"""
 
-    def generate(self, request: PresentationRequest) -> PresentationResult:
-        ...
+    def generate(self, request: PresentationRequest) -> PresentationResult: ...
 
 
 class LocalPptxAdapter:
@@ -93,9 +92,7 @@ class LocalPptxAdapter:
         background.solid()
         background.fore_color.rgb = self.WHITE
 
-        accent = slide.shapes.add_shape(
-            1, Inches(0), Inches(0), Inches(0.22), Inches(7.5)
-        )
+        accent = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(0.22), Inches(7.5))
         accent.fill.solid()
         accent.fill.fore_color.rgb = self.PURPLE
         accent.line.fill.background()
@@ -107,9 +104,7 @@ class LocalPptxAdapter:
         top_rule.fill.fore_color.rgb = self.LIGHT_PURPLE
         top_rule.line.fill.background()
 
-        title_box = slide.shapes.add_textbox(
-            Inches(0.78), Inches(0.82), Inches(10.9), Inches(0.65)
-        )
+        title_box = slide.shapes.add_textbox(Inches(0.78), Inches(0.82), Inches(10.9), Inches(0.65))
         title_frame = title_box.text_frame
         title_frame.clear()
         paragraph = title_frame.paragraphs[0]
@@ -144,9 +139,7 @@ class LocalPptxAdapter:
             paragraph.font.color.rgb = self.INK
             paragraph.space_after = Pt(13)
 
-        footer = slide.shapes.add_textbox(
-            Inches(0.82), Inches(6.92), Inches(11.3), Inches(0.28)
-        )
+        footer = slide.shapes.add_textbox(Inches(0.82), Inches(6.92), Inches(11.3), Inches(0.28))
         footer_frame = footer.text_frame
         footer_frame.clear()
         footer_paragraph = footer_frame.paragraphs[0]

@@ -27,6 +27,8 @@ grad-apply-workflow/
 ├── .gitignore
 ├── .env.example
 ├── docs/
+├── .agents/
+│   └── skills/
 ├── app/
 │   ├── backend/
 │   └── frontend/
@@ -35,7 +37,7 @@ grad-apply-workflow/
 │   └── presentation_engine/
 ├── workspace.example/
 ├── tests/
-├── scripts/
+├── tools/
 └── .github/
     └── workflows/
         └── ci.yml
@@ -45,6 +47,7 @@ grad-apply-workflow/
 
 - `workspace/` 用于本地真实用户数据，必须加入 `.gitignore`
 - `workspace.example/` 用于匿名样例数据，可以进入 Git
+- `.agents/skills/` 用于项目内 portable skill 协议，不放真实用户资料或运行产物
 - `integrations/` 只放本项目自有适配器，不放外部项目复制体
 - `workflow_engine/` 和 `presentation_engine/` 是中性命名，不是外部项目副本
 - `docs/` 保存产品、技术、执行计划和 schema 文档

@@ -31,6 +31,10 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```bash
 git status --short
 git diff --check
+ruff check .
+ruff format --check .
+python tools/security_guards.py
+python tools/lint_docs.py
 pytest -q
 ```
 
@@ -63,3 +67,22 @@ test(presentation): 增加 PPTX 生成适配器测试
 ```
 
 涉及业务逻辑、隐私、安全、数据结构或外部适配器时，commit 正文还应记录背景、主要变更、验证命令和已知边界。禁止提交 `workspace/`、`.env`、API key、真实学生材料、导师私人信息、临时生成文件或外部项目源码副本。已经推送的公共 commit 不使用强制推送改写历史，修复请创建新的 commit。
+
+## 工程守卫
+
+本项目默认使用 `pyproject.toml` 维护 pytest 和 ruff 配置。新增 Python 代码后应保持以下检查通过：
+
+```bash
+ruff check .
+ruff format --check .
+pytest -q
+```
+
+`tools/security_guards.py` 是仓库级安全检查，用于阻止以下内容进入 Git：
+
+- `.env`、API key、私钥和证书文件
+- `workspace/`、真实用户资料、生成运行目录
+- 外部参考项目整目录或明显复制体
+- 缺少 `NOTICE` 中的外部项目引用边界
+
+`tools/lint_docs.py` 用于做轻量文档一致性检查。修改 MVP 范围、数据对象、Agent 阶段、PPTAgent 边界或工作区目录时，应同步更新 `docs/`。

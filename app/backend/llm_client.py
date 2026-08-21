@@ -8,7 +8,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -42,7 +41,9 @@ def api_endpoint(base_url: str, path: str) -> str:
     return base + "/v1" + path
 
 
-def request_json(endpoint: str, payload: Dict[str, Any], api_key: str, timeout: int) -> Dict[str, Any]:
+def request_json(
+    endpoint: str, payload: Dict[str, Any], api_key: str, timeout: int
+) -> Dict[str, Any]:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -92,8 +93,12 @@ def llm_json(messages: List[Dict[str, str]], timeout: int = 45) -> Dict[str, Any
 
     if wire_api == "responses":
         endpoint = api_endpoint(base_url, "/responses")
-        instructions = "\n".join(message["content"] for message in messages if message["role"] == "system")
-        user_input = "\n\n".join(message["content"] for message in messages if message["role"] != "system")
+        instructions = "\n".join(
+            message["content"] for message in messages if message["role"] == "system"
+        )
+        user_input = "\n\n".join(
+            message["content"] for message in messages if message["role"] != "system"
+        )
         payload = {
             "model": model,
             "instructions": instructions,
@@ -135,17 +140,17 @@ def extract_advisor_profile_with_llm(source_text: str) -> Optional[Dict[str, Any
             "content": (
                 "请从以下导师公开资料中抽取结构化字段。"
                 "JSON schema: {"
-                "\"name_zh\":\"\", \"name_en\":\"\", \"title\":\"\", "
-                "\"school\":\"\", \"college\":\"\", \"department\":\"\", "
-                "\"lab_name\":\"\", \"email\":\"\", "
-                "\"research_directions\":[{\"value\":\"\", \"evidence\":\"\", \"confidence\":0.0}], "
-                "\"representative_papers\":[{\"value\":\"\", \"evidence\":\"\", \"confidence\":0.0}], "
-                "\"research_projects\":[{\"value\":\"\", \"evidence\":\"\", \"confidence\":0.0}], "
-                "\"admission_requirements\":[{\"value\":\"\", \"evidence\":\"\", \"confidence\":0.0}], "
-                "\"preferred_student_profile\":[{\"value\":\"\", \"evidence\":\"\", \"confidence\":0.0}], "
-                "\"recent_focus\":[{\"value\":\"\", \"evidence\":\"\", \"confidence\":0.0}], "
-                "\"recruiting_status\":\"open|closed|unknown\", "
-                "\"risk_notes\":[\"\"], \"missing_fields\":[\"\"]}"
+                '"name_zh":"", "name_en":"", "title":"", '
+                '"school":"", "college":"", "department":"", '
+                '"lab_name":"", "email":"", '
+                '"research_directions":[{"value":"", "evidence":"", "confidence":0.0}], '
+                '"representative_papers":[{"value":"", "evidence":"", "confidence":0.0}], '
+                '"research_projects":[{"value":"", "evidence":"", "confidence":0.0}], '
+                '"admission_requirements":[{"value":"", "evidence":"", "confidence":0.0}], '
+                '"preferred_student_profile":[{"value":"", "evidence":"", "confidence":0.0}], '
+                '"recent_focus":[{"value":"", "evidence":"", "confidence":0.0}], '
+                '"recruiting_status":"open|closed|unknown", '
+                '"risk_notes":[""], "missing_fields":[""]}'
                 "\n\n原文：\n"
                 f"{trimmed}"
             ),
