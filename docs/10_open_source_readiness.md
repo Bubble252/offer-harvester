@@ -427,6 +427,8 @@ tests/
 - 代码包名使用 `workflow_engine`、`presentation_engine` 等中性命名
 - 如果复用单个底层函数，必须确认许可证允许，并在文件头或 NOTICE 中标注来源
 - README 可以写 inspired by / integrates with，但不能误导为 fork 或官方衍生项目
+- PPTAgent 中的 ViT / vision 模型能力不进入本项目默认依赖；未来如需参考 PPT 页面理解、版式归纳或视觉评分，应通过可选外部运行时、独立 extras 或 adapter 调用
+- 主项目默认依赖不加入 `torch`、ViT 模型权重或本地视觉推理栈，避免把 MVP 变成重模型项目
 
 ## 代码注释规范
 
