@@ -1,5 +1,9 @@
 # Grad Apply Workflow
 
+<p align="center">
+  <img src="app/frontend/assets/logo.png" alt="Grad Apply Workflow logo" width="220" />
+</p>
+
 面向保研硕博申请的本地 Web 工作台，帮助学生基于真实导师信息完成稳妥型导师匹配、中文申请材料生成、面试准备和申请状态追踪。
 
 ## MVP 功能
