@@ -331,6 +331,7 @@ GET  /api/report
 - 下一步应把质量控制升级为独立的 reviewer / auditor 流程
 - 质量控制必须服务保研申请的稳妥性，不做录取概率预测
 - 每个高风险结论都应能追溯到学生资料、导师来源或用户确认记录
+- 套磁邮件链路已接入字段级用户确认：未确认字段可用于草稿但会提示，已否认字段禁止继续使用
 
 任务：
 
@@ -519,9 +520,10 @@ workspace/
 
 - [x] `user_documents/` 保存用户上传或粘贴的原始资料，不直接等同于结构化画像
 - [x] `profiles/` 保存结构化学生画像，并记录来源 `document_id`
-- [ ] `material_versions/` 保存同一材料的 draft、reviewed、user_edited、final 等版本
-- [ ] `agent_runs/` 保存每次 drafter、reviewer、auditor 的输入摘要、输出摘要、状态和错误
+- [x] `material_versions/` 保存同一材料的 draft、reviewed、user_edited、final 等版本
+- [x] `agent_runs/` 保存每次 drafter、reviewer、auditor 的输入摘要、输出摘要、状态和错误
 - [x] 学生画像字段级 `evidence_map` 已能追溯到 `user_documents/` 的 `document_id`
+- [x] 学生画像字段级 `confirmation_map` 已记录 `unconfirmed`、`confirmed`、`rejected`、`needs_review`
 - [x] 学生资料以本地上传或粘贴内容为主证据源
 - [ ] 学生网页资料只能作为补充来源，例如个人主页、GitHub、Google Scholar、ORCID、论文页面、项目主页和获奖公示
 - [ ] 网页发现的学生信息不得直接覆盖本地资料，必须标记为外部来源并等待用户确认
@@ -636,8 +638,9 @@ manifest 记录每份本地资料的元信息，而不是让 Agent 随意扫描�
 - [ ] Agent 读取学生资料时应先读取 `workspace/user_documents/manifest.json`
 - [ ] Agent 只能读取 manifest 中登记过的资料路径
 - [x] 如果 manifest 缺失，后端返回空 manifest；后续可补重建工具
-- [ ] 写入正式 `StudentProfile` 前必须经过用户确认或明确标记为未确认字段
+- [x] 写入正式 `StudentProfile` 前必须经过用户确认或明确标记为未确认字段
 - [x] `StudentProfile` 已记录 `source_document_ids` 和字段级 `evidence_map`
+- [x] `StudentProfile` 已记录字段级 `confirmation_map`，前端可保存确认、未确认、否认和需复核状态
 
 推荐读取流程：
 
@@ -692,6 +695,9 @@ app/backend/agents/
 - [x] 为每次工作流运行记录输入摘要、输出摘要、质量分和风险标签
 - [x] 增加 `workflow_events/`，记录 workflow_started、draft/review/audit、quality 和 final_saved 事件
 - [x] 增加 `GET /api/agent-runs/{run_id}/events` 查询单次 Agent 运行事件
+- [x] 套磁邮件 Evidence Auditor 已检查未确认学生字段，并将其写入 `needs_confirmation`
+- [x] 套磁邮件生成器已避开用户标记为 `rejected` 的学生字段
+- [x] 前端学生画像页已支持字段级确认状态保存
 - [ ] 第二阶段再将导师资料解析拆成 `AdvisorExtractionAgent`，保留规则解析作为 fallback
 - [ ] 第二阶段再将匹配分析拆成 `MatchAnalysisAgent`，输出维度评分、证据引用和风险项
 - [ ] 设计后续 RL 数据采集字段，但默认不把真实用户数据用于公开训练
@@ -703,6 +709,8 @@ app/backend/agents/
 - [x] LLM 未配置时仍能走规则模板和本地质量检查
 - [x] reviewer 能明确指出材料中缺证据、太模板化或不可面试解释的句子
 - [x] 每个 Agent 运行都有可追踪事件记录
+- [x] 未确认学生字段不会阻断草稿生成，但会出现在质量报告和 Evidence Auditor 提醒中
+- [x] 用户已否认字段不会被套磁邮件生成器主动使用；如果材料中仍出现，Evidence Auditor 标记为不通过
 
 ### 大模型能力演进规划
 
@@ -989,24 +997,15 @@ git push -u origin feat/presentation-engine-adapter
 
 ## 当前建议
 
-建议下一步先做工程守卫，再做阶段 8.5 中的套磁邮件 Agent 主链路：
+当前已经完成工程守卫、portable skill 主目录、用户原始资料落盘、字段级证据、字段级确认状态，以及套磁邮件 `MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent` 主链路。
+
+建议下一步继续补阶段 8 的质量控制拆分：
 
 ```text
-pyproject.toml / ruff / CI / security guards
--> portable skill 目录
--> workspace/user_documents 和 material_versions 规划落地
-MaterialDraftAgent
--> MaterialReviewAgent
--> EvidenceAuditAgent
--> 最终材料与质量报告
+拆出独立质量检查模块
+-> 扩展事实一致性、导师来源引用、模板化和过度包装检查
+-> 将 AdvisorExtractionAgent / MatchAnalysisAgent 作为第二条 Agent 链路
+-> 准备阶段 9 的匿名演示案例
 ```
 
-原因：
-
-- 阶段 7 的导师采集闭环已经基本完成
-- 阶段 6 的本地 PPTX 兜底也已经可用
-- 当前项目最需要提升的是 Agent 开发深度和工程规范，而不是继续堆功能入口
-- 工程守卫先落地，可以避免后续 Agent 拆分时引入风格漂移、隐私泄露和外部项目边界不清
-- 先把套磁邮件或匹配分析做成 drafter-reviewer-auditor，会明显提升项目展示价值
-
-继续保持当前边界：不把参考项目复制进最终代码框架，以本项目自有保研业务代码为主体，只在必要位置保留适配器和可审计的底层复用。
+继续保持当前边界：不把参考项目复制进最终代码框架，以本项目自有保研业务代码为主体，只在必要位置保留适配器和可审计的底层复用。PPTAgent 深度集成仍后置到阶段 11。

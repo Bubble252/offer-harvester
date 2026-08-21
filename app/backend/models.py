@@ -15,6 +15,9 @@ def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+ProfileConfirmationStatus = Literal["unconfirmed", "confirmed", "rejected", "needs_review"]
+
+
 class StudentProfile(BaseModel):
     profile_id: str = Field(default_factory=lambda: new_id("profile"))
     name: str = "未命名学生"
@@ -30,6 +33,7 @@ class StudentProfile(BaseModel):
     raw_text: str = ""
     source_document_ids: List[str] = Field(default_factory=list)
     evidence_map: Dict[str, List[str]] = Field(default_factory=dict)
+    confirmation_map: Dict[str, ProfileConfirmationStatus] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=now_iso)
 
 

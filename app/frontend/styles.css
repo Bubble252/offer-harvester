@@ -51,6 +51,17 @@ button:disabled {
   opacity: 0.55;
 }
 
+button.secondary {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+button.secondary:hover {
+  border-color: #b8c4ce;
+  background: #f7fafc;
+}
+
 input,
 select,
 textarea {
@@ -363,6 +374,35 @@ h2 {
   border-top: 0;
 }
 
+.profile-field-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.7fr) minmax(0, 1fr) 128px;
+  gap: 12px;
+  align-items: start;
+}
+
+.profile-field-row .detail-label {
+  margin-bottom: 0;
+  padding-top: 9px;
+}
+
+.profile-field-main {
+  min-width: 0;
+}
+
+.field-evidence {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.confirmation-select {
+  min-width: 0;
+  padding: 7px;
+  font-size: 13px;
+}
+
 .detail-label {
   display: block;
   margin-bottom: 6px;
@@ -515,6 +555,14 @@ h2 {
 
   .target-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-field-row .detail-label {
+    padding-top: 0;
   }
 
   .editor-grid {

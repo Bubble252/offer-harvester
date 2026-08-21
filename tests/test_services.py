@@ -71,11 +71,29 @@ def test_profile_evidence_map_tracks_source_documents():
     )
 
     assert profile.source_document_ids == ["doc_resume", "doc_project"]
+    assert profile.gpa == "GPA 3.85/4.00"
+    assert profile.rank == "排名前 10%"
     assert profile.evidence_map["education"] == ["doc_resume", "doc_project"]
     assert profile.evidence_map["gpa"] == ["doc_resume", "doc_project"]
     assert profile.evidence_map["rank"] == ["doc_resume", "doc_project"]
     assert profile.evidence_map["projects"] == ["doc_resume", "doc_project"]
     assert profile.evidence_map["publications"] == ["doc_resume", "doc_project"]
+    assert profile.confirmation_map["gpa"] == "unconfirmed"
+    assert profile.confirmation_map["projects"] == "unconfirmed"
+
+
+def test_contact_email_respects_rejected_profile_fields():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：智能体系统原型开发",
+        source_document_ids=["doc_resume"],
+    )
+    profile.confirmation_map["projects"] = "rejected"
+    target = Target(name="样例目标")
+
+    material = make_contact_email(profile, target, None, None)
+
+    assert "智能体系统原型开发" not in material.content
+    assert "相关科研项目" in material.content
 
 
 def test_contact_email_agent_workflow_records_review_audit_and_versions():
@@ -176,6 +194,33 @@ def test_evidence_audit_uses_profile_field_document_ids():
 
     assert audit.passed
     assert grade_claim["source_ids"] == ["doc_transcript"]
+    assert audit.needs_confirmation
+
+
+def test_evidence_audit_flags_unconfirmed_and_rejected_profile_fields():
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：智能体系统原型开发",
+        source_document_ids=["doc_resume"],
+    )
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="含未确认字段的套磁邮件",
+        content="老师您好，我来自某大学计算机学院，做过项目：智能体系统原型开发。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+
+    assert audit.passed
+    assert any("未确认学生字段" in item for item in audit.needs_confirmation)
+
+    profile.confirmation_map["projects"] = "rejected"
+    audit = EvidenceAuditAgent().audit_contact_email(material, profile, target, None, None)
+
+    assert not audit.passed
+    assert any("已否认字段" in item for item in audit.unsupported_claims)
 
 
 def test_source_hash_url_guard_quality_audit_and_progress_report():

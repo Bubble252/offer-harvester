@@ -34,6 +34,25 @@ const applicationStatuses = [
   ["withdrawn", "已放弃"],
 ];
 
+const profileFields = [
+  ["name", "姓名"],
+  ["education", "教育背景"],
+  ["gpa", "GPA"],
+  ["rank", "排名"],
+  ["research_interests", "研究兴趣"],
+  ["projects", "项目经历"],
+  ["publications", "论文成果"],
+  ["competitions", "竞赛奖项"],
+  ["skills", "技能关键词"],
+];
+
+const confirmationStatuses = [
+  ["unconfirmed", "未确认"],
+  ["confirmed", "已确认"],
+  ["rejected", "已否认"],
+  ["needs_review", "需复核"],
+];
+
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) {
@@ -87,6 +106,18 @@ function textToList(value) {
     .filter(Boolean);
 }
 
+function confirmationOptions(current) {
+  return confirmationStatuses
+    .map(([value, label]) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`)
+    .join("");
+}
+
+function profileFieldValue(profile, field) {
+  const value = profile[field];
+  if (Array.isArray(value)) return tagList(value);
+  return escapeHtml(value || "待补充");
+}
+
 function showView(view) {
   document.querySelectorAll("[data-view-panel]").forEach((node) => {
     node.classList.toggle("active", node.dataset.viewPanel === view);
@@ -137,18 +168,24 @@ function renderProfile() {
     return;
   }
   const profile = state.profile;
-  const evidenceFields = Object.keys(profile.evidence_map || {});
-  $("profileView").innerHTML = [
-    ["姓名", escapeHtml(profile.name)],
-    ["教育背景", escapeHtml(profile.education || "待补充")],
-    ["GPA", escapeHtml(profile.gpa || "待补充")],
-    ["排名", escapeHtml(profile.rank || "待补充")],
-    ["研究兴趣", tagList(profile.research_interests)],
-    ["项目经历", tagList(profile.projects)],
-    ["论文成果", tagList(profile.publications)],
-    ["竞赛奖项", tagList(profile.competitions)],
+  $("profileView").innerHTML = profileFields
+    .map(([field, label]) => {
+      const status = (profile.confirmation_map || {})[field] || "unconfirmed";
+      const evidenceIds = (profile.evidence_map || {})[field] || [];
+      return `<div class="detail-group profile-field-row">
+        <span class="detail-label">${label}</span>
+        <div class="profile-field-main">
+          <div>${profileFieldValue(profile, field)}</div>
+          <div class="field-evidence">${evidenceIds.length ? `证据：${escapeHtml(evidenceIds.join("、"))}` : "证据：待补充"}</div>
+        </div>
+        <select class="confirmation-select" data-profile-field="${field}" aria-label="${label}确认状态">
+          ${confirmationOptions(status)}
+        </select>
+      </div>`;
+    })
+    .join("");
+  $("profileView").innerHTML += [
     ["来源资料", tagList(profile.source_document_ids)],
-    ["字段证据", evidenceFields.length ? tagList(evidenceFields) : "待补充"],
     ["风险项", tagList(profile.risks)],
   ]
     .map(([label, value]) => `<div class="detail-group"><span class="detail-label">${label}</span><div>${value}</div></div>`)
@@ -324,7 +361,10 @@ function renderMaterial(material, quality = null, workflow = null) {
       .slice(0, 6)
       .map((claim) => `<li>${escapeHtml(claim.status)}：${escapeHtml(claim.message)}</li>`)
       .join("");
-    sections.push(`<div class="quality-summary ${audit.passed ? "low" : "high"}"><strong>Evidence Auditor：${audit.passed ? "证据通过" : "证据需复核"}</strong><ul>${claims}</ul></div>`);
+    const confirmations = (audit.needs_confirmation || [])
+      .map((item) => `<li>需确认：${escapeHtml(item)}</li>`)
+      .join("");
+    sections.push(`<div class="quality-summary ${audit.passed ? "low" : "high"}"><strong>Evidence Auditor：${audit.passed ? "证据通过" : "证据需复核"}</strong><ul>${claims}${confirmations}</ul></div>`);
   }
   if (!sections.length) {
     $("qualityView").innerHTML = "";
@@ -385,6 +425,24 @@ async function saveProfile() {
   $("profileFile").value = "";
   await refresh();
   toast("学生画像已生成");
+}
+
+async function saveProfileConfirmations() {
+  if (!state.profile) return toast("尚未创建学生画像");
+  const confirmationMap = { ...(state.profile.confirmation_map || {}) };
+  document.querySelectorAll("[data-profile-field]").forEach((node) => {
+    confirmationMap[node.dataset.profileField] = node.value;
+  });
+  try {
+    state.profile = await api("/api/profile", {
+      method: "PUT",
+      body: JSON.stringify({ ...state.profile, confirmation_map: confirmationMap }),
+    });
+    renderProfile();
+    toast("字段确认状态已保存");
+  } catch (error) {
+    toast(`保存字段确认失败：${error.message}`);
+  }
 }
 
 async function saveAdvisor() {
@@ -581,6 +639,7 @@ document.querySelectorAll("[data-view-link]").forEach((button) => {
 
 $("refreshBtn").addEventListener("click", refresh);
 $("saveProfileBtn").addEventListener("click", saveProfile);
+$("saveProfileConfirmationsBtn").addEventListener("click", saveProfileConfirmations);
 $("saveAdvisorBtn").addEventListener("click", saveAdvisor);
 $("createTargetBtn").addEventListener("click", createTarget);
 $("matchBtn").addEventListener("click", () => generate("match", "匹配分析"));

@@ -23,6 +23,18 @@ from models import (
     now_iso,
 )
 
+PROFILE_FIELD_LABELS = {
+    "name": "姓名",
+    "education": "教育背景",
+    "gpa": "GPA",
+    "rank": "排名",
+    "research_interests": "研究兴趣",
+    "projects": "项目经历",
+    "publications": "论文成果",
+    "competitions": "竞赛奖项",
+    "skills": "技能关键词",
+}
+
 
 class TextExtractor(HTMLParser):
     def __init__(self):
@@ -258,6 +270,19 @@ def build_profile_from_text(
     if not re.search(r"GPA|绩点|排名|前\s*\d+%", joined, re.I):
         risks.append("暂未识别到明确 GPA 或排名")
     education = next((line for line in lines if "大学" in line or "学院" in line), "")
+    gpa = first_match(
+        joined,
+        [
+            r"((?:GPA|绩点)\s*[:：]?\s*\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?)",
+        ],
+    )
+    rank = first_match(
+        joined,
+        [
+            r"((?:排名\s*[:：]?\s*)?(?:前\s*)?\d+\s*%)",
+            r"(排名\s*[:：]?\s*\d+\s*/\s*\d+)",
+        ],
+    )
     evidence_map = profile_evidence_map(
         source_document_ids,
         education=education,
@@ -271,6 +296,8 @@ def build_profile_from_text(
     return StudentProfile(
         name=name,
         education=education,
+        gpa=gpa,
+        rank=rank,
         research_interests=interests,
         projects=projects,
         publications=publications,
@@ -280,6 +307,17 @@ def build_profile_from_text(
         raw_text=joined,
         source_document_ids=source_document_ids,
         evidence_map=evidence_map,
+        confirmation_map=profile_confirmation_map(
+            name=name,
+            education=education,
+            gpa=gpa,
+            rank=rank,
+            interests=interests,
+            projects=projects,
+            publications=publications,
+            competitions=competitions,
+            skills=skills,
+        ),
     )
 
 
@@ -313,6 +351,98 @@ def profile_evidence_map(
     if skills:
         evidence["skills"] = source_document_ids
     return evidence
+
+
+def profile_confirmation_map(
+    name: str,
+    education: str,
+    gpa: str,
+    rank: str,
+    interests: List[str],
+    projects: List[str],
+    publications: List[str],
+    competitions: List[str],
+    skills: List[str],
+) -> dict:
+    values = {
+        "name": name if name != "未命名学生" else "",
+        "education": education,
+        "gpa": gpa,
+        "rank": rank,
+        "research_interests": interests,
+        "projects": projects,
+        "publications": publications,
+        "competitions": competitions,
+        "skills": skills,
+    }
+    return {field: "unconfirmed" for field, value in values.items() if value}
+
+
+def profile_field_status(profile: StudentProfile, field: str) -> str:
+    return profile.confirmation_map.get(field, "unconfirmed")
+
+
+def usable_scalar_profile_field(profile: StudentProfile, field: str, fallback: str = "") -> str:
+    if profile_field_status(profile, field) == "rejected":
+        return fallback
+    return str(getattr(profile, field, "") or fallback)
+
+
+def usable_list_profile_field(profile: StudentProfile, field: str) -> List[str]:
+    if profile_field_status(profile, field) == "rejected":
+        return []
+    return list(getattr(profile, field, []) or [])
+
+
+def profile_fields_used_in_content(profile: StudentProfile, content: str) -> List[str]:
+    used = []
+    scalar_values = {
+        "name": profile.name if profile.name != "未命名学生" else "",
+        "education": profile.education,
+        "gpa": profile.gpa,
+        "rank": profile.rank,
+    }
+    for field, value in scalar_values.items():
+        if value and value in content:
+            used.append(field)
+
+    if ("GPA" in content or "绩点" in content) and profile.gpa and "gpa" not in used:
+        used.append("gpa")
+    if (
+        ("排名" in content or re.search(r"前\s*\d+\s*%", content))
+        and profile.rank
+        and "rank" not in used
+    ):
+        used.append("rank")
+
+    for field in [
+        "research_interests",
+        "projects",
+        "publications",
+        "competitions",
+        "skills",
+    ]:
+        values = getattr(profile, field, []) or []
+        if any(value and value in content for value in values):
+            used.append(field)
+    return list(dict.fromkeys(used))
+
+
+def profile_confirmation_issues(
+    profile: StudentProfile, content: str
+) -> tuple[List[str], List[str]]:
+    used_fields = profile_fields_used_in_content(profile, content)
+    rejected = [
+        PROFILE_FIELD_LABELS.get(field, field)
+        for field in used_fields
+        if profile.confirmation_map.get(field) == "rejected"
+    ]
+    needs_confirmation = [
+        PROFILE_FIELD_LABELS.get(field, field)
+        for field in used_fields
+        if profile.confirmation_map.get(field, "unconfirmed") in {"unconfirmed", "needs_review"}
+    ]
+    return rejected, needs_confirmation
 
 
 def create_advisor_source(payload: AdvisorSourceCreate) -> AdvisorSource:
@@ -485,12 +615,15 @@ def make_match(
             ],
         )
     advisor_keywords = advisor.keywords if advisor else []
-    profile_text = " ".join(
-        profile.research_interests + profile.projects + profile.skills + profile.publications
-    )
+    research_interests = usable_list_profile_field(profile, "research_interests")
+    projects = usable_list_profile_field(profile, "projects")
+    skills = usable_list_profile_field(profile, "skills")
+    publications = usable_list_profile_field(profile, "publications")
+    profile_text = " ".join(research_interests + projects + skills + publications)
     overlaps = keyword_hits(profile_text, advisor_keywords)
     score = min(
-        95, 45 + len(overlaps) * 12 + len(profile.publications) * 6 + len(profile.projects) * 3
+        95,
+        45 + len(overlaps) * 12 + len(publications) * 6 + len(projects) * 3,
     )
     if not advisor_keywords:
         tier = "unknown"
@@ -557,13 +690,15 @@ def make_contact_email(
         if advisor and advisor.research_directions
         else "您的研究方向"
     )
-    projects = "；".join(profile.projects[:2]) or "相关科研项目"
+    education = usable_scalar_profile_field(profile, "education", "一名准备保研的本科生")
+    projects = "；".join(usable_list_profile_field(profile, "projects")[:2]) or "相关科研项目"
+    signature = usable_scalar_profile_field(profile, "name", "学生")
     subject = f"保研咨询：关于{directions}方向的硕博申请"
     body = f"""邮件标题：{subject}
 
 {advisor_name}老师您好：
 
-我是{profile.education or "一名准备保研的本科生"}，目前关注{directions}方向。阅读您的公开主页和招生信息后，我对课题组的研究内容很感兴趣，希望咨询硕博申请和后续科研训练的机会。
+我是{education}，目前关注{directions}方向。阅读您的公开主页和招生信息后，我对课题组的研究内容很感兴趣，希望咨询硕博申请和后续科研训练的机会。
 
 我的相关经历主要包括：{projects}。这些经历让我对问题建模、实验设计和结果分析有了初步训练，也希望在研究生阶段继续围绕相关方向深入学习。
 
@@ -573,7 +708,7 @@ def make_contact_email(
 
 此致
 敬礼
-{profile.name}
+{signature}
 """
     evidence = [profile.profile_id, target.target_id]
     if advisor:
@@ -601,8 +736,9 @@ def make_interview_questions(
         "你为什么对我们课题组感兴趣？",
     ]
     questions.extend([f"你如何理解{direction}方向的核心问题？" for direction in directions[:4]])
-    for risk in profile.risks:
-        questions.append(f"你的材料中存在“{risk}”，如果老师追问，你会如何解释？")
+    if usable_list_profile_field(profile, "projects"):
+        for risk in profile.risks:
+            questions.append(f"你的材料中存在“{risk}”，如果老师追问，你会如何解释？")
     content = "\n".join(f"{idx}. {question}" for idx, question in enumerate(questions, 1))
     return GeneratedMaterial(
         target_id=target.target_id,
@@ -621,18 +757,27 @@ def make_ppt_outline(
         if advisor and advisor.research_directions
         else "目标导师方向"
     )
-    project = profile.projects[0] if profile.projects else "代表性科研/项目经历"
+    education = usable_scalar_profile_field(profile, "education", "待补充")
+    grade = usable_scalar_profile_field(
+        profile,
+        "gpa",
+        usable_scalar_profile_field(profile, "rank", "待补充"),
+    )
+    skills = usable_list_profile_field(profile, "skills")
+    projects = usable_list_profile_field(profile, "projects")
+    project = projects[0] if projects else "代表性科研/项目经历"
+    display_name = usable_scalar_profile_field(profile, "name", "学生")
     content = f"""# 5 分钟保研面试展示 PPT 大纲
 
 ## 1. 封面
-- 标题：{profile.name} - {target.name} 保研面试展示
+- 标题：{display_name} - {target.name} 保研面试展示
 - 目的：说明申请目标和展示主题
 - 讲述重点：用一句话说明自己与目标方向的关系
 
 ## 2. 教育背景与能力概览
-- 学校/专业：{profile.education or "待补充"}
-- 成绩/排名：{profile.gpa or profile.rank or "待补充"}
-- 技能关键词：{"、".join(profile.skills[:6]) or "待补充"}
+- 学校/专业：{education}
+- 成绩/排名：{grade}
+- 技能关键词：{"、".join(skills[:6]) or "待补充"}
 - 讲述重点：突出能支撑科研训练的基础能力
 
 ## 3. 代表科研/项目经历
@@ -669,7 +814,12 @@ def audit_material(
     advisor_sources = advisor.source_ids if advisor else []
     prohibited = ["保证录取", "稳上", "必然录取", "百分之百"]
     found = [phrase for phrase in prohibited if phrase in material.content]
-    profile_terms = profile.projects + profile.publications + profile.competitions
+    profile_terms = (
+        usable_list_profile_field(profile, "projects")
+        + usable_list_profile_field(profile, "publications")
+        + usable_list_profile_field(profile, "competitions")
+    )
+    rejected_fields, confirmation_fields = profile_confirmation_issues(profile, material.content)
     checks = [
         {
             "name": "evidence_present",
@@ -696,6 +846,20 @@ def audit_material(
             "message": "材料引用了学生已记录经历。"
             if profile_terms
             else "学生经历较少，建议人工核对材料。",
+        },
+        {
+            "name": "profile_rejected_fields",
+            "passed": not rejected_fields,
+            "message": "未使用用户已否认字段。"
+            if not rejected_fields
+            else f"材料使用了用户已否认字段：{'、'.join(rejected_fields)}",
+        },
+        {
+            "name": "profile_unconfirmed_fields",
+            "passed": True,
+            "message": "材料未使用未确认学生字段。"
+            if not confirmation_fields
+            else f"材料使用了未确认学生字段，发送前需确认：{'、'.join(confirmation_fields)}",
         },
     ]
     failed_count = len([item for item in checks if not item["passed"]])

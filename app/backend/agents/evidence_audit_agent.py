@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from models import AdvisorProfile, GeneratedMaterial, MatchReport, StudentProfile, Target
 from pydantic import BaseModel, Field
+from services import profile_confirmation_issues
 
 
 class EvidenceAuditResult(BaseModel):
@@ -79,6 +80,13 @@ class EvidenceAuditAgent:
                 needs_confirmation.append("匹配解释未关联匹配报告。")
 
         self._scan_text_risks(material.content, profile, advisor, claims, unsupported)
+        self._check_profile_confirmations(
+            material.content,
+            profile,
+            claims,
+            unsupported,
+            needs_confirmation,
+        )
 
         return EvidenceAuditResult(
             passed=not unsupported,
@@ -159,3 +167,35 @@ class EvidenceAuditAgent:
                     else "导师方向表述过泛。",
                 }
             )
+
+    def _check_profile_confirmations(
+        self,
+        content: str,
+        profile: StudentProfile,
+        claims: List[Dict[str, Any]],
+        unsupported: List[str],
+        needs_confirmation: List[str],
+    ) -> None:
+        rejected_fields, confirmation_fields = profile_confirmation_issues(profile, content)
+        if rejected_fields:
+            message = f"材料使用了用户已否认字段：{'、'.join(rejected_fields)}"
+            claims.append(
+                {
+                    "claim_type": "profile_field_confirmation",
+                    "status": "unsupported",
+                    "source_ids": [],
+                    "message": message,
+                }
+            )
+            unsupported.append(message)
+        if confirmation_fields:
+            message = f"材料使用了未确认学生字段，发送前需确认：{'、'.join(confirmation_fields)}"
+            claims.append(
+                {
+                    "claim_type": "profile_field_confirmation",
+                    "status": "needs_confirmation",
+                    "source_ids": profile.source_document_ids,
+                    "message": message,
+                }
+            )
+            needs_confirmation.append(message)
