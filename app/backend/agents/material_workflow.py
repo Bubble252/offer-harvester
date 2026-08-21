@@ -14,7 +14,7 @@ from models import (
     WorkflowEvent,
 )
 from pydantic import BaseModel, Field
-from services import audit_material
+from quality import audit_material
 
 from agents.base import dump_model, finish_agent_run, make_agent_run, make_material_version
 from agents.evidence_audit_agent import EvidenceAuditAgent, EvidenceAuditResult

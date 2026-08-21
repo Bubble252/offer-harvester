@@ -251,6 +251,72 @@ def test_source_hash_url_guard_quality_audit_and_progress_report():
     assert "不预测录取结果" in report["content"]
 
 
+def test_quality_audit_flags_false_publication_claim():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="虚构论文风险",
+        content="老师您好，我的论文成果已发表在某顶级会议。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    quality = audit_material(material, profile, None)
+
+    assert not quality.passed
+    assert any(check["name"] == "student_fact_consistency" for check in quality.checks)
+    assert any("论文成果表述缺少学生画像字段" in check["message"] for check in quality.checks)
+
+
+def test_quality_audit_flags_missing_advisor_evidence_and_direction_mismatch():
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="李四教授，研究方向包括多模态学习，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标", advisor_id=advisor.advisor_id)
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="缺少导师证据",
+        content="老师您好，我关注智能体系统方向，希望进一步交流。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    quality = audit_material(material, profile, advisor)
+
+    assert not quality.passed
+    assert any(
+        check["name"] == "advisor_source_present" and not check["passed"]
+        for check in quality.checks
+    )
+    assert any(
+        check["name"] == "advisor_direction_match" and not check["passed"]
+        for check in quality.checks
+    )
+
+
+def test_quality_audit_flags_overclaim():
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
+    target = Target(name="样例目标")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="过度承诺",
+        content="老师您好，我认为自己一定适合贵组，并且可以保证录取后快速产出。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+
+    quality = audit_material(material, profile, None)
+
+    assert not quality.passed
+    assert any(check["name"] == "no_admission_claim" for check in quality.checks)
+
+
 def test_workspace_creates_agent_and_version_directories(tmp_path):
     workspace = Workspace(str(tmp_path))
 

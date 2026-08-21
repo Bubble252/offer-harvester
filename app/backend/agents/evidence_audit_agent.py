@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from models import AdvisorProfile, GeneratedMaterial, MatchReport, StudentProfile, Target
 from pydantic import BaseModel, Field
-from services import profile_confirmation_issues
+from quality.checks import profile_confirmation_issues
 
 
 class EvidenceAuditResult(BaseModel):

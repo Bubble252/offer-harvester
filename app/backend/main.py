@@ -32,8 +32,8 @@ from models import (
     UserDocumentManifest,
     now_iso,
 )
+from quality import audit_material
 from services import (
-    audit_material,
     build_profile_from_text,
     build_workspace_report,
     create_advisor_source,
