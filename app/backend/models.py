@@ -28,6 +28,7 @@ class StudentProfile(BaseModel):
     skills: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
     raw_text: str = ""
+    source_document_ids: List[str] = Field(default_factory=list)
     updated_at: str = Field(default_factory=now_iso)
 
 
@@ -46,6 +47,23 @@ class AdvisorSourceCreate(BaseModel):
     manual_text: str = ""
     title: str = ""
     trusted: bool = True
+
+
+class UserDocumentRecord(BaseModel):
+    document_id: str = Field(default_factory=lambda: new_id("doc"))
+    category: str = "manual_inputs"
+    path: str
+    original_filename: str = ""
+    source_type: Literal["local_upload", "manual_input", "web_supplement"] = "manual_input"
+    content_hash: str = ""
+    uploaded_at: str = Field(default_factory=now_iso)
+    trusted: bool = True
+    confirmed: bool = False
+    notes: str = ""
+
+
+class UserDocumentManifest(BaseModel):
+    documents: List[UserDocumentRecord] = Field(default_factory=list)
 
 
 class AdvisorSource(BaseModel):

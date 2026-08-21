@@ -159,6 +159,35 @@ def test_workspace_creates_agent_and_version_directories(tmp_path):
     assert (workspace.root / "user_documents").is_dir()
 
 
+def test_workspace_saves_user_document_manifest(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    record = workspace.save_user_document(
+        "匿名学生\n项目：智能体系统原型开发".encode("utf-8"),
+        "resume.txt",
+        category="resumes",
+        source_type="local_upload",
+        notes="test upload",
+    )
+    manifest = workspace.read_user_document_manifest()
+
+    assert record.document_id
+    assert record.content_hash.startswith("sha256:")
+    assert record.path.startswith("user_documents/resumes/")
+    assert (workspace.root / record.path).read_text(encoding="utf-8").startswith("匿名学生")
+    assert manifest["documents"][0]["document_id"] == record.document_id
+    assert manifest["documents"][0]["notes"] == "test upload"
+
+
+def test_workspace_rejects_unsupported_user_document_format(tmp_path):
+    workspace = Workspace(str(tmp_path))
+
+    try:
+        workspace.save_user_document(b"secret", "profile.exe", category="resumes")
+        assert False, "unsupported format should be rejected"
+    except ValueError as exc:
+        assert "Unsupported user document format" in str(exc)
+
+
 def test_advisor_profile_keeps_detailed_fields_and_evidence():
     source = create_advisor_source(
         AdvisorSourceCreate(

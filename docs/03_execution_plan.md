@@ -517,12 +517,12 @@ workspace/
 
 规划原则：
 
-- [ ] `user_documents/` 保存用户上传或粘贴的原始资料，不直接等同于结构化画像
-- [ ] `profiles/` 只保存用户确认后的结构化学生画像
+- [x] `user_documents/` 保存用户上传或粘贴的原始资料，不直接等同于结构化画像
+- [x] `profiles/` 保存结构化学生画像，并记录来源 `document_id`
 - [ ] `material_versions/` 保存同一材料的 draft、reviewed、user_edited、final 等版本
 - [ ] `agent_runs/` 保存每次 drafter、reviewer、auditor 的输入摘要、输出摘要、状态和错误
 - [ ] 每个结构化字段应能追溯到 `user_documents/`、手动输入或用户确认记录
-- [ ] 学生资料以本地上传或粘贴内容为主证据源
+- [x] 学生资料以本地上传或粘贴内容为主证据源
 - [ ] 学生网页资料只能作为补充来源，例如个人主页、GitHub、Google Scholar、ORCID、论文页面、项目主页和获奖公示
 - [ ] 网页发现的学生信息不得直接覆盖本地资料，必须标记为外部来源并等待用户确认
 - [ ] 用户确认后的网页信息才可以写入正式 `StudentProfile`
@@ -591,10 +591,10 @@ workspace/user_documents/
 
 命名规则：
 
-- [ ] 上传文件保留原始扩展名
-- [ ] 文件名应使用安全文件名，去除路径分隔符和控制字符
-- [ ] 同名文件使用时间戳或内容 hash 区分
-- [ ] 手动粘贴内容保存为 `.txt` 或 `.json`
+- [x] 上传文件保留原始扩展名
+- [x] 文件名应使用安全文件名，去除路径分隔符和控制字符
+- [x] 同名文件使用时间戳或内容 hash 区分
+- [x] 手动粘贴内容保存为 `.txt`
 - [ ] 网页补充来源必须保存 URL、抓取时间、正文摘要和可信度
 - [ ] 不在文件名中暴露身份证号、手机号、完整邮箱等敏感信息
 
@@ -629,13 +629,13 @@ manifest 记录每份本地资料的元信息，而不是让 Agent 随意扫描�
 
 读取责任边界：
 
-- [ ] 后端代码负责真实上传、保存、列出、读取、解析和 hash 计算
+- [x] 后端代码负责真实上传、保存、列出、读取和 hash 计算
 - [ ] portable skill 不直接替代后端存储逻辑
 - [ ] portable skill 负责规定 Agent 读取顺序、可信规则、用户确认规则和输出格式
 - [ ] Agent 不应绕过 manifest 随意遍历 `workspace/`
 - [ ] Agent 读取学生资料时应先读取 `workspace/user_documents/manifest.json`
 - [ ] Agent 只能读取 manifest 中登记过的资料路径
-- [ ] 如果 manifest 缺失，后端应提供重建 manifest 的工具或提示用户重新导入资料
+- [x] 如果 manifest 缺失，后端返回空 manifest；后续可补重建工具
 - [ ] 写入正式 `StudentProfile` 前必须经过用户确认或明确标记为未确认字段
 
 推荐读取流程：

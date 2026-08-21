@@ -74,6 +74,19 @@
               </div>
               <label for="profileText">原始资料</label>
               <textarea id="profileText" rows="18" placeholder="例如：&#10;姓名&#10;学校和专业&#10;GPA / 排名&#10;项目：问题、方法、个人贡献和结果"></textarea>
+              <label for="profileFile">原始文件</label>
+              <input id="profileFile" type="file" accept=".pdf,.docx,.md,.txt,.json,.csv,.xlsx,.png,.jpg,.jpeg" />
+              <label for="profileCategory">资料类型</label>
+              <select id="profileCategory">
+                <option value="manual_inputs">手动输入</option>
+                <option value="resumes">简历</option>
+                <option value="transcripts">成绩单</option>
+                <option value="research_projects">科研项目</option>
+                <option value="publications">论文材料</option>
+                <option value="awards">奖项证书</option>
+                <option value="personal_statements">个人陈述</option>
+                <option value="misc">其他</option>
+              </select>
               <div class="button-row">
                 <button id="saveProfileBtn">生成学生画像</button>
               </div>
@@ -86,6 +99,7 @@
                 </div>
               </div>
               <div class="detail-view" id="profileView"></div>
+              <div class="stack-list" id="userDocumentList"></div>
             </section>
           </div>
         </section>

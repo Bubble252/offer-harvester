@@ -12,6 +12,37 @@
 - 模型生成内容不能覆盖原始事实，只能生成结构化摘要和建议
 - 所有匹配结论都需要 evidence 证据链
 
+## User Document Manifest：用户原始资料索引
+
+用于记录用户上传或粘贴的原始学生资料。原始资料保存在 `workspace/user_documents/`，结构化画像保存在 `workspace/profiles/`，二者不能混用。
+
+```json
+{
+  "documents": [
+    {
+      "document_id": "doc_001",
+      "category": "resumes",
+      "path": "user_documents/resumes/resume_20260821_abcd1234ef.txt",
+      "original_filename": "resume.txt",
+      "source_type": "local_upload",
+      "content_hash": "sha256:...",
+      "uploaded_at": "2026-08-21T10:00:00+08:00",
+      "trusted": true,
+      "confirmed": false,
+      "notes": "学生资料页上传文件"
+    }
+  ]
+}
+```
+
+字段说明：
+
+- `category`：`resumes`、`transcripts`、`research_projects`、`publications`、`awards`、`personal_statements`、`manual_inputs`、`web_supplements`、`misc`
+- `source_type`：`local_upload`、`manual_input`、`web_supplement`
+- `path`：相对 `workspace/` 的路径，Agent 不应绕过 manifest 随意扫描目录
+- `content_hash`：用于去重、审计和判断资料是否被替换
+- `confirmed`：是否已被用户确认可以进入正式学生画像
+
 ## Advisor Source：导师资料来源
 
 用于记录每一条导师相关资料的来源。来源可以是 URL 抓取，也可以是用户手动粘贴。

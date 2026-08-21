@@ -5,6 +5,7 @@ const state = {
   targets: [],
   applications: [],
   materials: [],
+  userDocuments: [],
   selectedMaterial: null,
 };
 
@@ -132,6 +133,7 @@ function renderDashboard() {
 function renderProfile() {
   if (!state.profile) {
     $("profileView").innerHTML = "<div class='empty-state'>尚未创建学生画像。</div>";
+    renderUserDocuments();
     return;
   }
   const profile = state.profile;
@@ -144,10 +146,26 @@ function renderProfile() {
     ["项目经历", tagList(profile.projects)],
     ["论文成果", tagList(profile.publications)],
     ["竞赛奖项", tagList(profile.competitions)],
+    ["来源资料", tagList(profile.source_document_ids)],
     ["风险项", tagList(profile.risks)],
   ]
     .map(([label, value]) => `<div class="detail-group"><span class="detail-label">${label}</span><div>${value}</div></div>`)
     .join("");
+  renderUserDocuments();
+}
+
+function renderUserDocuments() {
+  const documents = state.userDocuments || [];
+  $("userDocumentList").innerHTML = documents.length
+    ? documents
+        .slice()
+        .reverse()
+        .map((document) => `<div class="list-item">
+          <div class="item-title">${escapeHtml(document.original_filename || document.document_id)}</div>
+          <div class="item-meta">${escapeHtml(document.category)} · ${escapeHtml(document.source_type)} · ${escapeHtml(document.uploaded_at)}</div>
+        </div>`)
+        .join("")
+    : "<div class='empty-state'>尚未保存原始资料。</div>";
 }
 
 function renderAdvisorOptions() {
@@ -330,12 +348,20 @@ async function refresh() {
     } catch {
       state.profile = null;
     }
-    [state.advisors, state.sources, state.targets, state.applications, state.materials] = await Promise.all([
+    [
+      state.advisors,
+      state.sources,
+      state.targets,
+      state.applications,
+      state.materials,
+      state.userDocuments,
+    ] = await Promise.all([
       api("/api/advisors"),
       api("/api/advisor-sources"),
       api("/api/targets"),
       api("/api/applications"),
       api("/api/generated"),
+      api("/api/user-documents").then((manifest) => manifest.documents || []),
     ]);
     renderAll();
   } catch (error) {
@@ -345,14 +371,17 @@ async function refresh() {
 
 async function saveProfile() {
   const text = $("profileText").value.trim();
-  if (!text) return toast("请先粘贴学生资料");
+  const file = $("profileFile").files[0];
+  if (!text && !file) return toast("请先粘贴或上传学生资料");
   const form = new FormData();
   form.append("text", text);
+  form.append("category", $("profileCategory").value);
+  if (file) form.append("file", file);
   const response = await fetch("/api/profile/upload", { method: "POST", body: form });
   if (!response.ok) return toast("学生画像生成失败");
   state.profile = await response.json();
-  renderProfile();
-  renderMetrics();
+  $("profileFile").value = "";
+  await refresh();
   toast("学生画像已生成");
 }
 

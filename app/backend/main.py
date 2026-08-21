@@ -29,6 +29,7 @@ from models import (
     StudentProfile,
     Target,
     TargetCreate,
+    UserDocumentManifest,
     now_iso,
 )
 from services import (
@@ -125,16 +126,50 @@ def llm_status():
 
 
 @app.post("/api/profile/upload")
-async def upload_profile(file: Optional[UploadFile] = File(None), text: str = Form("")):
-    content = text
+async def upload_profile(
+    file: Optional[UploadFile] = File(None),
+    text: str = Form(""),
+    category: str = Form("manual_inputs"),
+):
+    content_parts = []
+    source_document_ids = []
+    if text.strip():
+        document = workspace.save_user_document(
+            text.encode("utf-8"),
+            "profile_manual_input.txt",
+            category="manual_inputs",
+            source_type="manual_input",
+            trusted=True,
+            confirmed=False,
+            notes="学生资料页手动粘贴内容",
+        )
+        source_document_ids.append(document.document_id)
+        content_parts.append(text)
     if file:
         blob = await file.read()
-        content = blob.decode("utf-8", errors="ignore")
+        document = workspace.save_user_document(
+            blob,
+            file.filename or "uploaded_profile.txt",
+            category=category,
+            source_type="local_upload",
+            trusted=True,
+            confirmed=False,
+            notes="学生资料页上传文件",
+        )
+        source_document_ids.append(document.document_id)
+        content_parts.append(blob.decode("utf-8", errors="ignore"))
+    content = "\n\n".join(part for part in content_parts if part.strip())
     if not content.strip():
         raise HTTPException(status_code=400, detail="Profile text is required")
     profile = build_profile_from_text(content)
+    profile.source_document_ids = source_document_ids
     workspace.write("profiles", dump(profile), "profile_id")
     return profile
+
+
+@app.get("/api/user-documents")
+def list_user_documents():
+    return UserDocumentManifest(**workspace.read_user_document_manifest())
 
 
 @app.get("/api/profile")
