@@ -42,7 +42,16 @@ workspace.demo/
 app/backend/data/
 
 # Local planning drafts and pre-implementation research notes.
-# Formal project docs under docs/01_*.md ... docs/10_*.md should stay versioned.
+# Early planning docs stay local by default; docs/10+ and demo docs stay versioned.
+docs/01_*.md
+docs/02_*.md
+docs/03_*.md
+docs/04_*.md
+docs/05_*.md
+docs/06_*.md
+docs/07_*.md
+docs/08_*.md
+docs/09_*.md
 planning/
 research_notes/
 scratch/

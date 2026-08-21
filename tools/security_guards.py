@@ -53,9 +53,20 @@ REQUIRED_GITIGNORE_RULES = {
     "*.pptx",
     "*.sqlite3",
     "*.zip",
+    "docs/01_*.md",
+    "docs/02_*.md",
+    "docs/03_*.md",
+    "docs/04_*.md",
+    "docs/05_*.md",
+    "docs/06_*.md",
+    "docs/07_*.md",
+    "docs/08_*.md",
+    "docs/09_*.md",
     ".venv/",
     ".ruff_cache/",
 }
+
+LOCAL_ONLY_DOC_PATTERN = re.compile(r"^docs/0[1-9]_.+\.md$")
 
 FORBIDDEN_TRACKED_PREFIXES = (
     "workspace/",
@@ -131,6 +142,8 @@ def check_tracked_files() -> None:
             fail(f"forbidden tracked file: {path}")
         if path.startswith(FORBIDDEN_TRACKED_PREFIXES):
             fail(f"forbidden tracked local data path: {path}")
+        if LOCAL_ONLY_DOC_PATTERN.match(path):
+            fail(f"local-only planning doc is tracked: {path}")
         if relative.suffix in SENSITIVE_SUFFIXES:
             fail(f"forbidden tracked sensitive file suffix: {path}")
         if any(marker in relative.parts for marker in EXTERNAL_PROJECT_PATH_MARKERS):

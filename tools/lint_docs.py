@@ -7,33 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
 REQUIRED_DOCS = [
-    "01_project_background.md",
-    "02_tech_stack.md",
-    "03_execution_plan.md",
-    "04_existing_projects_audit.md",
-    "05_migration_mapping.md",
-    "06_mvp_spec.md",
-    "07_user_flow.md",
-    "08_data_schema.md",
-    "09_rl_integration_plan.md",
     "10_open_source_readiness.md",
-]
-
-REQUIRED_PLAN_MARKERS = [
-    "阶段 8.5：Agent 工作流深化",
-    "阶段 10：工程规范与开源安全守卫",
-    "阶段 11：PPTAgent 深度集成",
-    "大模型能力演进规划",
-    "workspace/user_documents/manifest.json",
-    "MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent",
-]
-
-REQUIRED_SCHEMA_MARKERS = [
-    ("AdvisorSource", "Advisor Source"),
-    ("AdvisorProfile", "Advisor Profile"),
-    ("Target", "Program Target"),
-    ("MatchReport", "Match Report"),
-    ("ApplicationRecord", "Application Tracker"),
+    "11_demo_walkthrough.md",
 ]
 
 REQUIRED_CODE_PATH_MARKERS = [
@@ -72,20 +47,6 @@ def check_required_docs() -> None:
         read_doc(name)
 
 
-def check_execution_plan() -> None:
-    text = read_doc("03_execution_plan.md")
-    for marker in REQUIRED_PLAN_MARKERS:
-        if marker not in text:
-            fail(f"docs/03_execution_plan.md missing marker: {marker}")
-
-
-def check_schema_doc() -> None:
-    text = read_doc("08_data_schema.md")
-    for code_name, doc_name in REQUIRED_SCHEMA_MARKERS:
-        if code_name not in text and doc_name not in text:
-            fail(f"docs/08_data_schema.md missing schema marker: {code_name} / {doc_name}")
-
-
 def check_open_source_doc() -> None:
     text = read_doc("10_open_source_readiness.md")
     for canonical, doc_marker in REQUIRED_CODE_PATH_MARKERS:
@@ -101,8 +62,6 @@ def check_portable_skill() -> None:
 
 def main() -> None:
     check_required_docs()
-    check_execution_plan()
-    check_schema_doc()
     check_open_source_doc()
     check_portable_skill()
     print("doc lint passed")
