@@ -53,6 +53,7 @@ class Workspace:
             "material_versions",
             "quality_reports",
             "agent_runs",
+            "workflow_events",
             "presentation_tasks",
             "reports",
         ]:

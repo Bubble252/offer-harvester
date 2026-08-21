@@ -286,6 +286,29 @@ class AgentRun(BaseModel):
     ended_at: str = ""
 
 
+class WorkflowEvent(BaseModel):
+    event_id: str = Field(default_factory=lambda: new_id("evt"))
+    run_id: str
+    target_id: str
+    workflow: str
+    event_type: Literal[
+        "workflow_started",
+        "draft_started",
+        "draft_completed",
+        "review_started",
+        "review_completed",
+        "audit_started",
+        "audit_completed",
+        "quality_completed",
+        "final_saved",
+        "workflow_failed",
+    ]
+    status: Literal["started", "completed", "failed"] = "completed"
+    agent_name: str = ""
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str = Field(default_factory=now_iso)
+
+
 class PresentationGenerationRequest(BaseModel):
     outline_material_id: str = ""
 

@@ -681,7 +681,7 @@ app/backend/agents/
 任务：
 
 - [x] 定义 `AgentRun` 数据结构：输入、输出、状态、错误、开始时间、结束时间
-- [ ] 定义 `WorkflowEvent` 持久化结构，不只保存在内存
+- [x] 定义 `WorkflowEvent` 持久化结构，不只保存在内存
 - [x] 第一条 Agent 主链路先做套磁邮件：`MaterialDraftAgent -> MaterialReviewAgent -> EvidenceAuditAgent`
 - [x] `MaterialDraftAgent` 调用现有 `make_contact_email` 作为未配置 LLM 时的 fallback
 - [x] 新增 `MaterialReviewAgent`，负责检查空泛、夸大、导师方向不贴合和面试不可解释
@@ -689,6 +689,8 @@ app/backend/agents/
 - [x] 支持 drafter-reviewer-auditor 三阶段输出：草稿、审稿意见、证据审计、修订稿、最终质量报告
 - [x] 保存每次材料版本到 `material_versions/`，最终稿再写入 `generated/`
 - [x] 为每次工作流运行记录输入摘要、输出摘要、质量分和风险标签
+- [x] 增加 `workflow_events/`，记录 workflow_started、draft/review/audit、quality 和 final_saved 事件
+- [x] 增加 `GET /api/agent-runs/{run_id}/events` 查询单次 Agent 运行事件
 - [ ] 第二阶段再将导师资料解析拆成 `AdvisorExtractionAgent`，保留规则解析作为 fallback
 - [ ] 第二阶段再将匹配分析拆成 `MatchAnalysisAgent`，输出维度评分、证据引用和风险项
 - [ ] 设计后续 RL 数据采集字段，但默认不把真实用户数据用于公开训练
@@ -699,7 +701,7 @@ app/backend/agents/
 - [x] 生成套磁邮件时，系统能返回 draft、review、final、quality_report 四类结果
 - [x] LLM 未配置时仍能走规则模板和本地质量检查
 - [x] reviewer 能明确指出材料中缺证据、太模板化或不可面试解释的句子
-- [ ] 每个 Agent 运行都有可追踪事件记录
+- [x] 每个 Agent 运行都有可追踪事件记录
 
 ### 大模型能力演进规划
 

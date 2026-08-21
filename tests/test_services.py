@@ -91,6 +91,20 @@ def test_contact_email_agent_workflow_records_review_audit_and_versions():
     assert result.agent_run.output_summary["material_id"] == result.material.material_id
     assert [version.stage for version in result.versions] == ["draft", "final"]
     assert result.versions[0].source_run_id == result.agent_run.run_id
+    assert [event.event_type for event in result.events] == [
+        "workflow_started",
+        "draft_started",
+        "draft_completed",
+        "review_started",
+        "review_completed",
+        "audit_started",
+        "audit_completed",
+        "quality_completed",
+        "final_saved",
+    ]
+    assert all(event.run_id == result.agent_run.run_id for event in result.events)
+    assert result.events[2].payload["material_id"] == result.material.material_id
+    assert "content" not in result.events[2].payload
 
 
 def test_contact_email_agent_flags_missing_advisor_source():
@@ -155,6 +169,7 @@ def test_workspace_creates_agent_and_version_directories(tmp_path):
     workspace = Workspace(str(tmp_path))
 
     assert (workspace.root / "agent_runs").is_dir()
+    assert (workspace.root / "workflow_events").is_dir()
     assert (workspace.root / "material_versions").is_dir()
     assert (workspace.root / "user_documents").is_dir()
 

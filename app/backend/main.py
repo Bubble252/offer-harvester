@@ -337,6 +337,8 @@ def generate_contact_email(target_id: str):
     )
     for version in result.versions:
         workspace.write("material_versions", dump(version), "version_id")
+    for event in result.events:
+        workspace.write("workflow_events", dump(event), "event_id")
     workspace.write("generated", dump(result.material), "material_id")
     workspace.write("quality_reports", dump(result.quality), "quality_id")
     workspace.write("agent_runs", dump(result.agent_run), "run_id")
@@ -347,6 +349,7 @@ def generate_contact_email(target_id: str):
         "review": result.review,
         "evidence_audit": result.evidence_audit,
         "revision": result.revision,
+        "events": result.events,
         "agent_run": result.agent_run,
     }
 
@@ -379,6 +382,14 @@ def list_generated():
 @app.get("/api/agent-runs")
 def list_agent_runs():
     return workspace.list("agent_runs")
+
+
+@app.get("/api/agent-runs/{run_id}/events")
+def list_agent_run_events(run_id: str):
+    run = workspace.read("agent_runs", run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    return [event for event in workspace.list("workflow_events") if event.get("run_id") == run_id]
 
 
 @app.get("/api/generated/{material_id}")
