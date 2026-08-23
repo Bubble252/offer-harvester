@@ -15,6 +15,7 @@ const state = {
   gapPlans: [],
   strategyStatus: null,
   templateRegistry: null,
+  sourceConnectorRegistry: null,
   selectedMaterial: null,
 };
 
@@ -420,11 +421,29 @@ function renderStrategy() {
       </div>`
     : "";
 
+  const sourceConnectorHtml = state.sourceConnectorRegistry
+    ? `<div class="template-registry-list">
+        <div class="strategy-summary">连接器 ${escapeHtml(String(state.sourceConnectorRegistry.connector_count || 0))} 个，已激活 ${escapeHtml(String(state.sourceConnectorRegistry.active_count || 0))} 个。</div>
+        <div class="stack-list">
+          ${(state.sourceConnectorRegistry.connectors || [])
+            .map(
+              (item) => `<div class="list-item strategy-item">
+                <div class="item-title">${escapeHtml(item.name || item.connector_id)} · ${item.active ? "可激活" : "需修正"}</div>
+                <div class="item-meta">${escapeHtml(item.source_type)} · ${escapeHtml(item.path)} · URL pattern ${escapeHtml(String((item.url_patterns || []).length))} 个 · 字段 ${escapeHtml(String(Object.keys(item.field_mapping || {}).length))} 个</div>
+                <div class="item-meta">${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "manifest、字段映射、访问规则和测试查询通过。")}</div>
+              </div>`
+            )
+            .join("")}
+        </div>
+      </div>`
+    : "";
+
   const registryHtml = state.strategyStatus
     ? `<div class="quality-summary">
         <strong>${escapeHtml(state.strategyStatus.title)}</strong>
         <div class="item-meta">${escapeHtml(state.strategyStatus.message)}</div>
         ${templateRegistryHtml}
+        ${sourceConnectorHtml}
       </div>`
     : "";
 
@@ -1071,8 +1090,9 @@ async function checkTemplateRegistry() {
 async function checkSourceConnectors() {
   try {
     const result = await api("/api/source-connectors/status");
+    state.sourceConnectorRegistry = result;
     state.strategyStatus = {
-      title: "来源连接器骨架",
+      title: "来源连接器 registry",
       message: result.access_policy,
     };
     renderStrategy();

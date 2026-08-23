@@ -344,7 +344,10 @@ def test_stage16_strategy_endpoints_persist_reports(tmp_path):
     assert template_status.template_count >= 2
     assert template_status.active_count >= 2
     assert all(template.render_preview.passed for template in template_status.templates)
-    assert connector_status.implemented is False
+    assert connector_status.implemented is True
+    assert connector_status.connector_count >= 2
+    assert connector_status.active_count >= 2
+    assert all(connector.field_mapping for connector in connector_status.connectors)
     assert workspace.list("target_triage_reports")
     assert workspace.list("profile_expansion_candidates")
     assert workspace.list("gap_plans")

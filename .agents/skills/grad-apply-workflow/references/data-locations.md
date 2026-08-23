@@ -34,6 +34,17 @@ workspace/
 └── rag_index/
 ```
 
+## Portable Registry Directories
+
+```text
+.agents/skills/grad-apply-workflow/
+├── templates/
+└── source_connectors/
+```
+
+`templates/` stores reusable `TEMPLATE.md` manifests and anonymous sample templates.
+`source_connectors/` stores `CONNECTOR.md` manifests that describe URL patterns, field mappings, access rules, test queries, and manual fallback behavior. Connector manifests are not crawlers.
+
 ## User Documents
 
 ```text

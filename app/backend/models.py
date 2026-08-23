@@ -557,12 +557,35 @@ class TemplateRegistryStatus(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
+class SourceConnectorRegistryItem(BaseModel):
+    connector_id: str
+    name: str = ""
+    source_type: str = ""
+    version: str = "0.1.0"
+    description: str = ""
+    path: str = ""
+    url_patterns: List[str] = Field(default_factory=list)
+    field_mapping: Dict[str, str] = Field(default_factory=dict)
+    access_rules: List[str] = Field(default_factory=list)
+    robots_policy: str = ""
+    tos_policy: str = ""
+    test_queries: List[str] = Field(default_factory=list)
+    fallback: str = ""
+    output_scope: Literal["workspace_or_fork", "builtin_default"] = "workspace_or_fork"
+    active: bool = False
+    validation_issues: List[TemplateValidationIssue] = Field(default_factory=list)
+
+
 class SourceConnectorRegistryStatus(BaseModel):
     registry_id: str = Field(default_factory=lambda: new_id("connectorreg"))
-    connector_root: str = "source_connectors"
+    connector_root: str = ".agents/skills/grad-apply-workflow/source_connectors"
     supported_source_types: List[str] = Field(default_factory=list)
     access_policy: str = ""
     implemented: bool = False
+    connector_count: int = 0
+    active_count: int = 0
+    connectors: List[SourceConnectorRegistryItem] = Field(default_factory=list)
+    validation_errors: List[TemplateValidationIssue] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)
 
 

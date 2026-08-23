@@ -19,7 +19,6 @@ from models import (
     ProfileExpansionCandidate,
     ProfileExpansionReport,
     ReadinessScoreReport,
-    SourceConnectorRegistryStatus,
     StudentProfile,
     Target,
     TargetTriageItem,
@@ -589,19 +588,6 @@ def next_actions_from_gaps(gaps: list[GapPlanItem]) -> list[str]:
         if len(actions) >= 6:
             break
     return list(dict.fromkeys(actions))[:6]
-
-
-def source_connector_registry_status() -> SourceConnectorRegistryStatus:
-    return SourceConnectorRegistryStatus(
-        supported_source_types=[
-            "school_homepage",
-            "college_notice",
-            "advisor_homepage",
-            "admission_system",
-        ],
-        access_policy="第一版仅保留连接器骨架；不绕过登录、验证码、付费墙、robots/ToS 或明确禁止自动访问的来源。",
-        implemented=False,
-    )
 
 
 def tokenize_terms(text: str) -> list[str]:

@@ -42,13 +42,9 @@ from services import (
     parse_advisor_profile,
     validate_public_url,
 )
+from source_connector_registry import scan_source_connector_registry
 from storage import Workspace
-from strategy import (
-    build_batch_triage_report,
-    build_gap_plan,
-    build_profile_expansion_report,
-    source_connector_registry_status,
-)
+from strategy import build_batch_triage_report, build_gap_plan, build_profile_expansion_report
 from template_registry import scan_template_registry
 
 
@@ -876,7 +872,7 @@ def test_stage16_strategy_triage_profile_expand_and_gap_plan(tmp_path):
         materials=[],
     )
     template_status = scan_template_registry(ROOT)
-    connector_status = source_connector_registry_status()
+    connector_status = scan_source_connector_registry(ROOT)
 
     assert triage.items[0].preliminary is True
     assert triage.items[0].target_id == target.target_id
@@ -893,4 +889,7 @@ def test_stage16_strategy_triage_profile_expand_and_gap_plan(tmp_path):
     assert template_status.template_count >= 2
     assert template_status.active_count >= 2
     assert all(template.render_preview.passed for template in template_status.templates)
-    assert connector_status.implemented is False
+    assert connector_status.implemented is True
+    assert connector_status.connector_count >= 2
+    assert connector_status.active_count >= 2
+    assert all(connector.field_mapping for connector in connector_status.connectors)

@@ -71,12 +71,12 @@ from services import (
     make_interview_questions,
     make_ppt_outline,
 )
+from source_connector_registry import scan_source_connector_registry
 from storage import Workspace
 from strategy import (
     build_batch_triage_report,
     build_gap_plan,
     build_profile_expansion_report,
-    source_connector_registry_status,
 )
 from template_registry import scan_template_registry
 
@@ -713,7 +713,7 @@ def get_template_registry_status() -> TemplateRegistryStatus:
 
 @app.get("/api/source-connectors/status")
 def get_source_connector_status() -> SourceConnectorRegistryStatus:
-    status = source_connector_registry_status()
+    status = scan_source_connector_registry(PROJECT_ROOT)
     workspace.write("source_connectors", dump(status), "registry_id")
     return status
 
