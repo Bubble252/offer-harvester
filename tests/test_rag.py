@@ -18,6 +18,7 @@ from models import (  # noqa: E402
     KnowledgeBaseSourceCreate,
     MaterialVersion,
     PipelineSyncRequest,
+    PresentationGenerationRequest,
     Target,
 )
 from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever  # noqa: E402
@@ -254,6 +255,57 @@ def test_readiness_score_endpoint_persists_report(tmp_path):
     assert report.score_id
     assert workspace.list("readiness_scores")
     assert workspace.latest("readiness_scores")["score_id"] == report.score_id
+
+
+def test_presentation_generation_persists_params_and_quality_report(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    target = Target(name="某大学李四教授课题组")
+    workspace.write("targets", dump(target), "target_id")
+    outline = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="ppt_outline",
+        title="面试 PPT 大纲",
+        content="""# 5 分钟保研面试展示 PPT 大纲
+
+## 1. 封面
+- 标题：匿名学生
+
+## 2. 教育背景
+- 学校：某大学
+
+## 3. 项目经历
+- 项目：多模态问答
+
+## 4. 方向匹配
+- 导师方向：多模态学习
+
+## 5. 未来计划
+- 阅读课题组论文
+""",
+    )
+    workspace.write("generated", dump(outline), "material_id")
+
+    task = backend_main.generate_presentation(
+        target.target_id,
+        PresentationGenerationRequest(
+            outline_material_id=outline.material_id,
+            num_slides=3,
+            duration_minutes=4,
+            length_factor="concise",
+        ),
+    )
+
+    quality_reports = workspace.list("presentation_quality_reports")
+    assert task.status == "completed"
+    assert task.engine_name == "LocalPptxAdapter"
+    assert task.generation_params["num_slides"] == 3
+    assert task.quality_score > 0
+    assert quality_reports[-1]["quality_id"] == task.quality_report_id
+    assert (workspace.root / "generated" / "presentations" / task.output_filename).exists()
 
 
 def test_lifecycle_endpoints_persist_archive_and_sync_runs(tmp_path):

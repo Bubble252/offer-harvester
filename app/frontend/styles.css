@@ -492,6 +492,23 @@ h2 {
   text-align: left;
 }
 
+.ppt-settings {
+  margin: 0 0 18px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: #fbfcfd;
+}
+
+.compact-heading {
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.compact-heading h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
 .document-view {
   min-height: 440px;
   margin: 0;

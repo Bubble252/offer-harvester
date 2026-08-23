@@ -16,6 +16,9 @@ const state = {
   strategyStatus: null,
   templateRegistry: null,
   sourceConnectorRegistry: null,
+  referencePresentations: [],
+  presentationPrechecks: [],
+  presentationQualityReports: [],
   selectedMaterial: null,
 };
 
@@ -637,6 +640,59 @@ function renderGeneratedMaterials() {
         .map((item) => `<div class="list-item"><div class="item-title">${escapeHtml(item.title)}</div><div class="item-meta">${escapeHtml(item.created_at)}</div><button data-material-id="${escapeHtml(item.material_id)}">查看材料</button></div>`)
         .join("")
     : "<div class='empty-state'>选择目标后生成材料会显示在这里。</div>";
+  renderReferencePptOptions();
+}
+
+function precheckForReference(referenceId) {
+  return (state.presentationPrechecks || [])
+    .filter((item) => item.reference_id === referenceId)
+    .slice(-1)[0];
+}
+
+function qualityForTask(taskId) {
+  return (state.presentationQualityReports || [])
+    .filter((item) => item.task_id === taskId)
+    .slice(-1)[0];
+}
+
+function renderReferencePptOptions(selectedId = "") {
+  const select = $("referencePptSelect");
+  if (!select) return;
+  const current = selectedId || select.value;
+  select.innerHTML = "<option value=''>不使用参考 PPT</option>";
+  (state.referencePresentations || []).forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.reference_id;
+    option.textContent = item.original_filename || item.reference_id;
+    select.appendChild(option);
+  });
+  select.value = (state.referencePresentations || []).some((item) => item.reference_id === current)
+    ? current
+    : "";
+  renderReferencePptView();
+}
+
+function renderReferencePptView() {
+  const view = $("referencePptView");
+  if (!view) return;
+  const referenceId = $("referencePptSelect").value;
+  if (!referenceId) {
+    view.innerHTML = "<div class='empty-state'>未选择参考 PPT。</div>";
+    return;
+  }
+  const report = precheckForReference(referenceId);
+  if (!report) {
+    view.innerHTML = "<div class='empty-state'>尚未找到预检报告。</div>";
+    return;
+  }
+  const issues = (report.issues || [])
+    .map((issue) => `<li>${escapeHtml(issue.severity)}：${escapeHtml(issue.message)}</li>`)
+    .join("");
+  view.innerHTML = `<div class="quality-summary ${report.passed ? "low" : "medium"}">
+    <strong>参考 PPT 预检：${report.passed ? "可用" : "建议复核"}</strong>
+    <div class="item-meta">${escapeHtml(String(report.slide_count))} 页 · 元素 ${escapeHtml(String(report.total_shape_count))} 个 · 单页最多 ${escapeHtml(String(report.max_shapes_per_slide))} 个</div>
+    <ul>${issues || "<li>未发现阻断问题。</li>"}</ul>
+  </div>`;
 }
 
 function renderMaterial(material, quality = null, workflow = null) {
@@ -747,6 +803,9 @@ async function refresh() {
       state.userDocuments,
       state.readinessScore,
       state.gapPlans,
+      state.referencePresentations,
+      state.presentationPrechecks,
+      state.presentationQualityReports,
     ] = await Promise.all([
       api("/api/advisors"),
       api("/api/advisor-sources"),
@@ -758,6 +817,9 @@ async function refresh() {
       api("/api/user-documents").then((manifest) => manifest.documents || []),
       api("/api/readiness-score"),
       api("/api/gap-plans"),
+      api("/api/reference-presentations"),
+      api("/api/presentation-prechecks"),
+      api("/api/presentation-quality-reports"),
     ]);
     const triageReports = await api("/api/target-triage");
     const expansionReports = await api("/api/profile-expansion");
@@ -930,12 +992,26 @@ function renderPresentationTask(task) {
     target.innerHTML = "";
     return;
   }
+  const quality = qualityForTask(task.task_id);
+  const qualityHtml = quality
+    ? `<div class="item-meta">PPT 质量分 ${escapeHtml(String(quality.total_score))} · 内容 ${escapeHtml(String(quality.content_score))} · 设计 ${escapeHtml(String(quality.design_score))} · 连贯 ${escapeHtml(String(quality.coherence_score))}</div>`
+    : task.quality_score
+      ? `<div class="item-meta">PPT 质量分 ${escapeHtml(String(task.quality_score))}</div>`
+      : "";
+  const fallbackHtml = task.fallback_reason
+    ? `<div class="item-meta">Fallback：${escapeHtml(task.fallback_reason)}</div>`
+    : "";
   if (task.status === "completed") {
-    target.innerHTML = `<div class="quality-summary"><strong>可编辑 PPTX 已生成</strong><div class="item-meta">${escapeHtml(task.message)}</div><a class="text-button" href="/api/tasks/${encodeURIComponent(task.task_id)}/download">下载 PPTX</a></div>`;
+    target.innerHTML = `<div class="quality-summary"><strong>可编辑 PPTX 已生成</strong><div class="item-meta">${escapeHtml(task.engine_name || "LocalPptxAdapter")} · ${escapeHtml(task.message)}</div>${fallbackHtml}${qualityHtml}<a class="text-button" href="/api/tasks/${encodeURIComponent(task.task_id)}/download">下载 PPTX</a></div>`;
     return;
   }
   const message = task.error || task.message || "正在处理";
   target.innerHTML = `<div class="quality-summary ${task.status === "failed" ? "high" : "medium"}"><strong>${escapeHtml(task.status)} · ${task.progress}%</strong><div class="item-meta">${escapeHtml(message)}</div></div>`;
+}
+
+function pptNumberValue(id, fallback) {
+  const value = Number.parseInt($(id).value, 10);
+  return Number.isFinite(value) ? value : fallback;
 }
 
 async function generatePptx() {
@@ -943,13 +1019,42 @@ async function generatePptx() {
   if (!id) return;
   $("pptxBtn").disabled = true;
   try {
-    const task = await api(`/api/targets/${id}/ppt`, { method: "POST", body: JSON.stringify({}) });
+    const task = await api(`/api/targets/${id}/ppt`, {
+      method: "POST",
+      body: JSON.stringify({
+        reference_file_id: $("referencePptSelect").value,
+        num_slides: Math.max(1, Math.min(12, pptNumberValue("pptSlideCount", 5))),
+        duration_minutes: Math.max(1, Math.min(20, pptNumberValue("pptDurationMinutes", 5))),
+        length_factor: $("pptLengthFactor").value,
+      }),
+    });
     renderPresentationTask(task);
     toast(task.status === "completed" ? "可编辑 PPTX 已生成" : "PPTX 任务已提交");
+    await refresh();
   } catch (error) {
     toast(`PPTX 生成失败：${error.message}`);
   } finally {
     $("pptxBtn").disabled = false;
+  }
+}
+
+async function uploadReferencePpt() {
+  const file = $("referencePptFile").files[0];
+  if (!file) return toast("请先选择 .pptx 文件");
+  const form = new FormData();
+  form.append("file", file);
+  $("uploadReferencePptBtn").disabled = true;
+  try {
+    const result = await api("/api/reference-presentations", { method: "POST", body: form });
+    state.referencePresentations = [...(state.referencePresentations || []), result.reference];
+    state.presentationPrechecks = [...(state.presentationPrechecks || []), result.precheck];
+    $("referencePptFile").value = "";
+    renderReferencePptOptions(result.reference.reference_id);
+    toast(result.precheck.passed ? "参考 PPT 已上传并通过预检" : "参考 PPT 已上传，建议复核预检提示");
+  } catch (error) {
+    toast(`参考 PPT 上传失败：${error.message}`);
+  } finally {
+    $("uploadReferencePptBtn").disabled = false;
   }
 }
 
@@ -1143,6 +1248,8 @@ $("emailBtn").addEventListener("click", () => generate("materials/contact-email"
 $("questionsBtn").addEventListener("click", () => generate("materials/interview-questions", "面试问题"));
 $("pptBtn").addEventListener("click", () => generate("materials/ppt-outline", "PPT 大纲"));
 $("pptxBtn").addEventListener("click", generatePptx);
+$("uploadReferencePptBtn").addEventListener("click", uploadReferencePpt);
+$("referencePptSelect").addEventListener("change", renderReferencePptView);
 $("generateReportBtn").addEventListener("click", generateReport);
 $("targetSelect").addEventListener("change", renderGeneratedMaterials);
 $("readinessTargetSelect").addEventListener("change", renderTargetReadiness);

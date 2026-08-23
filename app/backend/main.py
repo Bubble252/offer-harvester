@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Union
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -48,9 +48,12 @@ from models import (
     PipelineSyncRequest,
     PipelineSyncResult,
     PresentationGenerationRequest,
+    PresentationPrecheckReport,
+    PresentationQualityReport,
     PresentationTaskRecord,
     ProfileExpansionReport,
     ReadinessScoreReport,
+    ReferencePresentationRecord,
     SourceConnectorRegistryStatus,
     StudentProfile,
     Target,
@@ -59,6 +62,7 @@ from models import (
     UserDocumentManifest,
     now_iso,
 )
+from presentation_quality import build_presentation_quality_report, save_reference_presentation
 from quality import audit_material
 from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever
 from services import (
@@ -718,6 +722,41 @@ def get_source_connector_status() -> SourceConnectorRegistryStatus:
     return status
 
 
+@app.get("/api/reference-presentations")
+def list_reference_presentations() -> List[ReferencePresentationRecord]:
+    return [
+        ReferencePresentationRecord(**item) for item in workspace.list("reference_presentations")
+    ]
+
+
+@app.post("/api/reference-presentations")
+async def upload_reference_presentation(
+    file: UploadFile = File(...),
+) -> Dict[str, Union[ReferencePresentationRecord, PresentationPrecheckReport]]:
+    content = await file.read()
+    try:
+        reference, precheck = save_reference_presentation(
+            workspace,
+            content,
+            file.filename or "reference.pptx",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"reference": reference, "precheck": precheck}
+
+
+@app.get("/api/presentation-prechecks")
+def list_presentation_prechecks() -> List[PresentationPrecheckReport]:
+    return [PresentationPrecheckReport(**item) for item in workspace.list("presentation_prechecks")]
+
+
+@app.get("/api/presentation-quality-reports")
+def list_presentation_quality_reports() -> List[PresentationQualityReport]:
+    return [
+        PresentationQualityReport(**item) for item in workspace.list("presentation_quality_reports")
+    ]
+
+
 @app.post("/api/targets/{target_id}/ppt")
 def generate_presentation(
     target_id: str, payload: PresentationGenerationRequest = PresentationGenerationRequest()
@@ -739,12 +778,24 @@ def generate_presentation(
         raise HTTPException(status_code=400, detail="Generate a PPT outline before creating PPTX")
 
     outline = GeneratedMaterial(**outline_item)
+    reference_path = None
+    if payload.reference_file_id:
+        reference_item = workspace.read("reference_presentations", payload.reference_file_id)
+        if not reference_item:
+            raise HTTPException(status_code=404, detail="Reference presentation not found")
+        reference = ReferencePresentationRecord(**reference_item)
+        reference_path = workspace.root / reference.path
+        if not reference_path.exists():
+            raise HTTPException(status_code=404, detail="Reference presentation file not found")
+
     task = PresentationTaskRecord(
         target_id=target.target_id,
         outline_material_id=outline.material_id,
         status="running",
         progress=15,
         message="正在生成可编辑 PPTX。",
+        reference_file_id=payload.reference_file_id,
+        generation_params=dump(payload),
         updated_at=now_iso(),
     )
     workspace.write("presentation_tasks", dump(task), "task_id")
@@ -754,15 +805,32 @@ def generate_presentation(
                 title=f"{target.name}_面试展示",
                 outline=outline.content,
                 output_dir=workspace.root / "generated" / "presentations",
-                metadata={"target_id": target.target_id},
+                reference_file=reference_path,
+                presentation_type=payload.presentation_type,
+                duration_minutes=payload.duration_minutes,
+                num_slides=payload.num_slides,
+                length_factor=payload.length_factor,
+                metadata={
+                    "target_id": target.target_id,
+                    "sim_bound": str(payload.sim_bound),
+                    "hide_small_pic_ratio": str(payload.hide_small_pic_ratio),
+                    "keep_in_background": str(payload.keep_in_background),
+                    "error_exit": str(payload.error_exit),
+                },
             )
         )
         if not result.output_path:
             raise RuntimeError(result.message or "未生成 PPTX 文件")
+        quality = build_presentation_quality_report(task, outline, result, payload)
+        workspace.write("presentation_quality_reports", dump(quality), "quality_id")
         task.status = "completed"
         task.progress = 100
         task.output_filename = result.output_path.name
         task.message = result.message
+        task.engine_name = result.engine_name
+        task.fallback_reason = result.fallback_reason
+        task.quality_report_id = quality.quality_id
+        task.quality_score = quality.total_score
     except Exception as exc:
         task.status = "failed"
         task.progress = 100

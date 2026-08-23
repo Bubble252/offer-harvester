@@ -693,6 +693,62 @@ class WorkflowEvent(BaseModel):
 
 class PresentationGenerationRequest(BaseModel):
     outline_material_id: str = ""
+    reference_file_id: str = ""
+    presentation_type: Literal["interview_intro", "research_project", "application_summary"] = (
+        "interview_intro"
+    )
+    duration_minutes: int = 5
+    num_slides: int = 5
+    length_factor: Literal["concise", "standard", "detailed"] = "standard"
+    sim_bound: float = 0.35
+    hide_small_pic_ratio: float = 0.08
+    keep_in_background: bool = True
+    error_exit: bool = False
+
+
+class ReferencePresentationRecord(BaseModel):
+    reference_id: str = Field(default_factory=lambda: new_id("ppt_ref"))
+    original_filename: str = ""
+    path: str = ""
+    content_hash: str = ""
+    uploaded_at: str = Field(default_factory=now_iso)
+    notes: str = ""
+
+
+class PresentationPrecheckIssue(BaseModel):
+    code: str
+    message: str
+    severity: Literal["info", "warning", "error"] = "warning"
+    slide_index: Optional[int] = None
+
+
+class PresentationPrecheckReport(BaseModel):
+    precheck_id: str = Field(default_factory=lambda: new_id("ppt_precheck"))
+    reference_id: str = ""
+    filename: str = ""
+    passed: bool = True
+    slide_count: int = 0
+    total_shape_count: int = 0
+    max_shapes_per_slide: int = 0
+    functional_pages: Dict[str, bool] = Field(default_factory=dict)
+    issues: List[PresentationPrecheckIssue] = Field(default_factory=list)
+    fallback_allowed: bool = True
+    created_at: str = Field(default_factory=now_iso)
+
+
+class PresentationQualityReport(BaseModel):
+    quality_id: str = Field(default_factory=lambda: new_id("ppt_quality"))
+    task_id: str = ""
+    target_id: str = ""
+    outline_material_id: str = ""
+    engine_name: str = "LocalPptxAdapter"
+    content_score: int = 0
+    design_score: int = 0
+    coherence_score: int = 0
+    total_score: int = 0
+    issues: List[PresentationPrecheckIssue] = Field(default_factory=list)
+    action_items: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
 
 
 class PresentationTaskRecord(BaseModel):
@@ -704,5 +760,11 @@ class PresentationTaskRecord(BaseModel):
     output_filename: str = ""
     message: str = ""
     error: str = ""
+    engine_name: str = "LocalPptxAdapter"
+    fallback_reason: str = ""
+    reference_file_id: str = ""
+    quality_report_id: str = ""
+    quality_score: int = 0
+    generation_params: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)

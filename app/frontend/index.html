@@ -340,6 +340,40 @@
                 <button id="pptBtn">生成 PPT 大纲</button>
                 <button id="pptxBtn">生成可编辑 PPTX</button>
               </div>
+              <div class="ppt-settings">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <h3>PPT 生成设置</h3>
+                    <p>参考 PPT 仅做预检，本阶段默认降级为本地可编辑 PPTX。</p>
+                  </div>
+                </div>
+                <label for="referencePptFile">参考 PPTX</label>
+                <input id="referencePptFile" type="file" accept=".pptx" />
+                <div class="button-row compact-actions">
+                  <button id="uploadReferencePptBtn" class="secondary">上传并预检</button>
+                </div>
+                <label for="referencePptSelect">使用参考</label>
+                <select id="referencePptSelect"></select>
+                <div class="editor-grid">
+                  <div>
+                    <label for="pptSlideCount">页数</label>
+                    <input id="pptSlideCount" type="number" min="1" max="12" value="5" />
+                  </div>
+                  <div>
+                    <label for="pptDurationMinutes">时长</label>
+                    <input id="pptDurationMinutes" type="number" min="1" max="20" value="5" />
+                  </div>
+                  <div>
+                    <label for="pptLengthFactor">详略</label>
+                    <select id="pptLengthFactor">
+                      <option value="concise">精简</option>
+                      <option value="standard" selected>标准</option>
+                      <option value="detailed">详细</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="referencePptView"></div>
+              </div>
               <div class="stack-list" id="generatedList"></div>
               <div id="presentationTaskView"></div>
             </section>

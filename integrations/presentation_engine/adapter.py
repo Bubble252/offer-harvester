@@ -18,6 +18,10 @@ class PresentationRequest:
     outline: str
     output_dir: Path
     reference_file: Optional[Path] = None
+    presentation_type: str = "interview_intro"
+    duration_minutes: int = 5
+    num_slides: int = 5
+    length_factor: str = "standard"
     metadata: Dict[str, str] = field(default_factory=dict)
 
 
@@ -28,6 +32,8 @@ class PresentationResult:
     status: str
     output_path: Optional[Path] = None
     message: str = ""
+    engine_name: str = "LocalPptxAdapter"
+    fallback_reason: str = ""
 
 
 @dataclass
@@ -62,14 +68,21 @@ class LocalPptxAdapter:
         presentation.slide_height = Inches(7.5)
         self._remove_default_slides(presentation)
         sections = parse_outline(request.outline)
-        for index, section in enumerate(sections[:5], start=1):
-            self._add_slide(presentation, request.title, section, index, len(sections[:5]))
+        selected_sections = sections[: max(1, min(request.num_slides or 5, 12))]
+        for index, section in enumerate(selected_sections, start=1):
+            self._add_slide(presentation, request.title, section, index, len(selected_sections))
         output_path = request.output_dir / f"{safe_name(request.title)}.pptx"
         presentation.save(str(output_path))
         return PresentationResult(
             status="success",
             output_path=output_path,
             message="已生成可编辑 PPTX。",
+            engine_name="LocalPptxAdapter",
+            fallback_reason=(
+                "参考 PPT 预检只作为提示，当前阶段默认使用本地可编辑 PPTX 适配器。"
+                if request.reference_file
+                else ""
+            ),
         )
 
     @staticmethod
@@ -161,6 +174,8 @@ class LocalOutlineAdapter:
             status="fallback",
             output_path=output_path,
             message="未配置演示文稿引擎，已生成可审阅的 Markdown 大纲。",
+            engine_name="LocalOutlineAdapter",
+            fallback_reason="未配置外部演示文稿引擎。",
         )
 
 
