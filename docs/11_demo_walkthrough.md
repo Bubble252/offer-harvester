@@ -1,6 +1,6 @@
 # Demo Walkthrough
 
-这份说明用于快速展示 Grad Apply Workflow 的核心闭环：从学生资料、导师来源、申请目标，到匹配分析、材料审查、PPTX 生成和进度报告。
+这份说明用于快速展示 Grad Apply Workflow 的核心闭环：从学生资料、导师来源、申请目标，到匹配分析、材料审查、PPTX 生成、申请生命周期和进度报告。
 
 演示数据来自 `workspace.demo/` 的匿名样例。学生信息为虚构匿名资料；导师来源使用公开网页摘要和来源链接。真实学生资料、API key、真实套磁邮件和个人隐私数据不应进入 Git。
 
@@ -13,7 +13,8 @@
 -> 创建申请目标
 -> 生成匹配分析
 -> 生成套磁邮件并通过 reviewer / auditor
--> 生成可编辑 PPTX
+-> 生成可编辑 PPTX 并记录 PPT 质量
+-> 归档申请状态和邮箱候选信号
 -> 输出申请进度报告
 ```
 
@@ -93,21 +94,54 @@
 
 这一步是本项目从普通材料生成器变成可审计 Agent 工作流的关键。
 
-## 7. 可编辑 PPTX 下载
+## 7. 可编辑 PPTX 下载与 PPT 质量
 
 ![可编辑 PPTX 下载](assets/demo/07-pptx-download.png)
 
-当前 MVP 使用本地 `LocalPptxAdapter` 生成可编辑 PPTX，适合面试展示场景。PPTAgent 深度集成仍放在阶段 11，后续通过可选适配器接入参考模板学习、版式选择和评估能力。
+当前 MVP 使用本地 `LocalPptxAdapter` 生成可编辑 PPTX，适合面试展示场景。材料中心也提供参考 PPTX 上传和规则预检：参考文件会保存 hash、页数、元素数量和功能页检查结果；当前阶段默认仍降级到本地可编辑 PPTX，不直接套用外部模板。
+
+PPT 生成任务会记录：
+
+- 目标页数、展示时长和文字详略参数
+- 使用的生成引擎
+- fallback 原因
+- Content / Design / Coherence 规则评分
+- 可下载的 `.pptx` 文件
 
 当前边界：
 
 - 可以生成并下载可编辑 PPTX
 - 不复制 PPTAgent 外部项目源码
-- 参考 PPT 模板上传和外部引擎运行时暂未作为 MVP 必需能力
+- 参考 PPT 模板只做预检和 fallback 提示，不做复杂版式学习
+- 外部 PPTAgent 运行时暂未作为 MVP 必需能力
 - PPTAgent 中的 ViT / vision 页面理解能力保留为未来可选外部能力，不进入主项目默认依赖
 - 默认不引入 `torch`、ViT 模型权重或本地视觉推理栈
 
-## 8. 申请进度报告
+## 8. 申请生命周期与邮箱信号
+
+申请目标可以创建 archive，保存目标快照、申请状态、提交材料快照、沟通草稿、outcome 和 lessons。
+
+生命周期面板支持：
+
+- 创建申请归档
+- 生成 follow-up 草稿
+- 生成 thank-you note 草稿
+- 检查只读邮箱同步骨架
+- 粘贴邮件文本并识别候选信号
+- 用户确认后才把邮件信号写入 tracker / archive / outcome
+
+邮箱信号第一版不接真实 Gmail / QQ OAuth，只识别用户粘贴或 fixture 邮件文本。候选信号会记录主题、发件人、日期、匹配目标、短摘要和 source hash。未匹配或冲突信号只进入人工复核列表。
+
+支持识别的信号包括：
+
+- 导师回复
+- 夏令营通知
+- 预推免或面试邀请
+- 补材料要求
+- 拒信
+- offer / waitlist
+
+## 9. 申请进度报告
 
 ![申请进度报告](assets/demo/08-progress-report.png)
 
@@ -115,9 +149,9 @@
 
 报告不包含录取概率预测，也不替代用户人工判断。它的作用是帮助用户知道哪些材料已生成、哪些事实仍需确认、哪些目标还要推进。
 
-## 后续 RAG 规划
+## RAG 证据检索层
 
-后续 RAG 会作为证据检索层接入，而不是简单扩大 LLM 上下文。检索结果需要返回来源、时间戳和证据 ID，供 drafter、reviewer 和 auditor 使用。
+RAG 已作为轻量证据检索层接入，而不是简单扩大 LLM 上下文。检索结果返回来源、时间戳和证据 ID，供 drafter、reviewer、auditor、匹配分析、面试问题和 PPT 大纲使用。
 
 RAG 会覆盖三类知识：
 
@@ -126,6 +160,10 @@ RAG 会覆盖三类知识：
 - 保研推免常识：推免流程、常见材料、院校政策、申请截止日期、面试准备 FAQ
 
 截止日期、政策和流程类信息必须记录来源 URL、适用年份和更新时间。过期信息只能作为历史参考，不能直接作为当前申请建议。
+
+## Release Polish 说明
+
+README、CHANGELOG 和 GitHub Release Notes 的整理规范见 [README / Release Polish Reference](14_release_readme_polish_reference.md)。当前项目不会展示不存在的 PyPI、npm、Docker、downloads 或 citation badge。
 
 ## 复现截图
 

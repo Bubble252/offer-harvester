@@ -86,3 +86,26 @@ pytest -q
 - 缺少 `NOTICE` 中的外部项目引用边界
 
 `tools/lint_docs.py` 用于做轻量文档一致性检查。修改 MVP 范围、数据对象、Agent 阶段、PPTAgent 边界或工作区目录时，应同步更新 `docs/`。
+
+## Release checklist
+
+发布前需要完成：
+
+```bash
+ruff check app tests
+ruff format --check app tests
+pytest -q
+node --check app/frontend/app.js
+python -m compileall -q app integrations tests
+python tools/lint_docs.py
+python tools/security_guards.py
+git diff --check
+```
+
+同时检查：
+
+- README 首屏说明项目定位、quickstart、隐私边界和 optional integrations
+- CHANGELOG 按版本号和日期整理
+- Demo walkthrough 截图和文字与当前 UI 对齐
+- GitHub Release notes 使用 `.github/release.yml` 分组
+- 不添加不存在的 PyPI、npm、Docker、downloads 或 citation badge

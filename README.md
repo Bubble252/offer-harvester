@@ -1,54 +1,139 @@
 # Grad Apply Workflow
 
 <p align="center">
-  <img src="app/frontend/assets/logo.png" alt="Grad Apply Workflow logo" width="220" />
+  <img src="app/frontend/assets/logo.png" alt="Grad Apply Workflow logo" width="180" />
 </p>
 
-面向保研硕博申请的本地 Web 工作台，帮助学生基于真实导师信息完成稳妥型导师匹配、中文申请材料生成、面试准备和申请状态追踪。
+<p align="center">
+  <a href="https://github.com/Bubble252/offer-harvester/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Bubble252/offer-harvester/actions/workflows/ci.yml/badge.svg" /></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue" />
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
+  <img alt="Local first" src="https://img.shields.io/badge/data-local--first-2f855a" />
+</p>
 
-## MVP 功能
+Local-first Web workspace for recommendation-based graduate applications. It helps students turn real profile evidence and public advisor sources into auditable target research, fit analysis, Chinese application materials, interview preparation, editable PPTX decks, and application tracking.
 
-- 学生资料上传与画像抽取
-- 导师 URL 抓取与手动粘贴兜底
-- 导师/实验室/项目目标管理
-- 稳妥型匹配分析
-- 中文套磁邮件生成
-- 中文面试问题生成
-- 5 页面试展示 PPT 大纲生成
-- 申请状态追踪
+The project is currently an MVP. It does not predict admission probability, does not send emails automatically, and does not replace user review.
 
-## Demo 截图
+## What It Does
 
-完整带图说明见 [Demo Walkthrough](docs/11_demo_walkthrough.md)。
+- Saves local student materials and extracts a structured profile with field-level evidence.
+- Collects advisor and lab information from public URLs or pasted fallback text.
+- Creates application targets and tracks status, deadlines, notes, archives, and outcomes.
+- Generates fit analysis, contact email drafts, interview questions, and PPT outlines.
+- Runs a `drafter -> reviewer -> evidence auditor` material workflow with quality reports.
+- Builds an editable 16:9 PPTX through the local fallback adapter.
+- Supports lightweight RAG over student documents, advisor sources, generated materials, and policy knowledge.
+- Identifies pasted email signals such as replies, interviews, material requests, rejections, offers, and waitlists, then writes them only after user confirmation.
 
-- [申请概览](docs/assets/demo/01-dashboard.png)
-- [学生画像与字段证据](docs/assets/demo/02-profile-evidence.png)
-- [导师来源与画像](docs/assets/demo/03-advisor-sources.png)
-- [匹配报告](docs/assets/demo/05-match-report.png)
-- [材料质量审查](docs/assets/demo/06-material-quality.png)
-- [可编辑 PPTX 下载](docs/assets/demo/07-pptx-download.png)
-- [申请进度报告](docs/assets/demo/08-progress-report.png)
-
-## 快速开始
+## Quickstart
 
 ```bash
+git clone https://github.com/Bubble252/offer-harvester.git
+cd offer-harvester
+python -m pip install -r app/backend/requirements.txt
 cd app/backend
-python -m pip install -r requirements.txt
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-然后打开：
+Open:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-## 隐私说明
+For demo data, point the backend at `workspace.demo`:
 
-真实学生资料、导师联系记录和生成材料默认写入 `workspace/`，该目录不会进入 Git。不要提交 `.env`、真实 API key、真实成绩单或真实套磁邮件。
+```bash
+cd app/backend
+WORKSPACE_DIR=/path/to/offer-harvester/workspace.demo uvicorn main:app --host 127.0.0.1 --port 8000
+```
 
-## 外部参考边界
+## Demo
 
-本项目文档会明确记录参考了哪些外部项目和模块；最终代码使用自有实现和中性命名，不包含外部项目复制体。
-具体参考来源和未来第三方复用要求见 `NOTICE`。当前演示文稿能力默认生成可审阅的
-Markdown 大纲；配置外部引擎前不会假设存在可用的 PPTX 运行环境。
+Screenshot walkthrough: [docs/11_demo_walkthrough.md](docs/11_demo_walkthrough.md)
+
+Core flow:
+
+```text
+Student profile
+-> field evidence and confirmation
+-> advisor public sources
+-> application target
+-> fit analysis
+-> reviewed contact email
+-> interview questions and PPTX
+-> lifecycle tracker and email signals
+```
+
+## Documentation
+
+- [Demo Walkthrough](docs/11_demo_walkthrough.md)
+- [Open Source Readiness](docs/10_open_source_readiness.md)
+- [Release README Polish Reference](docs/14_release_readme_polish_reference.md)
+- [Reference Project Gap Audit](docs/13_reference_project_gap_audit.md)
+- [Wenshu Agent Reference](docs/12_wenshu_agent_reference.md)
+- [NOTICE](NOTICE)
+- [CONTRIBUTING](CONTRIBUTING.md)
+- [SECURITY](SECURITY.md)
+- [CHANGELOG](CHANGELOG.md)
+
+Early planning docs under `docs/01_*.md` through `docs/09_*.md` are local planning drafts and are ignored by Git by default.
+
+## Data And Privacy
+
+Real student materials, advisor contact records, generated drafts, archives, RAG indexes, and pasted email text belong in `workspace/`, which is ignored by Git.
+
+Do not commit:
+
+- `.env` or API keys
+- real resumes, transcripts, recommendation letters, or certificates
+- real contact emails or pasted mailbox exports
+- generated materials for real users
+- copied external project directories
+
+Generated materials are drafts. Users must verify facts and send messages themselves.
+
+## Optional Integrations
+
+The MVP runs without external LLMs or heavy model dependencies.
+
+Optional or future capabilities are intentionally behind adapter boundaries:
+
+- OpenAI-compatible LLM providers for enhanced extraction or drafting.
+- PPTAgent runtime for future reference-template learning and advanced slide editing.
+- Vision / OCR providers for future scanned documents or visual PPT checks.
+- Gmail / QQ OAuth and Notion / Feishu sync for future real external integrations.
+- MongoDB, Redis, Chroma, reranker, PaddleOCR, or K8s only after local-first limits are reached.
+
+The default code path does not depend on `torch`, ViT model weights, `oaib`, external PPTAgent source trees, or a cloud database.
+
+## Development
+
+Run the standard checks before opening a pull request:
+
+```bash
+ruff check app tests
+ruff format --check app tests
+pytest -q
+node --check app/frontend/app.js
+python -m compileall -q app integrations tests
+python tools/lint_docs.py
+python tools/security_guards.py
+```
+
+The project uses Conventional Commits. For feature, privacy, data model, or integration changes, include commit body sections for background, changes, verification, and boundaries.
+
+## Release Notes
+
+Changes are tracked in [CHANGELOG.md](CHANGELOG.md). Release notes follow Keep a Changelog-style sections and GitHub release note grouping from [.github/release.yml](.github/release.yml).
+
+The first stable MVP tag is planned as `v0.1.0`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+## Acknowledgements
+
+Reference projects and borrowing boundaries are documented in [NOTICE](NOTICE), [docs/13_reference_project_gap_audit.md](docs/13_reference_project_gap_audit.md), and [docs/14_release_readme_polish_reference.md](docs/14_release_readme_polish_reference.md). The repository keeps its own implementation and neutral adapter names instead of copying external project source trees.
