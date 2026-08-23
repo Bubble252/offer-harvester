@@ -75,7 +75,6 @@ Student profile
 - [Release README Polish Reference](docs/14_release_readme_polish_reference.md)
 - [Reference Project Gap Audit](docs/13_reference_project_gap_audit.md)
 - [Wenshu Agent Reference](docs/12_wenshu_agent_reference.md)
-- [Extension And Discoverability Strategy](docs/15_extension_and_discoverability_strategy.md)
 - [NOTICE](NOTICE)
 - [CONTRIBUTING](CONTRIBUTING.md)
 - [SECURITY](SECURITY.md)
