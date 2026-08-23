@@ -109,3 +109,11 @@ git diff --check
 - Demo walkthrough 截图和文字与当前 UI 对齐
 - GitHub Release notes 使用 `.github/release.yml` 分组
 - 不添加不存在的 PyPI、npm、Docker、downloads 或 citation badge
+
+## Documentation language policy
+
+- `README.md` is the English entry point for GitHub visitors and releases.
+- `README.zh-CN.md` is the full Simplified Chinese entry point for the primary user audience.
+- Keep both README files aligned on implemented features, privacy boundaries, optional integrations, and quickstart commands.
+- `CHANGELOG.md` stays English-first so GitHub release notes can reuse it directly.
+- Internal planning docs do not need to be bilingual unless they become public user-facing guides.

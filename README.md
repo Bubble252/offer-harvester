@@ -1,5 +1,7 @@
 # Grad Apply Workflow
 
+English | [简体中文](README.zh-CN.md)
+
 <p align="center">
   <img src="app/frontend/assets/logo.png" alt="Grad Apply Workflow logo" width="180" />
 </p>

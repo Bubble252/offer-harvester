@@ -19,6 +19,7 @@
 ```text
 grad-apply-workflow/
 ├── README.md
+├── README.zh-CN.md
 ├── LICENSE
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
@@ -57,6 +58,16 @@ grad-apply-workflow/
 ### README.md
 
 README 需要优先讲用户场景，而不是先讲模型。
+
+语言规则：
+
+- `README.md` 使用英文主版，便于 GitHub 外部用户和 release 页面阅读
+- `README.zh-CN.md` 使用完整中文主版，面向实际保研 / 硕博申请用户
+- 两个 README 的能力边界必须一致，不能英文版承诺未实现能力，中文版只写内部计划
+- README 顶部必须互相链接
+- `CHANGELOG.md` 默认英文为主，便于 GitHub Release 复用
+- `SECURITY.md` 如涉及隐私和邮箱边界，应至少包含清晰英文说明；中文说明可放在 `README.zh-CN.md` 和 demo 文档
+- 内部规划文档不强制双语，避免维护成本过高
 
 建议结构：
 

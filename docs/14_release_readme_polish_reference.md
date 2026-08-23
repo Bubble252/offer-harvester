@@ -81,6 +81,16 @@ Badges 只展示真实、可验证、不会误导用户的信息。
 
 ## README 适配本项目的推荐结构
 
+语言规则：
+
+- `README.md` 是英文主版，面向 GitHub 外部用户、搜索结果、PR 和 Release 页面。
+- `README.zh-CN.md` 是完整中文主版，面向实际保研 / 硕博申请用户。
+- 两个 README 顶部必须互相链接。
+- 两个 README 的能力边界、隐私声明、optional integrations 和 quickstart 必须保持一致。
+- CHANGELOG 默认英文为主，便于 GitHub Release notes 复用。
+- Demo walkthrough 可以中文优先，后续如果有英文用户再补 `docs/11_demo_walkthrough.en.md`。
+- `docs/01_*.md` 到 `docs/09_*.md` 等内部规划文档不强制双语。
+
 ```text
 # Grad Apply Workflow / Offer Harvester
 
