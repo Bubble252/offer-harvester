@@ -77,28 +77,34 @@ class KnowledgeBaseIndex:
         for source in sources:
             chunks.extend(chunk_source(source))
         self.write_chunks(chunks)
-        vectors = self.embedding_provider.embed_texts([chunk.text for chunk in chunks])
-        self.vector_store.replace(
-            [
-                VectorRecord(
-                    chunk_id=chunk.chunk_id,
-                    source_id=chunk.source_id,
-                    vector=vector,
-                    content_hash=chunk.content_hash,
-                    model_name=self.embedding_provider.model_name,
-                    model_version=self.embedding_provider.model_version,
-                    metadata={
-                        "source_kind": chunk.source_kind,
-                        "source_subtype": chunk.source_subtype,
-                        "trusted": chunk.trusted,
-                        "confirmed": chunk.confirmed,
-                        "valid_for_year": chunk.valid_for_year,
-                    },
-                )
-                for chunk, vector in zip(chunks, vectors)
-            ],
-            index_version="hybrid-json-v1",
-        )
+        vector_status = "ready"
+        try:
+            vectors = self.embedding_provider.embed_texts([chunk.text for chunk in chunks])
+            self.vector_store.replace(
+                [
+                    VectorRecord(
+                        chunk_id=chunk.chunk_id,
+                        source_id=chunk.source_id,
+                        vector=vector,
+                        content_hash=chunk.content_hash,
+                        model_name=self.embedding_provider.model_name,
+                        model_version=self.embedding_provider.model_version,
+                        metadata={
+                            "source_kind": chunk.source_kind,
+                            "source_subtype": chunk.source_subtype,
+                            "trusted": chunk.trusted,
+                            "confirmed": chunk.confirmed,
+                            "valid_for_year": chunk.valid_for_year,
+                        },
+                    )
+                    for chunk, vector in zip(chunks, vectors)
+                ],
+                index_version="hybrid-json-v1",
+            )
+        except (RuntimeError, ValueError, OSError):
+            # Keep the text index usable when an optional embedding adapter is unavailable.
+            vector_status = "fallback_bm25"
+            self.vector_store.replace([], index_version="hybrid-json-v1-fallback")
         manifest = {
             "rebuilt_at": now_iso(),
             "source_count": len(sources),
@@ -108,6 +114,7 @@ class KnowledgeBaseIndex:
             "embedding_model": self.embedding_provider.model_name,
             "embedding_model_version": self.embedding_provider.model_version,
             "embedding_dimension": self.embedding_provider.dimension,
+            "vector_status": vector_status,
         }
         self.workspace.rag_index_manifest_path().write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"

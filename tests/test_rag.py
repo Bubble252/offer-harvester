@@ -261,6 +261,32 @@ def test_rag_falls_back_to_bm25_when_vector_provider_fails(tmp_path):
     assert hits[0].score > 0
 
 
+def test_rag_rebuild_records_bm25_fallback_when_embedding_batch_fails(tmp_path):
+    class BrokenBatchEmbeddingProvider(HashEmbeddingProvider):
+        def embed_texts(self, texts):
+            raise RuntimeError("embedding batch unavailable")
+
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(
+        workspace,
+        embedding_provider=BrokenBatchEmbeddingProvider(),
+    )
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="推免流程说明",
+            text="本通知说明本年度推免申请流程。申请人需要先完成网上报名，再提交成绩单、个人陈述和科研材料，学校完成材料审核后统一安排面试确认，具体时间以学院后续通知为准。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+
+    manifest = index.rebuild()
+    assert manifest["vector_status"] == "fallback_bm25"
+    assert index.load_chunks()
+
+
 def test_web_supplement_upload_only_creates_preview(tmp_path):
     workspace = Workspace(str(tmp_path))
     backend_main.workspace = workspace
