@@ -67,6 +67,7 @@ class Workspace:
             "target_triage_reports",
             "profile_expansion_candidates",
             "gap_plans",
+            "memory",
             "template_registry",
             "templates",
             "source_connectors",
