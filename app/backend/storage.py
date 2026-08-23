@@ -158,6 +158,9 @@ class Workspace:
     def rag_chunks_path(self) -> Path:
         return self.rag_index_dir() / "chunks.jsonl"
 
+    def rag_vectors_path(self) -> Path:
+        return self.rag_index_dir() / "vectors.jsonl"
+
     def rag_index_manifest_path(self) -> Path:
         return self.rag_index_dir() / "manifest.json"
 

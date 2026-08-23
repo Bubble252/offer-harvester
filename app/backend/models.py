@@ -133,9 +133,13 @@ class RAGSearchHit(BaseModel):
     fetched_at: str = ""
     valid_for_year: Optional[int] = None
     score: float = 0.0
+    keyword_score: float = 0.0
+    vector_score: float = 0.0
+    rerank_score: float = 0.0
     confidence: float = 0.0
     snippet: str = ""
     evidence_ref: str = ""
+    retrieval_explanation: str = ""
     needs_confirmation: bool = False
     historical: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)

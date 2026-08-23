@@ -16,13 +16,23 @@ from services import fetch_url_text
 from storage import Workspace
 
 from rag.chunking import chunk_source, normalize_text
+from rag.embeddings import EmbeddingProvider, HashEmbeddingProvider
+from rag.vector_store import JsonVectorStore, VectorRecord
 
 TEXT_SUFFIXES = {".txt", ".md", ".json", ".csv"}
 
 
 class KnowledgeBaseIndex:
-    def __init__(self, workspace: Workspace):
+    def __init__(
+        self,
+        workspace: Workspace,
+        *,
+        embedding_provider: EmbeddingProvider | None = None,
+        vector_store: JsonVectorStore | None = None,
+    ):
         self.workspace = workspace
+        self.embedding_provider = embedding_provider or HashEmbeddingProvider()
+        self.vector_store = vector_store or JsonVectorStore(workspace.rag_vectors_path())
 
     def add_source(self, payload: KnowledgeBaseSourceCreate) -> KnowledgeBaseSource:
         raw_text = payload.text.strip()
@@ -67,12 +77,37 @@ class KnowledgeBaseIndex:
         for source in sources:
             chunks.extend(chunk_source(source))
         self.write_chunks(chunks)
+        vectors = self.embedding_provider.embed_texts([chunk.text for chunk in chunks])
+        self.vector_store.replace(
+            [
+                VectorRecord(
+                    chunk_id=chunk.chunk_id,
+                    source_id=chunk.source_id,
+                    vector=vector,
+                    content_hash=chunk.content_hash,
+                    model_name=self.embedding_provider.model_name,
+                    model_version=self.embedding_provider.model_version,
+                    metadata={
+                        "source_kind": chunk.source_kind,
+                        "source_subtype": chunk.source_subtype,
+                        "trusted": chunk.trusted,
+                        "confirmed": chunk.confirmed,
+                        "valid_for_year": chunk.valid_for_year,
+                    },
+                )
+                for chunk, vector in zip(chunks, vectors)
+            ],
+            index_version="hybrid-json-v1",
+        )
         manifest = {
             "rebuilt_at": now_iso(),
             "source_count": len(sources),
             "chunk_count": len(chunks),
             "source_ids": [source.source_id for source in sources],
-            "index_version": "bm25-lite-v1",
+            "index_version": "hybrid-json-v1",
+            "embedding_model": self.embedding_provider.model_name,
+            "embedding_model_version": self.embedding_provider.model_version,
+            "embedding_dimension": self.embedding_provider.dimension,
         }
         self.workspace.rag_index_manifest_path().write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"

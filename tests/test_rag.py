@@ -23,7 +23,12 @@ from models import (  # noqa: E402
     PresentationGenerationRequest,
     Target,
 )
-from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever  # noqa: E402
+from rag import (  # noqa: E402
+    HashEmbeddingProvider,
+    KnowledgeBaseIndex,
+    KnowledgeBaseRetriever,
+    LexicalReranker,
+)
 from services import build_profile_from_text, make_match, parse_advisor_profile  # noqa: E402
 from storage import Workspace  # noqa: E402
 
@@ -186,6 +191,74 @@ def test_rag_excludes_rejected_student_documents(tmp_path):
 
     assert allowed_hits
     assert not blocked_hits
+
+
+def test_rag_rebuild_persists_vectors_and_hybrid_scores(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace, embedding_provider=HashEmbeddingProvider(dimension=32))
+    source = index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="2026 推免流程",
+            text="2026 年推免申请流程包括网上报名、材料审核和面试确认。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+
+    manifest = index.rebuild()
+    assert manifest["index_version"] == "hybrid-json-v1"
+    assert manifest["embedding_dimension"] == 32
+    assert workspace.rag_vectors_path().exists()
+
+    hits = (
+        KnowledgeBaseRetriever(
+            workspace,
+            embedding_provider=HashEmbeddingProvider(dimension=32),
+            reranker=LexicalReranker(),
+        )
+        .search("推免申请流程", source_kinds=["policy"])
+        .hits
+    )
+    assert hits[0].source_id == source.source_id
+    assert hits[0].keyword_score >= 0
+    assert hits[0].vector_score > 0
+    assert hits[0].rerank_score > 0
+    assert "vector=" in hits[0].retrieval_explanation
+
+
+def test_rag_falls_back_to_bm25_when_vector_provider_fails(tmp_path):
+    class BrokenEmbeddingProvider(HashEmbeddingProvider):
+        def embed_query(self, query):
+            raise RuntimeError("vector service unavailable")
+
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="报名通知",
+            text="本年度推免报名通知说明，网上报名截止日期为 9 月 10 日，请在截止前完成材料提交。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+
+    hits = (
+        KnowledgeBaseRetriever(
+            workspace,
+            embedding_provider=BrokenEmbeddingProvider(),
+        )
+        .search("报名截止日期", source_kinds=["policy"])
+        .hits
+    )
+    assert hits
+    assert hits[0].keyword_score > 0
+    assert hits[0].vector_score == 0
+    assert hits[0].score > 0
 
 
 def test_web_supplement_upload_only_creates_preview(tmp_path):
