@@ -8,6 +8,7 @@
   "version": "0.1.0",
   "description": "用于描述学院推免、夏令营、预推免通知页如何映射到 AdvisorSource 或 policy knowledge source。",
   "url_patterns": [
+    "https://*/gyair/*",
     "https://*/notice/*",
     "https://*/news/*",
     "https://*/admission/*",
@@ -36,6 +37,9 @@
     "推免 通知 截止日期 材料",
     "夏令营 报名 材料 学院",
     "预推免 面试 通知"
+  ],
+  "test_urls": [
+    "https://air.tsinghua.edu.cn/gyair/yzjj.htm"
   ],
   "fallback": "保存 URL、标题和用户粘贴正文；字段缺失时进入 needs_review。",
   "output_scope": "workspace_or_fork"

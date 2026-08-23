@@ -459,14 +459,15 @@ function renderStrategy() {
 
   const sourceConnectorHtml = state.sourceConnectorRegistry
     ? `<div class="template-registry-list">
-        <div class="strategy-summary">连接器 ${escapeHtml(String(state.sourceConnectorRegistry.connector_count || 0))} 个，已激活 ${escapeHtml(String(state.sourceConnectorRegistry.active_count || 0))} 个。</div>
+        <div class="strategy-summary">连接器 ${escapeHtml(String(state.sourceConnectorRegistry.connector_count || 0))} 个，manifest 合法 ${escapeHtml(String(state.sourceConnectorRegistry.active_count || 0))} 个，可注册 ${escapeHtml(String(state.sourceConnectorRegistry.registrable_count || 0))} 个。</div>
         <div class="stack-list">
           ${(state.sourceConnectorRegistry.connectors || [])
             .map(
               (item) => `<div class="list-item strategy-item">
-                <div class="item-title">${escapeHtml(item.name || item.connector_id)} · ${item.active ? "可激活" : "需修正"}</div>
+                <div class="item-title">${escapeHtml(item.name || item.connector_id)} · ${item.registration_eligible ? "可注册" : item.live_test_status === "not_run" ? "待 live test" : "不可注册"}</div>
                 <div class="item-meta">${escapeHtml(item.source_type)} · ${escapeHtml(item.path)} · URL pattern ${escapeHtml(String((item.url_patterns || []).length))} 个 · 字段 ${escapeHtml(String(Object.keys(item.field_mapping || {}).length))} 个</div>
-                <div class="item-meta">${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "manifest、字段映射、访问规则和测试查询通过。")}</div>
+                <div class="item-meta">live test：${escapeHtml(item.live_test_status || "not_run")} · ${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "manifest、字段映射、访问规则和测试查询通过。")}</div>
+                ${item.test_urls && item.test_urls.length ? `<button class="secondary" data-source-connector-id="${escapeHtml(item.connector_id)}">运行公开 live test</button>` : "<div class='item-meta'>未声明公开测试 URL，只能手动粘贴兜底。</div>"}
               </div>`
             )
             .join("")}
@@ -1275,6 +1276,35 @@ async function checkSourceConnectors() {
   }
 }
 
+async function runSourceConnectorLiveTest(connectorId) {
+  const connector = (state.sourceConnectorRegistry?.connectors || []).find(
+    (item) => item.connector_id === connectorId
+  );
+  const url = connector?.test_urls?.[0];
+  const query = connector?.test_queries?.[0];
+  if (!connector || !url || !query) {
+    return toast("该 connector 没有可执行的公开测试 URL 或查询词");
+  }
+  if (!window.confirm(`确认访问公开 URL 并遵守 robots.txt / ToS？\n${url}`)) return;
+  try {
+    const result = await api(`/api/source-connectors/${encodeURIComponent(connectorId)}/live-test`, {
+      method: "POST",
+      body: JSON.stringify({ url, query, tos_acknowledged: true }),
+    });
+    state.sourceConnectorRegistry = await api("/api/source-connectors/status");
+    state.strategyStatus = {
+      title: "来源连接器 live test",
+      message: result.registration_eligible
+        ? `${connector.name} 已通过公开页面测试，可以注册。`
+        : `${connector.name} 未通过测试：${result.error || "请改用手动粘贴兜底。"}`,
+    };
+    renderStrategy();
+    toast(result.registration_eligible ? "live test 通过" : "live test 未通过");
+  } catch (error) {
+    toast(`live test 失败：${error.message}`);
+  }
+}
+
 async function showSource(sourceId) {
   const source = await api(`/api/advisor-sources/${sourceId}`);
   $("materialTitle").textContent = source.title || "导师来源正文";
@@ -1362,6 +1392,11 @@ $("emailSignalView").addEventListener("click", (event) => {
   if (rejectId) decideEmailSignal(rejectId, "reject");
 });
 $("strategyView").addEventListener("click", (event) => {
+  const connectorId = event.target.dataset.sourceConnectorId;
+  if (connectorId) {
+    runSourceConnectorLiveTest(connectorId);
+    return;
+  }
   const targetId = event.target.dataset.strategyTargetId;
   if (!targetId) return;
   $("targetSelect").value = targetId;

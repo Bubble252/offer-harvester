@@ -592,9 +592,13 @@ class SourceConnectorRegistryItem(BaseModel):
     robots_policy: str = ""
     tos_policy: str = ""
     test_queries: List[str] = Field(default_factory=list)
+    test_urls: List[str] = Field(default_factory=list)
     fallback: str = ""
     output_scope: Literal["workspace_or_fork", "builtin_default"] = "workspace_or_fork"
     active: bool = False
+    live_test_status: Literal["not_run", "passed", "failed", "skipped"] = "not_run"
+    live_test_id: str = ""
+    registration_eligible: bool = False
     validation_issues: List[TemplateValidationIssue] = Field(default_factory=list)
 
 
@@ -606,9 +610,35 @@ class SourceConnectorRegistryStatus(BaseModel):
     implemented: bool = False
     connector_count: int = 0
     active_count: int = 0
+    registrable_count: int = 0
     connectors: List[SourceConnectorRegistryItem] = Field(default_factory=list)
     validation_errors: List[TemplateValidationIssue] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)
+
+
+class SourceConnectorLiveTestRequest(BaseModel):
+    url: str
+    query: str = ""
+    tos_acknowledged: bool = False
+
+
+class SourceConnectorLiveTestResult(BaseModel):
+    result_id: str = Field(default_factory=lambda: new_id("connector_test"))
+    connector_id: str
+    url: str = ""
+    query: str = ""
+    status: Literal["passed", "failed", "skipped"] = "skipped"
+    registration_eligible: bool = False
+    robots_status: Literal["allowed", "blocked", "unavailable", "not_checked"] = "not_checked"
+    tos_acknowledged: bool = False
+    http_status: Optional[int] = None
+    content_type: str = ""
+    response_bytes: int = 0
+    response_hash: str = ""
+    checked_at: str = Field(default_factory=now_iso)
+    error: str = ""
+    fallback: str = ""
+    notes: List[str] = Field(default_factory=list)
 
 
 class MaterialQualityReport(BaseModel):

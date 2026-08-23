@@ -161,6 +161,16 @@ RAG 会覆盖三类知识：
 
 截止日期、政策和流程类信息必须记录来源 URL、适用年份和更新时间。过期信息只能作为历史参考，不能直接作为当前申请建议。
 
+## Source Connector Live Test
+
+来源连接器页面现在区分三种状态：
+
+- manifest 合法：字段映射、访问规则和 fallback 已通过静态校验
+- live test 通过：用户确认遵守 robots/ToS，公开测试 URL 返回可读取页面
+- 可注册：只有 live test 通过后才会出现
+
+live test 只保存 URL、HTTP 状态、内容类型、响应大小、响应 hash、robots 状态和失败原因，不保存网页正文。网络失败或规则不允许时，继续使用手动粘贴正文兜底。
+
 ## Release Polish 说明
 
 README、CHANGELOG 和 GitHub Release Notes 的整理规范见 [README / Release Polish Reference](14_release_readme_polish_reference.md)。当前项目不会展示不存在的 PyPI、npm、Docker、downloads 或 citation badge。

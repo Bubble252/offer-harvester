@@ -98,8 +98,8 @@ workspace/application_archives/
 参考 `/add-portal`：
 
 - 为学校官网、学院通知页、导师主页、招生系统生成 source connector
-- 每个 connector 记录 URL 模式、字段映射、访问限制、robots/ToS 提醒、测试查询
-- live test 通过后才注册
+- 每个 connector 记录 URL 模式、字段映射、访问限制、robots/ToS 提醒、测试查询和公开测试 URL
+- live test 通过后才标记为可注册；manifest 合法不等于 live test 已通过
 - 生成器输出留在用户 workspace 或 fork，不作为主项目默认内置爬虫
 
 ### PDF / 文档可读性验证

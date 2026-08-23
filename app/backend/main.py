@@ -60,6 +60,8 @@ from models import (
     ProfileExpansionReport,
     ReadinessScoreReport,
     ReferencePresentationRecord,
+    SourceConnectorLiveTestRequest,
+    SourceConnectorLiveTestResult,
     SourceConnectorRegistryStatus,
     StudentProfile,
     Target,
@@ -81,7 +83,11 @@ from services import (
     make_interview_questions,
     make_ppt_outline,
 )
-from source_connector_registry import scan_source_connector_registry
+from source_connector_registry import (
+    merge_live_test_results,
+    run_source_connector_live_test,
+    scan_source_connector_registry,
+)
 from storage import Workspace
 from strategy import (
     build_batch_triage_report,
@@ -731,8 +737,37 @@ def get_template_registry_status() -> TemplateRegistryStatus:
 @app.get("/api/source-connectors/status")
 def get_source_connector_status() -> SourceConnectorRegistryStatus:
     status = scan_source_connector_registry(PROJECT_ROOT)
+    live_tests = [
+        SourceConnectorLiveTestResult(**item)
+        for item in workspace.list("source_connector_live_tests")
+    ]
+    status = merge_live_test_results(status, live_tests)
     workspace.write("source_connectors", dump(status), "registry_id")
     return status
+
+
+@app.post("/api/source-connectors/{connector_id}/live-test")
+def run_source_connector_test(
+    connector_id: str,
+    payload: SourceConnectorLiveTestRequest,
+) -> SourceConnectorLiveTestResult:
+    result = run_source_connector_live_test(
+        PROJECT_ROOT,
+        connector_id,
+        payload.url,
+        query=payload.query,
+        tos_acknowledged=payload.tos_acknowledged,
+    )
+    workspace.write("source_connector_live_tests", dump(result), "result_id")
+    return result
+
+
+@app.get("/api/source-connectors/live-tests")
+def list_source_connector_live_tests() -> List[SourceConnectorLiveTestResult]:
+    return [
+        SourceConnectorLiveTestResult(**item)
+        for item in workspace.list("source_connector_live_tests")
+    ]
 
 
 @app.get("/api/reference-presentations")

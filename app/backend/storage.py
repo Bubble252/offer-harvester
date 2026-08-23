@@ -68,6 +68,7 @@ class Workspace:
             "gap_plans",
             "template_registry",
             "source_connectors",
+            "source_connector_live_tests",
             "sync_runs",
             "knowledge_base",
             "rag_index",

@@ -411,6 +411,8 @@ tests/fixtures/evaluation_set/
 - API key 模式扫描
 - Markdown 链接或格式基础检查
 
+联网来源测试不默认放进 CI。公开来源 live test 应由用户手动触发，记录 HTTP 状态、robots 结果、响应 hash、失败原因和 fallback；测试通过后才允许 connector 标记为可注册。
+
 建议文件：
 
 ```text
