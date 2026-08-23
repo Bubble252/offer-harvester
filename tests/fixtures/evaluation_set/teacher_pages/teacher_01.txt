@@ -1,0 +1,9 @@
+source_kind: teacher_page
+title: 清华大学智能产业研究院刘菁菁公开主页短摘要
+source_url: https://air.tsinghua.edu.cn/info/1046/1201.htm
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+公开主页摘要：研究方向包括多模态与推理大语言模型、AI for Science 和强化学习。
+招生信息摘要：页面包含公开简介、研究方向和联系方式，可作为导师主页样本。

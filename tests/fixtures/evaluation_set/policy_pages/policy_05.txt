@@ -1,0 +1,9 @@
+source_kind: policy
+title: 2026 推免通知样本 E
+source_url: https://example.edu/admissions/2026-e
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+政策摘要：本样本记录拟录取、候补和通知方式。
+关键字段：结果公示时间、接受确认期限、候补补录规则。

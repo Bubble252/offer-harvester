@@ -371,6 +371,31 @@ workspace.example/
 - 不使用真实成绩单、真实身份证明、真实联系方式
 - 如果使用真实公开导师页面作为示例，必须只保留短摘要和来源链接，不复制大段正文
 
+## 固定回归集
+
+除了 `workspace.example/` 之外，建议再保留一套专门给测试用的固定回归集：
+
+```text
+tests/fixtures/evaluation_set/
+├── teacher_pages/
+├── policy_pages/
+├── email_signals/
+├── student_profiles/
+└── manifest.json
+```
+
+用途：
+
+- 给 RAG、Evidence Auditor、Readiness Score 和 signal detection 做稳定回归
+- 区分“固定测试数据”和“可演示样例数据”
+- 避免 live 网页波动影响 CI
+
+约束：
+
+- 只放匿名短样本，不放真实个人资料
+- 真实网页正文不直接进测试仓库，只保留短摘要、来源元数据和年份
+- 真实邮箱 OAuth 相关用例后置到只读同步阶段
+
 ## CI 规划
 
 第一版 CI 可以简单但必须有。

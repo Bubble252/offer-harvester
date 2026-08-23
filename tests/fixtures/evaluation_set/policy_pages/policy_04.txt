@@ -1,0 +1,9 @@
+source_kind: policy
+title: 2026 推免通知样本 D
+source_url: https://example.edu/admissions/2026-d
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+政策摘要：本样本记录材料模板、网页填报和系统确认要求。
+关键字段：报名入口、材料模板、提交格式、确认截止时间。

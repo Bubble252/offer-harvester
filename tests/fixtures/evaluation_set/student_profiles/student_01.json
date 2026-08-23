@@ -1,0 +1,18 @@
+{
+  "profile_id": "student_fixture_01",
+  "name": "匿名学生 1",
+  "education": "某大学计算机相关专业",
+  "gpa": "3.86/4.00",
+  "rank": "前 10%",
+  "research_interests": ["多模态学习", "大模型应用"],
+  "projects": ["论文检索问答系统"],
+  "publications": [],
+  "competitions": ["大学生创新训练计划"],
+  "skills": ["Python", "PyTorch", "信息检索"],
+  "risks": ["正式论文成果不足"],
+  "confirmation_map": {
+    "gpa": "confirmed",
+    "rank": "confirmed",
+    "projects": "unconfirmed"
+  }
+}

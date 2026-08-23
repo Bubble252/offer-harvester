@@ -1,0 +1,18 @@
+{
+  "profile_id": "student_fixture_04",
+  "name": "匿名学生 4",
+  "education": "某大学数据科学相关专业",
+  "gpa": "3.68/4.00",
+  "rank": "前 20%",
+  "research_interests": ["视觉语言模型", "图文对齐"],
+  "projects": ["图像字幕生成分析"],
+  "publications": [],
+  "competitions": [],
+  "skills": ["Python", "PyTorch", "OpenCV"],
+  "risks": ["英文表达待加强"],
+  "confirmation_map": {
+    "gpa": "confirmed",
+    "projects": "confirmed",
+    "skills": "unconfirmed"
+  }
+}

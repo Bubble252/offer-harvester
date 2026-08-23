@@ -1,0 +1,9 @@
+source_kind: policy
+title: 2026 推免通知样本 C
+source_url: https://example.edu/admissions/2026-c
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+政策摘要：本样本覆盖夏令营报名说明和复试安排。
+关键字段：批次名称、面试形式、名单公布方式、是否要求邮件报名。
