@@ -15,6 +15,7 @@ from models import (
 )
 from pydantic import BaseModel, Field
 from quality import audit_material
+from rag import KnowledgeBaseRetriever, evidence_refs
 
 from agents.base import dump_model, finish_agent_run, make_agent_run, make_material_version
 from agents.evidence_audit_agent import EvidenceAuditAgent, EvidenceAuditResult
@@ -40,6 +41,7 @@ def run_contact_email_workflow(
     target: Target,
     advisor: Optional[AdvisorProfile],
     match: Optional[MatchReport],
+    retriever: Optional[KnowledgeBaseRetriever] = None,
 ) -> MaterialWorkflowResult:
     agent_run = make_agent_run(profile, target, advisor, match)
     recorder = WorkflowEventRecorder(agent_run)
@@ -57,6 +59,22 @@ def run_contact_email_workflow(
     draft_agent = MaterialDraftAgent()
     recorder.record("draft_started", status="started", agent_name=draft_agent.name)
     draft = draft_agent.draft_contact_email(profile, target, advisor, match)
+    retrieval_hits = []
+    if retriever:
+        query = _contact_email_retrieval_query(profile, target, advisor)
+        retrieval = retriever.search(query, limit=6, profile=profile)
+        retrieval_hits = retrieval.hits
+        draft.evidence = list(dict.fromkeys(draft.evidence + evidence_refs(retrieval_hits)))
+        recorder.record(
+            "retrieval_completed",
+            agent_name="KnowledgeBaseRetriever",
+            payload={
+                "query": query,
+                "hit_count": len(retrieval_hits),
+                "evidence_refs": evidence_refs(retrieval_hits),
+                "rebuilt": retrieval.rebuilt,
+            },
+        )
     draft_version = make_material_version(draft, "draft", agent_run.run_id)
     recorder.record(
         "draft_completed",
@@ -72,7 +90,13 @@ def run_contact_email_workflow(
 
     review_agent = MaterialReviewAgent()
     recorder.record("review_started", status="started", agent_name=review_agent.name)
-    review = review_agent.review_contact_email(draft, profile, advisor, match)
+    review = review_agent.review_contact_email(
+        draft,
+        profile,
+        advisor,
+        match,
+        retriever=retriever,
+    )
     recorder.record(
         "review_completed",
         agent_name=review_agent.name,
@@ -86,7 +110,14 @@ def run_contact_email_workflow(
 
     audit_agent = EvidenceAuditAgent()
     recorder.record("audit_started", status="started", agent_name=audit_agent.name)
-    audit = audit_agent.audit_contact_email(draft, profile, target, advisor, match)
+    audit = audit_agent.audit_contact_email(
+        draft,
+        profile,
+        target,
+        advisor,
+        match,
+        retriever=retriever,
+    )
     recorder.record(
         "audit_completed",
         agent_name=audit_agent.name,
@@ -165,3 +196,17 @@ def _risk_tags(
     if quality.risk_level != "low":
         tags.append(f"risk_{quality.risk_level}")
     return tags
+
+
+def _contact_email_retrieval_query(
+    profile: StudentProfile,
+    target: Target,
+    advisor: Optional[AdvisorProfile],
+) -> str:
+    terms = [target.name, target.school, target.college, target.program_name]
+    if advisor:
+        terms.extend(advisor.research_directions[:4])
+        terms.extend(advisor.admission_requirements[:3])
+    terms.extend(profile.research_interests[:4])
+    terms.extend(profile.projects[:2])
+    return " ".join(item for item in terms if item)

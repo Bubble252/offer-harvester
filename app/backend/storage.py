@@ -49,17 +49,34 @@ class Workspace:
             "targets",
             "matches",
             "applications",
+            "application_archives",
+            "communications",
+            "email_signal_candidates",
             "generated",
             "material_versions",
             "quality_reports",
             "agent_runs",
             "workflow_events",
             "presentation_tasks",
+            "reference_presentations",
+            "presentation_prechecks",
+            "presentation_quality_reports",
             "reports",
+            "readiness_scores",
+            "target_triage_reports",
+            "profile_expansion_candidates",
+            "gap_plans",
+            "template_registry",
+            "source_connectors",
+            "sync_runs",
+            "knowledge_base",
+            "rag_index",
         ]:
             (self.root / name).mkdir(exist_ok=True)
         for name in USER_DOCUMENT_CATEGORIES:
             (self.root / "user_documents" / name).mkdir(exist_ok=True)
+        (self.root / "knowledge_base" / "sources").mkdir(parents=True, exist_ok=True)
+        (self.root / "rag_index").mkdir(parents=True, exist_ok=True)
 
     def path(self, collection: str, item_id: str) -> Path:
         return self.root / collection / f"{item_id}.json"
@@ -101,6 +118,24 @@ class Workspace:
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return manifest
+
+    def knowledge_base_dir(self) -> Path:
+        return self.root / "knowledge_base"
+
+    def knowledge_base_sources_dir(self) -> Path:
+        return self.knowledge_base_dir() / "sources"
+
+    def knowledge_base_manifest_path(self) -> Path:
+        return self.knowledge_base_dir() / "manifest.json"
+
+    def rag_index_dir(self) -> Path:
+        return self.root / "rag_index"
+
+    def rag_chunks_path(self) -> Path:
+        return self.rag_index_dir() / "chunks.jsonl"
+
+    def rag_index_manifest_path(self) -> Path:
+        return self.rag_index_dir() / "manifest.json"
 
     def save_user_document(
         self,

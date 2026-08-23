@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from models import AdvisorProfile, GeneratedMaterial, MatchReport, StudentProfile, Target
 from pydantic import BaseModel, Field
 from quality.checks import profile_confirmation_issues
+from rag import KnowledgeBaseRetriever
 
 
 class EvidenceAuditResult(BaseModel):
@@ -25,6 +27,7 @@ class EvidenceAuditAgent:
         target: Target,
         advisor: Optional[AdvisorProfile],
         match: Optional[MatchReport],
+        retriever: Optional[KnowledgeBaseRetriever] = None,
     ) -> EvidenceAuditResult:
         claims: List[Dict[str, Any]] = []
         unsupported: List[str] = []
@@ -83,6 +86,15 @@ class EvidenceAuditAgent:
         self._check_profile_confirmations(
             material.content,
             profile,
+            claims,
+            unsupported,
+            needs_confirmation,
+        )
+        self._check_policy_risks(
+            material.content,
+            target,
+            advisor,
+            retriever,
             claims,
             unsupported,
             needs_confirmation,
@@ -199,3 +211,113 @@ class EvidenceAuditAgent:
                 }
             )
             needs_confirmation.append(message)
+
+    def _check_policy_risks(
+        self,
+        content: str,
+        target: Target,
+        advisor: Optional[AdvisorProfile],
+        retriever: Optional[KnowledgeBaseRetriever],
+        claims: List[Dict[str, Any]],
+        unsupported: List[str],
+        needs_confirmation: List[str],
+    ) -> None:
+        policy_terms = [
+            "招生信息",
+            "申请要求",
+            "截止",
+            "材料",
+            "报名",
+            "预推免",
+            "夏令营",
+            "九推",
+            "系统",
+            "通知",
+        ]
+        if not any(term in content for term in policy_terms):
+            return
+        if not retriever:
+            message = "材料提到招生流程或截止日期，但当前没有接入可审计的政策检索。"
+            claims.append(
+                {
+                    "claim_type": "policy_fact",
+                    "status": "needs_confirmation",
+                    "source_ids": [],
+                    "message": message,
+                }
+            )
+            needs_confirmation.append(message)
+            return
+
+        query_terms = [
+            target.name,
+            target.school,
+            target.college,
+            target.program_name,
+            content[:240],
+        ]
+        if advisor:
+            query_terms.extend(advisor.research_directions[:3])
+            query_terms.extend(advisor.admission_requirements[:3])
+        query = " ".join(
+            item
+            for item in [
+                "招生信息",
+                "申请要求",
+                "截止日期",
+                "材料",
+                "报名",
+                "预推免",
+                "夏令营",
+                "九推",
+                "系统",
+                "通知",
+                *query_terms,
+            ]
+            if item
+        )
+        retrieval = retriever.search(
+            query,
+            source_kinds=["policy"],
+            include_historical=True,
+            as_of_year=current_year(),
+            limit=3,
+        )
+        current_hits = [hit for hit in retrieval.hits if not getattr(hit, "historical", False)]
+        if current_hits:
+            claims.append(
+                {
+                    "claim_type": "policy_fact",
+                    "status": "supported",
+                    "source_ids": [hit.evidence_ref for hit in current_hits if hit.evidence_ref],
+                    "message": "招生流程或截止日期已关联当前年份政策来源。",
+                }
+            )
+            return
+        if retrieval.hits:
+            message = "材料引用的政策来源已过期，不能直接作为当前建议。"
+            claims.append(
+                {
+                    "claim_type": "policy_fact",
+                    "status": "unsupported",
+                    "source_ids": [hit.evidence_ref for hit in retrieval.hits if hit.evidence_ref],
+                    "message": message,
+                }
+            )
+            unsupported.append(message)
+            needs_confirmation.append("材料中的流程或截止日期需要换成当前年份来源。")
+            return
+        message = "材料提到招生流程或截止日期，但没有检索到当前年份政策来源。"
+        claims.append(
+            {
+                "claim_type": "policy_fact",
+                "status": "unsupported",
+                "source_ids": [],
+                "message": message,
+            }
+        )
+        unsupported.append(message)
+
+
+def current_year() -> int:
+    return datetime.now().year

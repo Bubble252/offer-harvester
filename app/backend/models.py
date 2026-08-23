@@ -71,6 +71,76 @@ class UserDocumentManifest(BaseModel):
     documents: List[UserDocumentRecord] = Field(default_factory=list)
 
 
+class KnowledgeBaseSourceCreate(BaseModel):
+    source_kind: Literal[
+        "student_document", "advisor_source", "policy", "manual_text", "web_url"
+    ] = "manual_text"
+    source_subtype: str = ""
+    title: str = ""
+    text: str = ""
+    url: str = ""
+    source_ref: str = ""
+    valid_for_year: Optional[int] = None
+    trusted: bool = True
+    confirmed: bool = False
+    notes: str = ""
+
+
+class KnowledgeBaseSource(BaseModel):
+    source_id: str = Field(default_factory=lambda: new_id("kb"))
+    source_kind: Literal[
+        "student_document", "advisor_source", "policy", "manual_text", "web_url"
+    ] = "manual_text"
+    source_subtype: str = ""
+    title: str = ""
+    url: str = ""
+    source_ref: str = ""
+    raw_text: str = ""
+    cleaned_text: str = ""
+    content_hash: str = ""
+    valid_for_year: Optional[int] = None
+    fetched_at: str = Field(default_factory=now_iso)
+    trusted: bool = True
+    confirmed: bool = False
+    notes: str = ""
+
+
+class RAGChunk(BaseModel):
+    chunk_id: str = Field(default_factory=lambda: new_id("chunk"))
+    source_id: str
+    source_kind: str = ""
+    source_subtype: str = ""
+    title: str = ""
+    section_path: List[str] = Field(default_factory=list)
+    text: str = ""
+    token_count: int = 0
+    url: str = ""
+    fetched_at: str = Field(default_factory=now_iso)
+    content_hash: str = ""
+    trusted: bool = True
+    confirmed: bool = False
+    valid_for_year: Optional[int] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RAGSearchHit(BaseModel):
+    source_id: str
+    chunk_id: str
+    source_kind: str = ""
+    source_subtype: str = ""
+    title: str = ""
+    url: str = ""
+    fetched_at: str = ""
+    valid_for_year: Optional[int] = None
+    score: float = 0.0
+    confidence: float = 0.0
+    snippet: str = ""
+    evidence_ref: str = ""
+    needs_confirmation: bool = False
+    historical: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AdvisorSource(BaseModel):
     source_id: str = Field(default_factory=lambda: new_id("src"))
     source_type: str = "advisor_homepage"
@@ -232,28 +302,313 @@ class ApplicationRecord(BaseModel):
     updated_at: str = Field(default_factory=now_iso)
 
 
+LifecycleStatus = Literal[
+    "draft",
+    "drafted",
+    "researching",
+    "ready_to_contact",
+    "contacted",
+    "replied",
+    "materials_preparing",
+    "submitted",
+    "shortlisted",
+    "interview",
+    "interview_scheduled",
+    "interview_done",
+    "waitlist",
+    "offer",
+    "accepted",
+    "rejected",
+    "no_response",
+    "withdrawn",
+]
+
+
 class ApplicationUpdate(BaseModel):
-    status: Optional[
-        Literal[
-            "draft",
-            "researching",
-            "ready_to_contact",
-            "contacted",
-            "replied",
-            "materials_preparing",
-            "submitted",
-            "shortlisted",
-            "interview_scheduled",
-            "interview_done",
-            "accepted",
-            "rejected",
-            "withdrawn",
-        ]
-    ] = None
+    status: Optional[LifecycleStatus] = None
     deadline: Optional[str] = None
     last_contact_at: Optional[str] = None
     next_action: Optional[str] = None
     notes: Optional[List[str]] = None
+
+
+class ApplicationArchiveRequest(BaseModel):
+    material_ids: List[str] = Field(default_factory=list)
+    stage: LifecycleStatus = "drafted"
+    notes: str = ""
+
+
+class ApplicationArchive(BaseModel):
+    archive_id: str = Field(default_factory=lambda: new_id("archive"))
+    target_id: str
+    target_name: str = ""
+    stage: LifecycleStatus = "drafted"
+    archive_path: str = ""
+    target_snapshot_path: str = ""
+    application_snapshot_path: str = ""
+    submitted_material_paths: List[str] = Field(default_factory=list)
+    communication_paths: List[str] = Field(default_factory=list)
+    outcome_path: str = ""
+    lessons_path: str = ""
+    notes: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class OutcomeUpdate(BaseModel):
+    stage: LifecycleStatus = "submitted"
+    outcome_date: str = ""
+    feedback: str = ""
+    user_reflection: str = ""
+    calibration_signals: List[str] = Field(default_factory=list)
+    next_steps: List[str] = Field(default_factory=list)
+
+
+class CommunicationDraftRequest(BaseModel):
+    kind: Literal["follow_up", "thank_you"] = "follow_up"
+    source_material_ids: List[str] = Field(default_factory=list)
+    note: str = ""
+
+
+class CommunicationDraft(BaseModel):
+    communication_id: str = Field(default_factory=lambda: new_id("comm"))
+    target_id: str
+    kind: Literal["follow_up", "thank_you"] = "follow_up"
+    title: str = ""
+    content: str = ""
+    source_material_ids: List[str] = Field(default_factory=list)
+    evidence_refs: List[str] = Field(default_factory=list)
+    archive_path: str = ""
+    status: Literal["draft"] = "draft"
+    created_at: str = Field(default_factory=now_iso)
+
+
+class EmailSignalCandidate(BaseModel):
+    candidate_id: str = Field(default_factory=lambda: new_id("emailsig"))
+    provider: Literal["gmail", "qq", "unknown"] = "unknown"
+    target_id: str = ""
+    target_name: str = ""
+    signal_type: str = ""
+    proposed_status: LifecycleStatus = "replied"
+    subject: str = ""
+    sender: str = ""
+    received_at: str = ""
+    body_excerpt: str = ""
+    source_hash: str = ""
+    evidence_summary: str = ""
+    action_summary: str = ""
+    confidence: float = 0.0
+    status: Literal["needs_user_confirmation", "approved", "rejected", "needs_review"] = (
+        "needs_user_confirmation"
+    )
+    user_note: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    decided_at: str = ""
+
+
+class EmailSignalImportRequest(BaseModel):
+    provider: Literal["gmail", "qq", "unknown"] = "unknown"
+    raw_text: str = ""
+
+
+class EmailSignalDecisionRequest(BaseModel):
+    user_note: str = ""
+    apply_to_outcome: bool = True
+    override_status: Optional[LifecycleStatus] = None
+
+
+class EmailSignalSyncResult(BaseModel):
+    provider: Literal["gmail", "qq", "unknown"] = "unknown"
+    configured: bool = False
+    read_only: bool = True
+    candidates: List[EmailSignalCandidate] = Field(default_factory=list)
+    message: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class PipelineSyncRequest(BaseModel):
+    provider: Literal["notion", "feishu", "google_sheets"] = "notion"
+
+
+class PipelineSyncResult(BaseModel):
+    provider: Literal["notion", "feishu", "google_sheets"] = "notion"
+    configured: bool = False
+    direction: Literal["one_way_export"] = "one_way_export"
+    exported_fields: List[str] = Field(default_factory=list)
+    skipped_fields: List[str] = Field(default_factory=list)
+    message: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class BatchTriageRequest(BaseModel):
+    target_ids: List[str] = Field(default_factory=list)
+    include_all_targets: bool = True
+
+
+class TargetTriageItem(BaseModel):
+    target_id: str
+    target_name: str
+    triage_score: int = 0
+    tier: Literal["priority", "watch", "hold", "blocked"] = "watch"
+    preliminary: bool = True
+    strengths: List[str] = Field(default_factory=list)
+    gaps: List[str] = Field(default_factory=list)
+    hard_gates: List[str] = Field(default_factory=list)
+    deadline_urgency: str = "unknown"
+    evidence_summary: List[str] = Field(default_factory=list)
+    evidence_refs: List[str] = Field(default_factory=list)
+    recommended_next_actions: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class BatchTriageReport(BaseModel):
+    report_id: str = Field(default_factory=lambda: new_id("triage"))
+    scope: str = "target_pool"
+    target_count: int = 0
+    preliminary: bool = True
+    summary: str = ""
+    items: List[TargetTriageItem] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ProfileExpansionCandidate(BaseModel):
+    candidate_id: str = Field(default_factory=lambda: new_id("pexpand"))
+    profile_id: str = ""
+    field_name: str
+    value: str
+    source_type: str = ""
+    source_ref: str = ""
+    inference_method: str = "rule_extract"
+    confidence: float = 0.0
+    status: ProfileConfirmationStatus = "unconfirmed"
+    inferred: bool = False
+    evidence_refs: List[str] = Field(default_factory=list)
+    notes: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ProfileExpansionReport(BaseModel):
+    report_id: str = Field(default_factory=lambda: new_id("pexpand_report"))
+    profile_id: str = ""
+    candidate_count: int = 0
+    candidates: List[ProfileExpansionCandidate] = Field(default_factory=list)
+    blocked_rules: List[str] = Field(default_factory=list)
+    summary: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class GapPlanRequest(BaseModel):
+    target_id: str = ""
+
+
+class GapPlanItem(BaseModel):
+    gap_id: str = Field(default_factory=lambda: new_id("gap"))
+    category: Literal[
+        "advisor_requirement",
+        "profile_gap",
+        "material_audit",
+        "interview_prep",
+        "deadline_risk",
+        "source_quality",
+        "policy_resource",
+    ]
+    title: str
+    source: str = ""
+    severity: Literal["low", "medium", "high"] = "medium"
+    evidence_refs: List[str] = Field(default_factory=list)
+    actions: List[str] = Field(default_factory=list)
+    resource_links: List[str] = Field(default_factory=list)
+    status: Literal["open", "closed"] = "open"
+
+
+class GapPlan(BaseModel):
+    plan_id: str = Field(default_factory=lambda: new_id("gap_plan"))
+    target_id: str
+    target_name: str = ""
+    readiness_score: int = 0
+    heatmap: Dict[str, int] = Field(default_factory=dict)
+    gaps: List[GapPlanItem] = Field(default_factory=list)
+    summary: str = ""
+    next_actions: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class TemplateValidationIssue(BaseModel):
+    code: str
+    message: str
+    severity: Literal["info", "warning", "error"] = "error"
+
+
+class TemplateRenderPreview(BaseModel):
+    rendered: str = ""
+    unresolved_variables: List[str] = Field(default_factory=list)
+    passed: bool = False
+
+
+class TemplateRegistryItem(BaseModel):
+    template_id: str
+    name: str = ""
+    template_type: str = ""
+    version: str = "0.1.0"
+    description: str = ""
+    path: str = ""
+    variables: List[str] = Field(default_factory=list)
+    sample_context: Dict[str, str] = Field(default_factory=dict)
+    applicable_scenarios: List[str] = Field(default_factory=list)
+    style_rules: List[str] = Field(default_factory=list)
+    privacy_rules: List[str] = Field(default_factory=list)
+    validation_methods: List[str] = Field(default_factory=list)
+    managed_block: str = ""
+    active: bool = False
+    profile_agnostic: bool = True
+    validation_issues: List[TemplateValidationIssue] = Field(default_factory=list)
+    render_preview: TemplateRenderPreview = Field(default_factory=TemplateRenderPreview)
+
+
+class TemplateRegistryStatus(BaseModel):
+    registry_id: str = Field(default_factory=lambda: new_id("tmplreg"))
+    template_root: str = ".agents/skills/grad-apply-workflow/templates"
+    supported_template_types: List[str] = Field(default_factory=list)
+    activation_policy: str = ""
+    privacy_policy: str = ""
+    implemented: bool = False
+    template_count: int = 0
+    active_count: int = 0
+    templates: List[TemplateRegistryItem] = Field(default_factory=list)
+    validation_errors: List[TemplateValidationIssue] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+class SourceConnectorRegistryItem(BaseModel):
+    connector_id: str
+    name: str = ""
+    source_type: str = ""
+    version: str = "0.1.0"
+    description: str = ""
+    path: str = ""
+    url_patterns: List[str] = Field(default_factory=list)
+    field_mapping: Dict[str, str] = Field(default_factory=dict)
+    access_rules: List[str] = Field(default_factory=list)
+    robots_policy: str = ""
+    tos_policy: str = ""
+    test_queries: List[str] = Field(default_factory=list)
+    fallback: str = ""
+    output_scope: Literal["workspace_or_fork", "builtin_default"] = "workspace_or_fork"
+    active: bool = False
+    validation_issues: List[TemplateValidationIssue] = Field(default_factory=list)
+
+
+class SourceConnectorRegistryStatus(BaseModel):
+    registry_id: str = Field(default_factory=lambda: new_id("connectorreg"))
+    connector_root: str = ".agents/skills/grad-apply-workflow/source_connectors"
+    supported_source_types: List[str] = Field(default_factory=list)
+    access_policy: str = ""
+    implemented: bool = False
+    connector_count: int = 0
+    active_count: int = 0
+    connectors: List[SourceConnectorRegistryItem] = Field(default_factory=list)
+    validation_errors: List[TemplateValidationIssue] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
 
 
 class MaterialQualityReport(BaseModel):
@@ -276,6 +631,45 @@ class MaterialVersion(BaseModel):
     source_run_id: str = ""
     notes: List[Dict[str, Any]] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)
+
+
+class ReadinessDimensionScore(BaseModel):
+    name: str
+    label: str
+    score: int
+    weight: int
+    summary: str
+    reasons: List[str] = Field(default_factory=list)
+    evidence_refs: List[str] = Field(default_factory=list)
+    action_items: List[str] = Field(default_factory=list)
+
+
+class ReadinessTargetScore(BaseModel):
+    target_id: str
+    target_name: str
+    score: int
+    status: str
+    summary: str
+    dimensions: List[ReadinessDimensionScore] = Field(default_factory=list)
+    action_items: List[str] = Field(default_factory=list)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class ReadinessScoreReport(BaseModel):
+    score_id: str = Field(default_factory=lambda: new_id("readiness"))
+    profile_id: str = ""
+    scope: str = "overall"
+    total_score: int = 0
+    status: str = "待补充"
+    summary: str = ""
+    dimensions: List[ReadinessDimensionScore] = Field(default_factory=list)
+    target_scores: List[ReadinessTargetScore] = Field(default_factory=list)
+    focus_target_id: str = ""
+    focus_target: Optional[ReadinessTargetScore] = None
+    high_priority_actions: List[str] = Field(default_factory=list)
+    evidence_refs: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
 
 
 class AgentRun(BaseModel):
@@ -302,6 +696,7 @@ class WorkflowEvent(BaseModel):
         "extraction_completed",
         "match_started",
         "match_completed",
+        "retrieval_completed",
         "draft_started",
         "draft_completed",
         "review_started",
@@ -320,6 +715,62 @@ class WorkflowEvent(BaseModel):
 
 class PresentationGenerationRequest(BaseModel):
     outline_material_id: str = ""
+    reference_file_id: str = ""
+    presentation_type: Literal["interview_intro", "research_project", "application_summary"] = (
+        "interview_intro"
+    )
+    duration_minutes: int = 5
+    num_slides: int = 5
+    length_factor: Literal["concise", "standard", "detailed"] = "standard"
+    sim_bound: float = 0.35
+    hide_small_pic_ratio: float = 0.08
+    keep_in_background: bool = True
+    error_exit: bool = False
+
+
+class ReferencePresentationRecord(BaseModel):
+    reference_id: str = Field(default_factory=lambda: new_id("ppt_ref"))
+    original_filename: str = ""
+    path: str = ""
+    content_hash: str = ""
+    uploaded_at: str = Field(default_factory=now_iso)
+    notes: str = ""
+
+
+class PresentationPrecheckIssue(BaseModel):
+    code: str
+    message: str
+    severity: Literal["info", "warning", "error"] = "warning"
+    slide_index: Optional[int] = None
+
+
+class PresentationPrecheckReport(BaseModel):
+    precheck_id: str = Field(default_factory=lambda: new_id("ppt_precheck"))
+    reference_id: str = ""
+    filename: str = ""
+    passed: bool = True
+    slide_count: int = 0
+    total_shape_count: int = 0
+    max_shapes_per_slide: int = 0
+    functional_pages: Dict[str, bool] = Field(default_factory=dict)
+    issues: List[PresentationPrecheckIssue] = Field(default_factory=list)
+    fallback_allowed: bool = True
+    created_at: str = Field(default_factory=now_iso)
+
+
+class PresentationQualityReport(BaseModel):
+    quality_id: str = Field(default_factory=lambda: new_id("ppt_quality"))
+    task_id: str = ""
+    target_id: str = ""
+    outline_material_id: str = ""
+    engine_name: str = "LocalPptxAdapter"
+    content_score: int = 0
+    design_score: int = 0
+    coherence_score: int = 0
+    total_score: int = 0
+    issues: List[PresentationPrecheckIssue] = Field(default_factory=list)
+    action_items: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
 
 
 class PresentationTaskRecord(BaseModel):
@@ -331,5 +782,11 @@ class PresentationTaskRecord(BaseModel):
     output_filename: str = ""
     message: str = ""
     error: str = ""
+    engine_name: str = "LocalPptxAdapter"
+    fallback_reason: str = ""
+    reference_file_id: str = ""
+    quality_report_id: str = ""
+    quality_score: int = 0
+    generation_params: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)

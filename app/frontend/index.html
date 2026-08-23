@@ -41,6 +41,15 @@
 
         <section class="view active" data-view-panel="dashboard">
           <div class="metrics" id="metrics"></div>
+          <section class="surface dashboard-surface">
+            <div class="section-heading">
+              <div>
+                <h2>申请准备度</h2>
+                <p>规则版评分，不预测录取结果。</p>
+              </div>
+            </div>
+            <div id="readinessSummary"></div>
+          </section>
           <div class="content-grid two-columns">
             <section class="surface">
               <div class="section-heading">
@@ -268,6 +277,55 @@
             </div>
             <div class="target-table" id="targetList"></div>
           </section>
+          <section class="surface target-readiness-surface">
+            <div class="section-heading">
+              <div>
+                <h2>目标准备度</h2>
+                <p>查看单个目标的分项评分和行动项。</p>
+              </div>
+            </div>
+            <label for="readinessTargetSelect">选择目标</label>
+            <select id="readinessTargetSelect"></select>
+            <div id="targetReadinessView"></div>
+          </section>
+          <section class="surface strategy-surface">
+            <div class="section-heading">
+              <div>
+                <h2>批量策略与补强计划</h2>
+                <p>对目标池做初筛，提出画像候选和 gap / upskill 行动项。</p>
+              </div>
+            </div>
+            <div class="button-row compact-actions">
+              <button id="triageBtn">生成批量粗排</button>
+              <button id="profileExpandBtn" class="secondary">生成画像候选</button>
+              <button id="gapPlanBtn" class="secondary">生成 Gap Plan</button>
+              <button id="templateRegistryBtn" class="secondary">检查模板骨架</button>
+              <button id="sourceConnectorBtn" class="secondary">检查连接器骨架</button>
+            </div>
+            <div id="strategyView"></div>
+          </section>
+          <section class="surface lifecycle-surface">
+            <div class="section-heading">
+              <div>
+                <h2>申请生命周期</h2>
+                <p>归档当时版本，生成沟通草稿，并检查外部同步骨架。</p>
+              </div>
+            </div>
+            <div class="button-row compact-actions">
+              <button id="archiveTargetBtn">创建归档</button>
+              <button id="followUpBtn" class="secondary">生成 follow-up 草稿</button>
+              <button id="thankYouBtn" class="secondary">生成 thank-you 草稿</button>
+              <button id="emailSyncBtn" class="secondary">检查邮箱同步</button>
+              <button id="pipelineSyncBtn" class="secondary">检查 Notion 同步</button>
+            </div>
+            <label for="emailSignalText">邮件文本导入</label>
+            <textarea id="emailSignalText" rows="7" placeholder="Subject: 面试通知&#10;From: advisor@example.edu&#10;Date: 2026-08-23&#10;正文..."></textarea>
+            <div class="button-row compact-actions">
+              <button id="emailImportBtn" class="secondary">识别邮件信号</button>
+            </div>
+            <div id="lifecycleView"></div>
+            <div id="emailSignalView"></div>
+          </section>
         </section>
 
         <section class="view" data-view-panel="materials">
@@ -287,6 +345,40 @@
                 <button id="questionsBtn">生成面试问题</button>
                 <button id="pptBtn">生成 PPT 大纲</button>
                 <button id="pptxBtn">生成可编辑 PPTX</button>
+              </div>
+              <div class="ppt-settings">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <h3>PPT 生成设置</h3>
+                    <p>参考 PPT 仅做预检，本阶段默认降级为本地可编辑 PPTX。</p>
+                  </div>
+                </div>
+                <label for="referencePptFile">参考 PPTX</label>
+                <input id="referencePptFile" type="file" accept=".pptx" />
+                <div class="button-row compact-actions">
+                  <button id="uploadReferencePptBtn" class="secondary">上传并预检</button>
+                </div>
+                <label for="referencePptSelect">使用参考</label>
+                <select id="referencePptSelect"></select>
+                <div class="editor-grid">
+                  <div>
+                    <label for="pptSlideCount">页数</label>
+                    <input id="pptSlideCount" type="number" min="1" max="12" value="5" />
+                  </div>
+                  <div>
+                    <label for="pptDurationMinutes">时长</label>
+                    <input id="pptDurationMinutes" type="number" min="1" max="20" value="5" />
+                  </div>
+                  <div>
+                    <label for="pptLengthFactor">详略</label>
+                    <select id="pptLengthFactor">
+                      <option value="concise">精简</option>
+                      <option value="standard" selected>标准</option>
+                      <option value="detailed">详细</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="referencePptView"></div>
               </div>
               <div class="stack-list" id="generatedList"></div>
               <div id="presentationTaskView"></div>

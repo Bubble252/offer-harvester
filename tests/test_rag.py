@@ -1,0 +1,513 @@
+import asyncio
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "app" / "backend"))
+
+import main as backend_main  # noqa: E402
+from agents import run_contact_email_workflow  # noqa: E402
+from models import (  # noqa: E402
+    AdvisorSource,
+    ApplicationArchiveRequest,
+    ApplicationRecord,
+    BatchTriageRequest,
+    CommunicationDraftRequest,
+    EmailSignalDecisionRequest,
+    EmailSignalImportRequest,
+    GapPlanRequest,
+    GeneratedMaterial,
+    KnowledgeBaseSourceCreate,
+    MaterialVersion,
+    PipelineSyncRequest,
+    PresentationGenerationRequest,
+    Target,
+)
+from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever  # noqa: E402
+from services import build_profile_from_text, make_match, parse_advisor_profile  # noqa: E402
+from storage import Workspace  # noqa: E402
+
+
+def test_rag_indexes_manual_knowledge_student_docs_and_advisor_sources(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    document = workspace.save_user_document(
+        "匿名学生\n项目：多模态论文问答系统，使用 PyTorch 实现。".encode("utf-8"),
+        "resume.txt",
+        category="resumes",
+        source_type="local_upload",
+        trusted=True,
+        confirmed=False,
+    )
+    source = AdvisorSource(
+        source_type="manual_text",
+        title="张三教授主页",
+        raw_text="张三教授研究方向包括多模态学习和大模型推理，接收推免硕士。",
+        cleaned_text="张三教授研究方向包括多模态学习和大模型推理，接收推免硕士。",
+        trusted=True,
+    )
+    workspace.write("advisor_sources", dump(source), "source_id")
+
+    index = KnowledgeBaseIndex(workspace)
+    policy = index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="某大学预推免通知",
+            text="预推免报名截止日期为 2026 年 9 月 10 日，材料包括成绩单、简历和推荐信。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    manifest = index.rebuild()
+
+    assert manifest["source_count"] == 3
+    assert manifest["chunk_count"] >= 3
+
+    retriever = KnowledgeBaseRetriever(workspace)
+    policy_hits = retriever.search("预推免 截止日期 材料", source_kinds=["policy"]).hits
+    student_hits = retriever.search("多模态 PyTorch 项目", source_kinds=["student_document"]).hits
+    advisor_hits = retriever.search("张三 多模态 推免", source_kinds=["advisor_source"]).hits
+
+    assert policy_hits[0].source_id == policy.source_id
+    assert policy_hits[0].valid_for_year == 2026
+    assert student_hits[0].source_id == document.document_id
+    assert student_hits[0].source_subtype == "resumes"
+    assert student_hits[0].needs_confirmation is True
+    assert advisor_hits[0].source_id == source.source_id
+    assert "#" in policy_hits[0].evidence_ref
+
+
+def test_contact_email_workflow_adds_rag_evidence_refs(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="保研材料清单",
+            text="保研套磁前建议准备中文简历、成绩单和一页科研项目摘要。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：多模态论文问答系统")
+    advisor_source = AdvisorSource(
+        source_type="manual_text",
+        title="李四教授主页",
+        raw_text="李四教授研究方向包括多模态学习。",
+        cleaned_text="李四教授研究方向包括多模态学习。",
+        trusted=True,
+    )
+    advisor = parse_advisor_profile([advisor_source])
+    target = Target(
+        name="某大学李四教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=advisor.source_ids,
+    )
+    match = make_match(profile, target, advisor)
+
+    result = run_contact_email_workflow(
+        profile,
+        target,
+        advisor,
+        match,
+        retriever=KnowledgeBaseRetriever(workspace),
+    )
+
+    assert any("#chunk_" in item for item in result.material.evidence)
+    assert any(event.event_type == "retrieval_completed" for event in result.events)
+
+
+def test_rag_blocks_expired_policy_by_default_but_can_return_historical(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    expired = index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="旧版预推免通知",
+            text="旧版通知写明 2024 年截止日期为 9 月 1 日。",
+            valid_for_year=2024,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+
+    retriever = KnowledgeBaseRetriever(workspace)
+    current_hits = retriever.search(
+        "预推免 截止日期",
+        source_kinds=["policy"],
+        as_of_year=2026,
+    ).hits
+    historical_hits = retriever.search(
+        "预推免 截止日期",
+        source_kinds=["policy"],
+        as_of_year=2026,
+        include_historical=True,
+    ).hits
+
+    assert all(hit.source_id != expired.source_id for hit in current_hits)
+    assert historical_hits
+    assert historical_hits[0].source_id == expired.source_id
+    assert historical_hits[0].historical is True
+
+
+def test_rag_excludes_rejected_student_documents(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    document = workspace.save_user_document(
+        "匿名学生\n项目：多模态论文问答系统，使用 PyTorch 实现。".encode("utf-8"),
+        "resume.txt",
+        category="resumes",
+        source_type="local_upload",
+        trusted=True,
+        confirmed=False,
+    )
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统，使用 PyTorch 实现。",
+        source_document_ids=[document.document_id],
+    )
+    profile.confirmation_map["projects"] = "rejected"
+
+    index = KnowledgeBaseIndex(workspace)
+    index.rebuild()
+    retriever = KnowledgeBaseRetriever(workspace)
+
+    allowed_hits = retriever.search(
+        "多模态 PyTorch 项目",
+        source_kinds=["student_document"],
+    ).hits
+    blocked_hits = retriever.search(
+        "多模态 PyTorch 项目",
+        source_kinds=["student_document"],
+        profile=profile,
+    ).hits
+
+    assert allowed_hits
+    assert not blocked_hits
+
+
+def test_web_supplement_upload_only_creates_preview(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    payload = asyncio.run(
+        backend_main.upload_profile(
+            file=None,
+            text="张三教授主页：研究方向是多模态学习。",
+            category="web_supplements",
+        )
+    )
+    assert payload["confirmed"] is False
+    supplement = payload["supplement"]
+    preview = payload["preview"]
+    assert supplement.source_type == "web_supplement"
+    assert preview.name == "未命名学生"
+    assert workspace.read_user_document_manifest()["documents"]
+    assert backend_main.latest_profile() is None
+
+
+def test_readiness_score_endpoint_persists_report(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\nGPA 3.8/4.0\n项目：多模态论文问答系统",
+        source_document_ids=["doc_profile"],
+    )
+    workspace.write("profiles", dump(profile), "profile_id")
+    source = AdvisorSource(
+        source_type="manual_text",
+        title="李四教授主页",
+        raw_text="李四教授研究方向包括多模态学习。",
+        cleaned_text="李四教授研究方向包括多模态学习。",
+        trusted=True,
+    )
+    workspace.write("advisor_sources", dump(source), "source_id")
+    advisor = parse_advisor_profile([source])
+    workspace.write("advisors", dump(advisor), "advisor_id")
+    target = Target(
+        name="某大学李四教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=advisor.source_ids,
+        deadline="2026-09-10",
+    )
+    workspace.write("targets", dump(target), "target_id")
+    workspace.write(
+        "applications",
+        dump(
+            ApplicationRecord(
+                target_id=target.target_id,
+                status="contacted",
+                deadline=target.deadline,
+                next_action="准备套磁材料",
+            )
+        ),
+        "application_id",
+    )
+
+    report = backend_main.score_readiness()
+
+    assert report.total_score >= 0
+    assert report.score_id
+    assert workspace.list("readiness_scores")
+    assert workspace.latest("readiness_scores")["score_id"] == report.score_id
+
+
+def test_presentation_generation_persists_params_and_quality_report(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    target = Target(name="某大学李四教授课题组")
+    workspace.write("targets", dump(target), "target_id")
+    outline = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="ppt_outline",
+        title="面试 PPT 大纲",
+        content="""# 5 分钟保研面试展示 PPT 大纲
+
+## 1. 封面
+- 标题：匿名学生
+
+## 2. 教育背景
+- 学校：某大学
+
+## 3. 项目经历
+- 项目：多模态问答
+
+## 4. 方向匹配
+- 导师方向：多模态学习
+
+## 5. 未来计划
+- 阅读课题组论文
+""",
+    )
+    workspace.write("generated", dump(outline), "material_id")
+
+    task = backend_main.generate_presentation(
+        target.target_id,
+        PresentationGenerationRequest(
+            outline_material_id=outline.material_id,
+            num_slides=3,
+            duration_minutes=4,
+            length_factor="concise",
+        ),
+    )
+
+    quality_reports = workspace.list("presentation_quality_reports")
+    assert task.status == "completed"
+    assert task.engine_name == "LocalPptxAdapter"
+    assert task.generation_params["num_slides"] == 3
+    assert task.quality_score > 0
+    assert quality_reports[-1]["quality_id"] == task.quality_report_id
+    assert (workspace.root / "generated" / "presentations" / task.output_filename).exists()
+
+
+def test_lifecycle_endpoints_persist_archive_and_sync_runs(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统",
+        source_document_ids=["doc_profile"],
+    )
+    workspace.write("profiles", dump(profile), "profile_id")
+    target = Target(name="某大学李四教授课题组", deadline="2026-09-10")
+    workspace.write("targets", dump(target), "target_id")
+    application = ApplicationRecord(
+        target_id=target.target_id,
+        status="contacted",
+        deadline=target.deadline,
+        last_contact_at="2026-08-01T12:00:00+08:00",
+    )
+    workspace.write("applications", dump(application), "application_id")
+    material = GeneratedMaterial(
+        target_id=target.target_id,
+        material_type="contact_email",
+        title="套磁邮件",
+        content="老师您好，我关注多模态学习。",
+        evidence=[profile.profile_id, target.target_id],
+    )
+    workspace.write("generated", dump(material), "material_id")
+
+    archive = backend_main.create_target_archive(
+        target.target_id,
+        ApplicationArchiveRequest(material_ids=[material.material_id], stage="contacted"),
+    )
+    draft = backend_main.create_communication_draft(
+        target.target_id,
+        CommunicationDraftRequest(kind="follow_up", source_material_ids=[material.material_id]),
+    )
+    email_status = backend_main.get_email_sync_status(provider="gmail")
+    pipeline_status = backend_main.get_pipeline_sync_status(PipelineSyncRequest(provider="notion"))
+
+    assert workspace.read("application_archives", archive.archive_id)
+    assert workspace.read("communications", draft.communication_id)
+    assert email_status.read_only
+    assert pipeline_status.direction == "one_way_export"
+    assert len(workspace.list("sync_runs")) == 2
+
+
+def test_email_signal_endpoints_import_and_apply_candidate(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    target = Target(name="某大学王教授课题组", deadline="2026-09-10")
+    workspace.write("targets", dump(target), "target_id")
+    application = ApplicationRecord(target_id=target.target_id, status="contacted")
+    workspace.write("applications", dump(application), "application_id")
+
+    result = backend_main.import_email_signals(
+        EmailSignalImportRequest(
+            provider="gmail",
+            raw_text="""Subject: 某大学王教授课题组 拟录取通知
+From: wang@example.edu
+Date: 2026-08-23
+恭喜，你已获得拟录取资格，请后续确认。
+""",
+        )
+    )
+
+    candidate = result.candidates[0]
+    approved = backend_main.approve_email_signal(
+        candidate.candidate_id,
+        EmailSignalDecisionRequest(user_note="用户确认该邮件可信。"),
+    )
+
+    saved_application = workspace.read("applications", application.application_id)
+    assert approved.status == "approved"
+    assert saved_application["status"] == "offer"
+    assert workspace.list("application_archives")
+
+
+def test_stage16_strategy_endpoints_persist_reports(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    document = workspace.save_user_document(
+        "补充项目：RAG 保研政策问答系统，使用 FastAPI 和 Python 实现。".encode("utf-8"),
+        "project.md",
+        category="research_projects",
+        source_type="local_upload",
+        trusted=True,
+        confirmed=False,
+    )
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\nGPA 3.8/4.0\n项目：多模态论文问答系统",
+        source_document_ids=[document.document_id],
+    )
+    workspace.write("profiles", dump(profile), "profile_id")
+    target = Target(name="某大学王教授课题组", deadline="2026-09-10")
+    workspace.write("targets", dump(target), "target_id")
+    workspace.write(
+        "applications",
+        dump(ApplicationRecord(target_id=target.target_id, deadline=target.deadline)),
+        "application_id",
+    )
+
+    triage = backend_main.create_target_triage_report(BatchTriageRequest())
+    expansion = backend_main.create_profile_expansion_report()
+    gap_plan = backend_main.create_gap_plan(GapPlanRequest(target_id=target.target_id))
+    template_status = backend_main.get_template_registry_status()
+    connector_status = backend_main.get_source_connector_status()
+
+    assert triage.items[0].target_id == target.target_id
+    assert triage.items[0].preliminary is True
+    assert expansion.candidate_count >= 1
+    assert gap_plan.target_id == target.target_id
+    assert template_status.implemented is True
+    assert template_status.template_count >= 2
+    assert template_status.active_count >= 2
+    assert all(template.render_preview.passed for template in template_status.templates)
+    assert connector_status.implemented is True
+    assert connector_status.connector_count >= 2
+    assert connector_status.active_count >= 2
+    assert all(connector.field_mapping for connector in connector_status.connectors)
+    assert workspace.list("target_triage_reports")
+    assert workspace.list("profile_expansion_candidates")
+    assert workspace.list("gap_plans")
+    assert workspace.list("template_registry")
+    assert workspace.list("source_connectors")
+
+
+def test_rag_ignores_generated_outputs_as_fact_sources(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    workspace.save_user_document(
+        "匿名学生\n项目：多模态论文问答系统。".encode("utf-8"),
+        "resume.txt",
+        category="resumes",
+        source_type="local_upload",
+        trusted=True,
+        confirmed=False,
+    )
+
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="保研材料清单",
+            text="保研套磁前建议准备中文简历、成绩单和一页科研项目摘要。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    retriever = KnowledgeBaseRetriever(workspace)
+    baseline_manifest = index.rebuild()
+    baseline_hits = retriever.search(
+        "保研 材料",
+        source_kinds=["student_document", "advisor_source", "policy"],
+    ).hits
+
+    generated = GeneratedMaterial(
+        target_id="target_demo",
+        material_type="contact_email",
+        title="草稿",
+        content="RAGFACTBLOCK20260822UNIQUE",
+    )
+    workspace.write(
+        "generated",
+        dump(generated),
+        "material_id",
+    )
+    version = MaterialVersion(
+        material_id="mat_demo",
+        target_id="target_demo",
+        material_type="contact_email",
+        stage="draft",
+        content="RAGFACTBLOCK20260822UNIQUE",
+        source_run_id="run_demo",
+    )
+    workspace.write(
+        "material_versions",
+        dump(version),
+        "version_id",
+    )
+    manifest = index.rebuild()
+    after_hits = retriever.search(
+        "保研 材料",
+        source_kinds=["student_document", "advisor_source", "policy"],
+    ).hits
+
+    assert baseline_manifest["source_count"] == 2
+    assert manifest["source_count"] == 2
+    assert [hit.source_id for hit in after_hits] == [hit.source_id for hit in baseline_hits]
+    assert workspace.read("generated", generated.material_id) is not None
+    assert workspace.read("material_versions", version.version_id) is not None
+
+
+def dump(model):
+    return model.model_dump() if hasattr(model, "model_dump") else model.dict()
