@@ -8,12 +8,32 @@ from agents import run_contact_email_workflow
 from agents.advisor_extraction_agent import AdvisorExtractionAgent
 from agents.evidence_audit_agent import EvidenceAuditAgent
 from agents.match_analysis_agent import MatchAnalysisAgent
-from models import AdvisorSourceCreate, GeneratedMaterial, Target
+from lifecycle import (  # noqa: E402
+    build_application_archive,
+    email_signal_sync_status,
+    generate_communication_draft,
+    pipeline_sync_status,
+    update_outcome,
+)
+from models import (
+    AdvisorSource,
+    AdvisorSourceCreate,
+    ApplicationRecord,
+    CommunicationDraftRequest,
+    GeneratedMaterial,
+    KnowledgeBaseSourceCreate,
+    OutcomeUpdate,
+    PipelineSyncRequest,
+    Target,
+)
+from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever
 from services import (
     audit_material,
     build_profile_from_text,
+    build_readiness_score_report,
     build_workspace_report,
     create_advisor_source,
+    ensure_application,
     make_contact_email,
     make_interview_questions,
     make_match,
@@ -23,6 +43,13 @@ from services import (
     validate_public_url,
 )
 from storage import Workspace
+from strategy import (
+    build_batch_triage_report,
+    build_gap_plan,
+    build_profile_expansion_report,
+    source_connector_registry_status,
+)
+from template_registry import scan_template_registry
 
 
 def test_mvp_generation_flow_with_manual_advisor_text():
@@ -58,6 +85,140 @@ def test_mvp_generation_flow_with_manual_advisor_text():
     assert "张三" in email.content
     assert "多模态" in questions.content
     assert "5 分钟" in outline.content
+
+
+def test_rag_context_flows_into_match_questions_and_outline(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="预推免通知",
+            text="预推免材料包括简历、成绩单和科研项目摘要，截止日期为 2026 年 9 月 10 日。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    advisor_source = AdvisorSource(
+        source_type="manual_text",
+        title="王教授主页",
+        raw_text="王教授研究方向包括多模态学习和大模型推理，欢迎关注预推免。",
+        cleaned_text="王教授研究方向包括多模态学习和大模型推理，欢迎关注预推免。",
+        trusted=True,
+    )
+    workspace.write(
+        "advisor_sources",
+        advisor_source.model_dump()
+        if hasattr(advisor_source, "model_dump")
+        else advisor_source.dict(),
+        "source_id",
+    )
+    index.rebuild()
+
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统，使用 Python 和 PyTorch 实现。",
+        source_document_ids=["doc_resume"],
+    )
+    advisor = parse_advisor_profile([advisor_source])
+    target = Target(
+        name="某大学王教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=advisor.source_ids,
+    )
+    retriever = KnowledgeBaseRetriever(workspace)
+
+    questions = make_interview_questions(profile, target, advisor, retriever=retriever)
+    outline = make_ppt_outline(profile, target, advisor, retriever=retriever)
+    result = MatchAnalysisAgent().analyze(profile, target, advisor, retriever=retriever)
+
+    assert "申请流程和材料要求" in questions.content
+    assert "可引用证据" in outline.content
+    assert any(event.event_type == "retrieval_completed" for event in result.events)
+    assert any(strength.get("dimension") == "rag_evidence" for strength in result.report.strengths)
+
+
+def test_review_and_audit_use_current_policy_rag(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="2026 预推免通知",
+            text="预推免材料包括简历、成绩单和科研项目摘要，截止日期为 2026 年 9 月 10 日。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    advisor_source = AdvisorSource(
+        source_type="manual_text",
+        title="王教授主页",
+        raw_text="王教授研究方向包括多模态学习和大模型推理，欢迎关注预推免。",
+        cleaned_text="王教授研究方向包括多模态学习和大模型推理，欢迎关注预推免。",
+        trusted=True,
+    )
+    workspace.write(
+        "advisor_sources",
+        advisor_source.model_dump()
+        if hasattr(advisor_source, "model_dump")
+        else advisor_source.dict(),
+        "source_id",
+    )
+    index.rebuild()
+
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统，使用 Python 和 PyTorch 实现。",
+        source_document_ids=["doc_resume"],
+    )
+    advisor = parse_advisor_profile([advisor_source])
+    target = Target(
+        name="某大学王教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=advisor.source_ids,
+    )
+    retriever = KnowledgeBaseRetriever(workspace)
+
+    result = run_contact_email_workflow(profile, target, advisor, None, retriever=retriever)
+
+    assert result.review.passed
+    assert any("截止日期" in item for item in result.review.optional_improvements)
+    assert any(
+        claim.get("claim_type") == "policy_fact" and claim.get("status") == "supported"
+        for claim in result.evidence_audit.claims
+    )
+
+
+def test_review_and_audit_flag_expired_policy_rag(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="旧版预推免通知",
+            text="旧版通知写明 2024 年截止日期为 9 月 1 日。",
+            valid_for_year=2024,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统，使用 Python 和 PyTorch 实现。",
+        source_document_ids=["doc_resume"],
+    )
+    advisor = parse_advisor_profile([])
+    advisor.research_directions = ["多模态学习"]
+    target = Target(name="某大学王教授课题组", advisor_id=advisor.advisor_id)
+    retriever = KnowledgeBaseRetriever(workspace)
+
+    result = run_contact_email_workflow(profile, target, advisor, None, retriever=retriever)
+
+    assert not result.review.passed
+    assert not result.evidence_audit.passed
+    assert any("过期" in item for item in result.review.required_revisions)
+    assert any("过期" in item for item in result.evidence_audit.unsupported_claims)
 
 
 def test_profile_evidence_map_tracks_source_documents():
@@ -305,6 +466,144 @@ def test_source_hash_url_guard_quality_audit_and_progress_report():
     assert "不预测录取结果" in report["content"]
 
 
+def test_readiness_score_report_rolls_up_existing_workflow_state():
+    profile = build_profile_from_text(
+        """
+        匿名学生
+        某大学计算机学院
+        GPA 3.85/4.00，排名前 10%
+        项目：多模态论文问答系统，使用 Python 和 PyTorch 实现检索增强问答。
+        竞赛：大学生创新训练计划。
+        """,
+        source_document_ids=["doc_profile"],
+    )
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="李四教授，研究方向包括多模态学习和大模型推理，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学李四教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=[source.source_id],
+        deadline="2026-09-10",
+    )
+    match = make_match(profile, target, advisor)
+    app_record = ensure_application(target)
+    app_record.status = "contacted"
+    email = make_contact_email(profile, target, advisor, match)
+    questions = make_interview_questions(profile, target, advisor)
+    outline = make_ppt_outline(profile, target, advisor)
+    quality_reports = [
+        audit_material(item, profile, advisor) for item in [email, questions, outline]
+    ]
+
+    report = build_readiness_score_report(
+        profile,
+        [target],
+        [app_record],
+        matches=[match],
+        materials=[email, questions, outline],
+        quality_reports=quality_reports,
+        advisors=[advisor],
+    )
+    workspace_report = build_workspace_report(profile, [target], [app_record])
+
+    assert report.total_score > 0
+    assert report.target_scores[0].target_id == target.target_id
+    assert any(item.name == "profile_completeness" for item in report.dimensions)
+    assert any(item.name == "material_quality" for item in report.target_scores[0].dimensions)
+    assert "申请准备度" in workspace_report["content"]
+
+
+def test_application_lifecycle_archive_outcome_and_sync_skeletons(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\n项目：多模态论文问答系统",
+        source_document_ids=["doc_profile"],
+    )
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="李四教授，研究方向包括多模态学习，招收硕士学生。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学李四教授课题组",
+        advisor_id=advisor.advisor_id,
+        source_ids=[source.source_id],
+        deadline="2026-09-10",
+    )
+    application = ApplicationRecord(
+        target_id=target.target_id,
+        status="contacted",
+        deadline=target.deadline,
+        last_contact_at="2026-08-01T12:00:00+08:00",
+    )
+    match = make_match(profile, target, advisor)
+    material = make_contact_email(profile, target, advisor, match)
+
+    archive = build_application_archive(
+        workspace,
+        target,
+        application,
+        [material],
+        stage="drafted",
+        notes="测试归档",
+    )
+    outcome_archive = update_outcome(
+        workspace,
+        target,
+        application,
+        OutcomeUpdate(
+            stage="replied",
+            outcome_date="2026-08-23",
+            feedback="导师回复可继续沟通。",
+            user_reflection="需要补充项目摘要。",
+            calibration_signals=["导师回复"],
+            next_steps=["准备项目摘要"],
+        ),
+    )
+    draft = generate_communication_draft(
+        workspace,
+        target,
+        application,
+        profile,
+        advisor,
+        [material],
+        CommunicationDraftRequest(kind="follow_up"),
+    )
+    thanks = generate_communication_draft(
+        workspace,
+        target,
+        application,
+        profile,
+        advisor,
+        [material],
+        CommunicationDraftRequest(kind="thank_you"),
+    )
+    email_status = email_signal_sync_status("gmail")
+    pipeline_status = pipeline_sync_status(PipelineSyncRequest(provider="notion"))
+
+    assert (workspace.root / archive.target_snapshot_path).exists()
+    assert archive.submitted_material_paths
+    assert "Outcome 不直接修改评分规则" in (
+        workspace.root / outcome_archive.outcome_path
+    ).read_text(encoding="utf-8")
+    assert draft.kind == "follow_up"
+    assert "自动发送" not in draft.content
+    assert "多模态论文问答系统" not in draft.content
+    assert (workspace.root / draft.archive_path).exists()
+    assert thanks.kind == "thank_you"
+    assert email_status.read_only
+    assert not email_status.candidates
+    assert pipeline_status.direction == "one_way_export"
+    assert "material_content" in pipeline_status.skipped_fields
+
+
 def test_quality_audit_flags_false_publication_claim():
     profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：智能体系统原型开发")
     target = Target(name="样例目标")
@@ -523,3 +822,75 @@ def test_updated_advisor_fields_can_feed_target_creation():
     assert target.college == "人工智能学院"
     assert target.program_name == "可信智能实验室"
     assert source.source_id in target.source_ids
+
+
+def test_stage16_strategy_triage_profile_expand_and_gap_plan(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    document = workspace.save_user_document(
+        "补充项目：RAG 保研政策问答系统，使用 FastAPI 和 Python 实现。".encode("utf-8"),
+        "project.md",
+        category="research_projects",
+        source_type="local_upload",
+        trusted=True,
+        confirmed=False,
+    )
+    profile = build_profile_from_text(
+        "匿名学生\n某大学计算机学院\nGPA 3.8/4.0\n项目：多模态论文问答系统",
+        source_document_ids=["doc_profile"],
+    )
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="王教授，研究方向包括多模态学习和 RAG，要求学生熟悉 Python。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学王教授课题组",
+        advisor_id=advisor.advisor_id,
+        deadline="2026-09-10",
+        source_ids=advisor.source_ids,
+    )
+    match = make_match(profile, target, advisor)
+    app_record = ensure_application(target)
+
+    triage = build_batch_triage_report(
+        workspace,
+        profile,
+        [target],
+        [advisor],
+        [app_record],
+        [match],
+        None,
+    )
+    expansion = build_profile_expansion_report(workspace, profile)
+    gap_plan = build_gap_plan(
+        workspace,
+        target,
+        profile,
+        advisor,
+        app_record,
+        match,
+        None,
+        quality_reports=[],
+        materials=[],
+    )
+    template_status = scan_template_registry(ROOT)
+    connector_status = source_connector_registry_status()
+
+    assert triage.items[0].preliminary is True
+    assert triage.items[0].target_id == target.target_id
+    assert triage.items[0].triage_score > 0
+    assert any(
+        document.document_id in candidate.evidence_refs for candidate in expansion.candidates
+    )
+    assert all(candidate.status == "unconfirmed" for candidate in expansion.candidates)
+    assert any(gap.category == "interview_prep" for gap in gap_plan.gaps)
+    assert workspace.list("target_triage_reports")
+    assert workspace.list("profile_expansion_candidates")
+    assert workspace.list("gap_plans")
+    assert template_status.implemented is True
+    assert template_status.template_count >= 2
+    assert template_status.active_count >= 2
+    assert all(template.render_preview.passed for template in template_status.templates)
+    assert connector_status.implemented is False

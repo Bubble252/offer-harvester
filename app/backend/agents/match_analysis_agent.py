@@ -33,6 +33,7 @@ class MatchAnalysisAgent:
         profile: Optional[StudentProfile],
         target: Target,
         advisor: Optional[AdvisorProfile],
+        retriever=None,
     ) -> MatchAnalysisResult:
         run = AgentRun(
             target_id=target.target_id,
@@ -60,6 +61,47 @@ class MatchAnalysisAgent:
         recorder.record("match_started", status="started", agent_name=self.name)
 
         report = make_match(profile, target, advisor)
+        if retriever and profile:
+            query = _match_rag_query(profile, target, advisor)
+            retrieval = retriever.search(
+                query,
+                source_kinds=["student_document", "advisor_source", "policy"],
+                limit=4,
+                profile=profile,
+            )
+            if retrieval.hits:
+                report.recommended_actions = list(
+                    dict.fromkeys(
+                        report.recommended_actions
+                        + [
+                            "复核 RAG 检索到的学生、导师和流程证据后再定稿匹配结论",
+                        ]
+                    )
+                )
+                report.strengths.append(
+                    {
+                        "dimension": "rag_evidence",
+                        "point": "匹配结论已关联检索证据。",
+                        "evidence_refs": [
+                            hit.evidence_ref
+                            for hit in retrieval.hits
+                            if getattr(hit, "evidence_ref", "")
+                        ],
+                    }
+                )
+            recorder.record(
+                "retrieval_completed",
+                agent_name=self.name,
+                payload={
+                    "query": query,
+                    "hit_count": len(retrieval.hits),
+                    "evidence_refs": [
+                        hit.evidence_ref
+                        for hit in retrieval.hits
+                        if getattr(hit, "evidence_ref", "")
+                    ],
+                },
+            )
         if profile:
             report = enrich_match_report(report, profile, advisor)
 
@@ -84,6 +126,20 @@ class MatchAnalysisAgent:
             },
         )
         return MatchAnalysisResult(report=report, agent_run=run, events=recorder.events)
+
+
+def _match_rag_query(
+    profile: StudentProfile,
+    target: Target,
+    advisor: Optional[AdvisorProfile],
+) -> str:
+    terms = [target.name, target.school, target.college, target.program_name]
+    if advisor:
+        terms.extend(advisor.research_directions[:4])
+        terms.extend(advisor.admission_requirements[:3])
+    terms.extend(profile.research_interests[:4])
+    terms.extend(profile.projects[:3])
+    return " ".join(item for item in terms if item)
 
 
 def enrich_match_report(

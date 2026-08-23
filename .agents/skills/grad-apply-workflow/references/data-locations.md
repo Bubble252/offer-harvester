@@ -2,29 +2,36 @@
 
 Use these locations consistently.
 
-## Existing Workspace Directories
+## Workspace Directories
 
 ```text
 workspace/
 ├── profiles/
+├── user_documents/
 ├── advisor_sources/
 ├── advisors/
 ├── targets/
 ├── matches/
 ├── applications/
+├── application_archives/
+├── communications/
+├── email_signal_candidates/
 ├── generated/
-├── quality_reports/
-├── presentation_tasks/
-└── reports/
-```
-
-## Planned Workspace Directories
-
-```text
-workspace/
-├── user_documents/
 ├── material_versions/
-└── agent_runs/
+├── quality_reports/
+├── agent_runs/
+├── workflow_events/
+├── presentation_tasks/
+├── reports/
+├── readiness_scores/
+├── target_triage_reports/
+├── profile_expansion_candidates/
+├── gap_plans/
+├── template_registry/
+├── source_connectors/
+├── sync_runs/
+├── knowledge_base/
+└── rag_index/
 ```
 
 ## User Documents

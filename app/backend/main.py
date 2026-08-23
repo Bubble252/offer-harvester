@@ -14,6 +14,14 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from lifecycle import (
+    build_application_archive,
+    email_signal_sync_status,
+    generate_communication_draft,
+    pipeline_sync_status,
+    should_generate_follow_up,
+    update_outcome,
+)
 from llm_client import llm_configured
 from models import (
     AdvisorProfile,
@@ -21,28 +29,56 @@ from models import (
     AdvisorSource,
     AdvisorSourceCreate,
     AdvisorTargetCreate,
+    ApplicationArchive,
+    ApplicationArchiveRequest,
     ApplicationRecord,
     ApplicationUpdate,
+    BatchTriageReport,
+    BatchTriageRequest,
+    CommunicationDraft,
+    CommunicationDraftRequest,
+    EmailSignalSyncResult,
+    GapPlan,
+    GapPlanRequest,
     GeneratedMaterial,
+    KnowledgeBaseSourceCreate,
     MatchReport,
+    MaterialQualityReport,
+    OutcomeUpdate,
+    PipelineSyncRequest,
+    PipelineSyncResult,
     PresentationGenerationRequest,
     PresentationTaskRecord,
+    ProfileExpansionReport,
+    ReadinessScoreReport,
+    SourceConnectorRegistryStatus,
     StudentProfile,
     Target,
     TargetCreate,
+    TemplateRegistryStatus,
     UserDocumentManifest,
     now_iso,
 )
 from quality import audit_material
+from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever
 from services import (
     build_profile_from_text,
+    build_readiness_score_report,
     build_workspace_report,
     create_advisor_source,
     ensure_application,
+    fetch_url_text,
     make_interview_questions,
     make_ppt_outline,
 )
 from storage import Workspace
+from strategy import (
+    build_batch_triage_report,
+    build_gap_plan,
+    build_profile_expansion_report,
+    source_connector_registry_status,
+)
+from template_registry import scan_template_registry
 
 from integrations.presentation_engine import LocalPptxAdapter, PresentationRequest
 
@@ -59,6 +95,8 @@ app.add_middleware(
 )
 workspace = Workspace(os.environ.get("WORKSPACE_DIR") or str(PROJECT_ROOT / "workspace"))
 ppt_adapter = LocalPptxAdapter()
+rag_index = KnowledgeBaseIndex(workspace)
+rag_retriever = KnowledgeBaseRetriever(workspace)
 
 
 def dump(model):
@@ -91,9 +129,41 @@ def get_advisor_or_404(advisor_id: str) -> AdvisorProfile:
     return AdvisorProfile(**item)
 
 
+def get_application_or_404(application_id: str) -> ApplicationRecord:
+    item = workspace.read("applications", application_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return ApplicationRecord(**item)
+
+
+def application_for_target(target: Target) -> ApplicationRecord:
+    applications = [
+        ApplicationRecord(**item)
+        for item in workspace.list("applications")
+        if item.get("target_id") == target.target_id
+    ]
+    if applications:
+        return applications[-1]
+    app_record = ensure_application(target)
+    workspace.write("applications", dump(app_record), "application_id")
+    return app_record
+
+
 def latest_match(target_id: str):
     matches = [item for item in workspace.list("matches") if item["target_id"] == target_id]
     return MatchReport(**matches[-1]) if matches else None
+
+
+def materials_for_target(target_id: str, material_ids: Optional[list[str]] = None):
+    items = [
+        GeneratedMaterial(**item)
+        for item in workspace.list("generated")
+        if item.get("target_id") == target_id
+    ]
+    if material_ids:
+        allowed = set(material_ids)
+        items = [item for item in items if item.material_id in allowed]
+    return items
 
 
 def save_material_with_quality(material: GeneratedMaterial):
@@ -105,6 +175,30 @@ def save_material_with_quality(material: GeneratedMaterial):
     quality = audit_material(material, profile, advisor_for_target(target))
     workspace.write("quality_reports", dump(quality), "quality_id")
     return {"material": material, "quality": quality}
+
+
+def score_readiness(target_id: str = "") -> ReadinessScoreReport:
+    profile = latest_profile()
+    targets = [Target(**item) for item in workspace.list("targets")]
+    applications = [ApplicationRecord(**item) for item in workspace.list("applications")]
+    matches = [MatchReport(**item) for item in workspace.list("matches")]
+    materials = [GeneratedMaterial(**item) for item in workspace.list("generated")]
+    quality_reports = [MaterialQualityReport(**item) for item in workspace.list("quality_reports")]
+    advisors = [AdvisorProfile(**item) for item in workspace.list("advisors")]
+    presentation_tasks = workspace.list("presentation_tasks")
+    report = build_readiness_score_report(
+        profile,
+        targets,
+        applications,
+        matches=matches,
+        materials=materials,
+        quality_reports=quality_reports,
+        advisors=advisors,
+        presentation_tasks=presentation_tasks,
+        focus_target_id=target_id,
+    )
+    workspace.write("readiness_scores", dump(report), "score_id")
+    return report
 
 
 def get_presentation_task_or_404(task_id: str) -> PresentationTaskRecord:
@@ -133,36 +227,91 @@ async def upload_profile(
     content_parts = []
     source_document_ids = []
     if text.strip():
-        document = workspace.save_user_document(
-            text.encode("utf-8"),
-            "profile_manual_input.txt",
-            category="manual_inputs",
-            source_type="manual_input",
-            trusted=True,
-            confirmed=False,
-            notes="学生资料页手动粘贴内容",
-        )
-        source_document_ids.append(document.document_id)
         content_parts.append(text)
+        if category != "web_supplements":
+            document = workspace.save_user_document(
+                text.encode("utf-8"),
+                "profile_manual_input.txt",
+                category="manual_inputs",
+                source_type="manual_input",
+                trusted=True,
+                confirmed=False,
+                notes="学生资料页手动粘贴内容",
+            )
+            source_document_ids.append(document.document_id)
     if file:
         blob = await file.read()
-        document = workspace.save_user_document(
-            blob,
-            file.filename or "uploaded_profile.txt",
-            category=category,
-            source_type="local_upload",
-            trusted=True,
-            confirmed=False,
-            notes="学生资料页上传文件",
-        )
-        source_document_ids.append(document.document_id)
         content_parts.append(blob.decode("utf-8", errors="ignore"))
+        if category != "web_supplements":
+            document = workspace.save_user_document(
+                blob,
+                file.filename or "uploaded_profile.txt",
+                category=category,
+                source_type="local_upload",
+                trusted=True,
+                confirmed=False,
+                notes="学生资料页上传文件",
+            )
+            source_document_ids.append(document.document_id)
     content = "\n\n".join(part for part in content_parts if part.strip())
     if not content.strip():
         raise HTTPException(status_code=400, detail="Profile text is required")
+    if category == "web_supplements":
+        document = workspace.save_user_document(
+            content.encode("utf-8"),
+            "web_supplement.txt",
+            category="web_supplements",
+            source_type="web_supplement",
+            trusted=True,
+            confirmed=False,
+            notes="网页补充资料，需用户确认后才能进入正式 profile",
+        )
+        preview = build_profile_from_text(content, source_document_ids=[document.document_id])
+        rag_index.rebuild()
+        return {
+            "supplement": document,
+            "preview": preview,
+            "confirmed": False,
+        }
     profile = build_profile_from_text(content, source_document_ids=source_document_ids)
     workspace.write("profiles", dump(profile), "profile_id")
+    rag_index.rebuild()
     return profile
+
+
+@app.post("/api/profile/web-supplement")
+async def upload_web_supplement(
+    url: str = Form(""),
+    text: str = Form(""),
+):
+    raw_text = text.strip()
+    notes = "网页补充资料"
+    if url.strip():
+        raw_html, raw_text = fetch_url_text(url)
+        notes = f"网页补充资料：{url.strip()}"
+        content_bytes = raw_html.encode("utf-8", errors="ignore")
+        filename = "web_supplement.html"
+    elif raw_text:
+        content_bytes = raw_text.encode("utf-8")
+        filename = "web_supplement.txt"
+    else:
+        raise HTTPException(status_code=400, detail="Web supplement text or URL is required")
+    document = workspace.save_user_document(
+        content_bytes,
+        filename,
+        category="web_supplements",
+        source_type="web_supplement",
+        trusted=True,
+        confirmed=False,
+        notes=notes,
+    )
+    preview = build_profile_from_text(raw_text, source_document_ids=[document.document_id])
+    rag_index.rebuild()
+    return {
+        "supplement": document,
+        "preview": preview,
+        "confirmed": False,
+    }
 
 
 @app.get("/api/user-documents")
@@ -203,6 +352,7 @@ def create_source(payload: AdvisorSourceCreate):
     workspace.write("agent_runs", dump(result.agent_run), "run_id")
     for event in result.events:
         workspace.write("workflow_events", dump(event), "event_id")
+    rag_index.rebuild()
     return {
         "source": source,
         "advisor": advisor,
@@ -315,7 +465,12 @@ def update_target(target_id: str, updates: dict):
 @app.post("/api/targets/{target_id}/match")
 def generate_match(target_id: str):
     target = get_target_or_404(target_id)
-    result = MatchAnalysisAgent().analyze(latest_profile(), target, advisor_for_target(target))
+    result = MatchAnalysisAgent().analyze(
+        latest_profile(),
+        target,
+        advisor_for_target(target),
+        retriever=rag_retriever,
+    )
     report = result.report
     workspace.write("matches", dump(report), "match_id")
     workspace.write("agent_runs", dump(result.agent_run), "run_id")
@@ -343,6 +498,7 @@ def generate_contact_email(target_id: str):
         target,
         advisor_for_target(target),
         latest_match(target_id),
+        retriever=rag_retriever,
     )
     for version in result.versions:
         workspace.write("material_versions", dump(version), "version_id")
@@ -369,7 +525,12 @@ def generate_interview_questions(target_id: str):
     if not profile:
         raise HTTPException(status_code=400, detail="Profile is required")
     target = get_target_or_404(target_id)
-    material = make_interview_questions(profile, target, advisor_for_target(target))
+    material = make_interview_questions(
+        profile,
+        target,
+        advisor_for_target(target),
+        retriever=rag_retriever,
+    )
     return save_material_with_quality(material)
 
 
@@ -379,7 +540,12 @@ def generate_ppt_outline(target_id: str):
     if not profile:
         raise HTTPException(status_code=400, detail="Profile is required")
     target = get_target_or_404(target_id)
-    material = make_ppt_outline(profile, target, advisor_for_target(target))
+    material = make_ppt_outline(
+        profile,
+        target,
+        advisor_for_target(target),
+        retriever=rag_retriever,
+    )
     return save_material_with_quality(material)
 
 
@@ -420,6 +586,136 @@ def download_generated_material(material_id: str):
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/knowledge-base/sources")
+def create_knowledge_base_source(payload: KnowledgeBaseSourceCreate):
+    try:
+        source = rag_index.add_source(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rag_index.rebuild()
+    return source
+
+
+@app.get("/api/knowledge-base/sources")
+def list_knowledge_base_sources():
+    return rag_index.list_sources()
+
+
+@app.post("/api/rag/rebuild")
+def rebuild_rag_index():
+    return rag_index.rebuild()
+
+
+@app.get("/api/rag/search")
+def search_rag(
+    query: str,
+    source_kind: Optional[str] = None,
+    limit: int = 5,
+    include_unconfirmed: bool = True,
+    include_historical: bool = False,
+    as_of_year: Optional[int] = None,
+):
+    source_kinds = [source_kind] if source_kind else None
+    return rag_retriever.search(
+        query,
+        source_kinds=source_kinds,
+        limit=limit,
+        include_unconfirmed=include_unconfirmed,
+        include_historical=include_historical,
+        as_of_year=as_of_year,
+    )
+
+
+@app.get("/api/readiness-score")
+def get_readiness_score(target_id: str = "") -> ReadinessScoreReport:
+    return score_readiness(target_id=target_id)
+
+
+@app.get("/api/target-triage")
+def list_target_triage_reports():
+    return workspace.list("target_triage_reports")
+
+
+@app.post("/api/target-triage")
+def create_target_triage_report(
+    payload: BatchTriageRequest = BatchTriageRequest(),
+) -> BatchTriageReport:
+    profile = latest_profile()
+    targets = [Target(**item) for item in workspace.list("targets")]
+    advisors = [AdvisorProfile(**item) for item in workspace.list("advisors")]
+    applications = [ApplicationRecord(**item) for item in workspace.list("applications")]
+    matches = [MatchReport(**item) for item in workspace.list("matches")]
+    readiness = score_readiness()
+    target_ids = payload.target_ids if not payload.include_all_targets else None
+    return build_batch_triage_report(
+        workspace,
+        profile,
+        targets,
+        advisors,
+        applications,
+        matches,
+        readiness,
+        target_ids=target_ids,
+    )
+
+
+@app.get("/api/profile-expansion")
+def list_profile_expansion_reports():
+    return workspace.list("profile_expansion_candidates")
+
+
+@app.post("/api/profile-expansion")
+def create_profile_expansion_report() -> ProfileExpansionReport:
+    return build_profile_expansion_report(workspace, latest_profile())
+
+
+@app.get("/api/gap-plans")
+def list_gap_plans():
+    return workspace.list("gap_plans")
+
+
+@app.post("/api/gap-plans")
+def create_gap_plan(payload: GapPlanRequest) -> GapPlan:
+    if not payload.target_id:
+        raise HTTPException(status_code=400, detail="target_id is required")
+    target = get_target_or_404(payload.target_id)
+    profile = latest_profile()
+    application = application_for_target(target)
+    readiness = score_readiness(target_id=target.target_id)
+    quality_reports = [
+        MaterialQualityReport(**item)
+        for item in workspace.list("quality_reports")
+        if item.get("target_id") == target.target_id
+    ]
+    materials = materials_for_target(target.target_id)
+    return build_gap_plan(
+        workspace,
+        target,
+        profile,
+        advisor_for_target(target),
+        application,
+        latest_match(target.target_id),
+        readiness,
+        quality_reports,
+        materials,
+        retriever=rag_retriever,
+    )
+
+
+@app.get("/api/template-registry/status")
+def get_template_registry_status() -> TemplateRegistryStatus:
+    status = scan_template_registry(PROJECT_ROOT)
+    workspace.write("template_registry", dump(status), "registry_id")
+    return status
+
+
+@app.get("/api/source-connectors/status")
+def get_source_connector_status() -> SourceConnectorRegistryStatus:
+    status = source_connector_registry_status()
+    workspace.write("source_connectors", dump(status), "registry_id")
+    return status
 
 
 @app.post("/api/targets/{target_id}/ppt")
@@ -504,15 +800,134 @@ def list_applications():
 
 @app.patch("/api/applications/{application_id}")
 def update_application(application_id: str, updates: ApplicationUpdate):
-    item = workspace.read("applications", application_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Application not found")
+    record = get_application_or_404(application_id)
+    item = dump(record)
     changes = {key: value for key, value in dump(updates).items() if value is not None}
     item.update(changes)
     item["updated_at"] = now_iso()
     record = ApplicationRecord(**item)
     workspace.write("applications", dump(record), "application_id")
     return record
+
+
+@app.get("/api/application-archives")
+def list_application_archives():
+    return workspace.list("application_archives")
+
+
+@app.get("/api/targets/{target_id}/archive")
+def get_target_archive(target_id: str):
+    get_target_or_404(target_id)
+    archives = [
+        item
+        for item in workspace.list("application_archives")
+        if item.get("target_id") == target_id
+    ]
+    if not archives:
+        raise HTTPException(status_code=404, detail="Application archive not created")
+    return archives[-1]
+
+
+@app.post("/api/targets/{target_id}/archive")
+def create_target_archive(
+    target_id: str,
+    payload: ApplicationArchiveRequest = ApplicationArchiveRequest(),
+) -> ApplicationArchive:
+    target = get_target_or_404(target_id)
+    application = application_for_target(target)
+    materials = materials_for_target(target_id, payload.material_ids)
+    archive = build_application_archive(
+        workspace,
+        target,
+        application,
+        materials,
+        stage=payload.stage,
+        notes=payload.notes,
+    )
+    application.status = payload.stage
+    application.updated_at = now_iso()
+    application.next_action = "记录 outcome 或生成后续沟通草稿"
+    workspace.write("applications", dump(application), "application_id")
+    return archive
+
+
+@app.put("/api/targets/{target_id}/outcome")
+def put_target_outcome(target_id: str, payload: OutcomeUpdate) -> ApplicationArchive:
+    target = get_target_or_404(target_id)
+    application = application_for_target(target)
+    archive = update_outcome(workspace, target, application, payload)
+    application.status = payload.stage
+    application.updated_at = now_iso()
+    application.notes = list(
+        dict.fromkeys(
+            application.notes
+            + [f"{payload.outcome_date or now_iso()} outcome 更新：{archive.outcome_path}"]
+        )
+    )
+    application.next_action = "根据 outcome 复盘结果调整下一步计划"
+    workspace.write("applications", dump(application), "application_id")
+    return archive
+
+
+@app.get("/api/communications")
+def list_communications():
+    return workspace.list("communications")
+
+
+@app.post("/api/targets/{target_id}/communications")
+def create_communication_draft(
+    target_id: str,
+    payload: CommunicationDraftRequest,
+) -> CommunicationDraft:
+    target = get_target_or_404(target_id)
+    application = application_for_target(target)
+    profile = latest_profile()
+    advisor = advisor_for_target(target)
+    selected = materials_for_target(target_id, payload.source_material_ids)
+    if payload.kind == "follow_up" and not should_generate_follow_up(application):
+        raise HTTPException(
+            status_code=409,
+            detail="Follow-up is not due yet or max attempts have been reached",
+        )
+    return generate_communication_draft(
+        workspace,
+        target,
+        application,
+        profile,
+        advisor,
+        selected or materials_for_target(target_id),
+        payload,
+    )
+
+
+@app.post("/api/email-sync/status")
+def get_email_sync_status(provider: str = "unknown") -> EmailSignalSyncResult:
+    result = email_signal_sync_status(provider)
+    workspace.write(
+        "sync_runs",
+        {
+            "sync_id": f"email_sync_{now_iso().replace(':', '').replace('+', '_')}",
+            "kind": "email_signal_sync",
+            **dump(result),
+        },
+        "sync_id",
+    )
+    return result
+
+
+@app.post("/api/pipeline-sync/status")
+def get_pipeline_sync_status(payload: PipelineSyncRequest) -> PipelineSyncResult:
+    result = pipeline_sync_status(payload)
+    workspace.write(
+        "sync_runs",
+        {
+            "sync_id": f"pipeline_sync_{payload.provider}_{now_iso().replace(':', '').replace('+', '_')}",
+            "kind": "pipeline_sync",
+            **dump(result),
+        },
+        "sync_id",
+    )
+    return result
 
 
 @app.get("/api/report")

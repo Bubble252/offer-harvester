@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from models import AdvisorProfile, GeneratedMaterial, MatchReport, StudentProfile
 from pydantic import BaseModel, Field
+from rag import KnowledgeBaseRetriever
 
 
 class MaterialReviewResult(BaseModel):
@@ -24,6 +25,7 @@ class MaterialReviewAgent:
         profile: StudentProfile,
         advisor: Optional[AdvisorProfile],
         match: Optional[MatchReport],
+        retriever: Optional[KnowledgeBaseRetriever] = None,
     ) -> MaterialReviewResult:
         issues: List[Dict[str, Any]] = []
         required: List[str] = []
@@ -78,6 +80,20 @@ class MaterialReviewAgent:
             )
             required.append("补充导师主页、实验室主页、招生通知或手动来源。")
 
+        if retriever:
+            policy_hits = _policy_hits(retriever, material.content, profile, advisor, target=None)
+            if policy_hits:
+                if any(getattr(hit, "historical", False) for hit in policy_hits):
+                    issues.append(
+                        {
+                            "type": "stale_policy_reference",
+                            "message": "材料提到招生流程，但检索到的政策来源包含过期条目。",
+                        }
+                    )
+                    required.append("用当前年份的招生通知或政策替换过期流程表述。")
+                else:
+                    optional.append("可把最新招生通知中的具体截止日期和材料要求写得更明确。")
+
         risk_level = "high" if len(required) >= 2 else "medium" if required else "low"
         return MaterialReviewResult(
             passed=not required,
@@ -86,3 +102,50 @@ class MaterialReviewAgent:
             required_revisions=required,
             optional_improvements=optional,
         )
+
+
+def _policy_hits(
+    retriever: KnowledgeBaseRetriever,
+    content: str,
+    profile: StudentProfile,
+    advisor: Optional[AdvisorProfile],
+    target: Optional[object],
+) -> List[Any]:
+    policy_terms = [
+        "招生信息",
+        "申请要求",
+        "截止",
+        "材料",
+        "报名",
+        "预推免",
+        "夏令营",
+        "九推",
+        "系统",
+        "通知",
+    ]
+    if not any(term in content for term in policy_terms):
+        return []
+    terms = policy_terms[:]
+    terms.append(content[:120])
+    terms.extend(profile.research_interests[:2])
+    terms.extend(profile.projects[:2])
+    if advisor:
+        terms.extend(advisor.research_directions[:3])
+        terms.extend(advisor.admission_requirements[:2])
+    if target is not None:
+        terms.extend(
+            [
+                getattr(target, "name", ""),
+                getattr(target, "school", ""),
+                getattr(target, "college", ""),
+                getattr(target, "program_name", ""),
+            ]
+        )
+    query = " ".join(item for item in terms if item)
+    retrieval = retriever.search(
+        query,
+        source_kinds=["policy"],
+        include_historical=True,
+        limit=3,
+    )
+    return list(retrieval.hits)

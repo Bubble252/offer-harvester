@@ -41,6 +41,15 @@
 
         <section class="view active" data-view-panel="dashboard">
           <div class="metrics" id="metrics"></div>
+          <section class="surface dashboard-surface">
+            <div class="section-heading">
+              <div>
+                <h2>申请准备度</h2>
+                <p>规则版评分，不预测录取结果。</p>
+              </div>
+            </div>
+            <div id="readinessSummary"></div>
+          </section>
           <div class="content-grid two-columns">
             <section class="surface">
               <div class="section-heading">
@@ -267,6 +276,49 @@
               </div>
             </div>
             <div class="target-table" id="targetList"></div>
+          </section>
+          <section class="surface target-readiness-surface">
+            <div class="section-heading">
+              <div>
+                <h2>目标准备度</h2>
+                <p>查看单个目标的分项评分和行动项。</p>
+              </div>
+            </div>
+            <label for="readinessTargetSelect">选择目标</label>
+            <select id="readinessTargetSelect"></select>
+            <div id="targetReadinessView"></div>
+          </section>
+          <section class="surface strategy-surface">
+            <div class="section-heading">
+              <div>
+                <h2>批量策略与补强计划</h2>
+                <p>对目标池做初筛，提出画像候选和 gap / upskill 行动项。</p>
+              </div>
+            </div>
+            <div class="button-row compact-actions">
+              <button id="triageBtn">生成批量粗排</button>
+              <button id="profileExpandBtn" class="secondary">生成画像候选</button>
+              <button id="gapPlanBtn" class="secondary">生成 Gap Plan</button>
+              <button id="templateRegistryBtn" class="secondary">检查模板骨架</button>
+              <button id="sourceConnectorBtn" class="secondary">检查连接器骨架</button>
+            </div>
+            <div id="strategyView"></div>
+          </section>
+          <section class="surface lifecycle-surface">
+            <div class="section-heading">
+              <div>
+                <h2>申请生命周期</h2>
+                <p>归档当时版本，生成沟通草稿，并检查外部同步骨架。</p>
+              </div>
+            </div>
+            <div class="button-row compact-actions">
+              <button id="archiveTargetBtn">创建归档</button>
+              <button id="followUpBtn" class="secondary">生成 follow-up 草稿</button>
+              <button id="thankYouBtn" class="secondary">生成 thank-you 草稿</button>
+              <button id="emailSyncBtn" class="secondary">检查邮箱同步</button>
+              <button id="pipelineSyncBtn" class="secondary">检查 Notion 同步</button>
+            </div>
+            <div id="lifecycleView"></div>
           </section>
         </section>
 
