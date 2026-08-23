@@ -186,6 +186,7 @@ def _make_hit(
         title=chunk.title,
         url=chunk.url,
         fetched_at=chunk.fetched_at,
+        content_hash=chunk.content_hash,
         valid_for_year=chunk.valid_for_year,
         score=round(total, 4),
         keyword_score=round(keyword_score, 4),

@@ -131,6 +131,7 @@ class RAGSearchHit(BaseModel):
     title: str = ""
     url: str = ""
     fetched_at: str = ""
+    content_hash: str = ""
     valid_for_year: Optional[int] = None
     score: float = 0.0
     keyword_score: float = 0.0

@@ -222,6 +222,7 @@ def test_rag_rebuild_persists_vectors_and_hybrid_scores(tmp_path):
         .hits
     )
     assert hits[0].source_id == source.source_id
+    assert hits[0].content_hash.startswith("sha256:")
     assert hits[0].keyword_score >= 0
     assert hits[0].vector_score > 0
     assert hits[0].rerank_score > 0
