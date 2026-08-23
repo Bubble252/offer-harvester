@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib import robotparser
@@ -105,7 +106,9 @@ def scan_source_connector_registry(project_root: Path) -> SourceConnectorRegistr
 def merge_live_test_results(
     status: SourceConnectorRegistryStatus,
     results: list[SourceConnectorLiveTestResult],
+    now: datetime | None = None,
 ) -> SourceConnectorRegistryStatus:
+    now = now or datetime.now().astimezone()
     latest_by_connector: dict[str, SourceConnectorLiveTestResult] = {}
     for result in results:
         previous = latest_by_connector.get(result.connector_id)
@@ -118,6 +121,24 @@ def merge_live_test_results(
         connector.live_test_status = result.status
         connector.live_test_id = result.result_id
         connector.registration_eligible = result.registration_eligible
+        connector.last_live_test_at = result.checked_at
+        checked_at = parse_datetime(result.checked_at)
+        if checked_at:
+            next_refresh = checked_at + timedelta(days=connector.refresh_interval_days)
+            connector.next_refresh_at = next_refresh.isoformat()
+            connector.refresh_due = next_refresh <= now
+            connector.refresh_state = "due" if connector.refresh_due else "fresh"
+            if connector.refresh_due:
+                connector.registration_eligible = False
+                connector.refresh_state = "stale"
+        if result.status in {"failed", "skipped"}:
+            connector.registration_eligible = False
+            connector.refresh_state = "needs_review"
+        elif result.status != "passed":
+            connector.refresh_state = "needs_review"
+    for connector in status.connectors:
+        if connector.live_test_status == "not_run":
+            connector.refresh_state = "not_tested"
     status.registrable_count = sum(
         1 for connector in status.connectors if connector.registration_eligible
     )
@@ -294,6 +315,7 @@ def parse_connector_manifest(
         test_urls=as_str_list(manifest.get("test_urls")),
         fallback=str(manifest.get("fallback") or ""),
         output_scope=str(manifest.get("output_scope") or "workspace_or_fork"),  # type: ignore[arg-type]
+        refresh_interval_days=max(1, int(manifest.get("refresh_interval_days") or 7)),
         active=active,
         validation_issues=issues,
     )
@@ -376,6 +398,16 @@ def as_str_dict(value) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
     return {str(key): str(item) for key, item in value.items() if str(key).strip()}
+
+
+def parse_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.astimezone()
 
 
 def error(code: str, message: str) -> TemplateValidationIssue:

@@ -171,6 +171,15 @@ RAG 会覆盖三类知识：
 
 live test 只保存 URL、HTTP 状态、内容类型、响应大小、响应 hash、robots 状态和失败原因，不保存网页正文。网络失败或规则不允许时，继续使用手动粘贴正文兜底。
 
+通过后的 connector 默认 7 天后进入 `stale`，不再显示为可注册；用户可以在策略面板手动刷新，也可以运行：
+
+```bash
+python tools/refresh_source_connectors.py --list-due
+python tools/refresh_source_connectors.py --connector-id advisor_homepage_generic_zh --url https://example.edu/faculty/a --ack-tos
+```
+
+模板 registry 还支持用户模板的 Markdown/纯文本编辑、版本 diff 和启停状态管理。PDF 可读性检查位于材料中心，只检查已有 PDF，不负责生成 PDF；扫描件会提示 `needs_ocr`。
+
 ## Release Polish 说明
 
 README、CHANGELOG 和 GitHub Release Notes 的整理规范见 [README / Release Polish Reference](14_release_readme_polish_reference.md)。当前项目不会展示不存在的 PyPI、npm、Docker、downloads 或 citation badge。

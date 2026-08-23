@@ -509,6 +509,14 @@ h2 {
   font-size: 15px;
 }
 
+.subsurface {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f9fbfc;
+}
+
 .document-view {
   min-height: 440px;
   margin: 0;

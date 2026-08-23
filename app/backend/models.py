@@ -568,14 +568,104 @@ class TemplateRegistryItem(BaseModel):
 class TemplateRegistryStatus(BaseModel):
     registry_id: str = Field(default_factory=lambda: new_id("tmplreg"))
     template_root: str = ".agents/skills/grad-apply-workflow/templates"
+    workspace_template_root: str = "workspace/templates"
     supported_template_types: List[str] = Field(default_factory=list)
     activation_policy: str = ""
     privacy_policy: str = ""
     implemented: bool = False
     template_count: int = 0
     active_count: int = 0
+    custom_template_count: int = 0
+    custom_active_count: int = 0
     templates: List[TemplateRegistryItem] = Field(default_factory=list)
+    custom_templates: List["CustomTemplateRecord"] = Field(default_factory=list)
     validation_errors: List[TemplateValidationIssue] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
+TemplateLifecycleStatus = Literal["draft", "validated", "active", "disabled", "archived"]
+
+
+class TemplateVersionRecord(BaseModel):
+    version_id: str = Field(default_factory=lambda: new_id("tmplver"))
+    template_id: str
+    version_index: int = 0
+    content_hash: str = ""
+    content_path: str = ""
+    note: str = ""
+    diff_text: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class CustomTemplateRecord(BaseModel):
+    template_id: str
+    name: str = ""
+    template_type: str = ""
+    description: str = ""
+    status: TemplateLifecycleStatus = "draft"
+    active: bool = False
+    content: str = ""
+    content_path: str = ""
+    version_count: int = 0
+    latest_version_id: str = ""
+    versions: List[TemplateVersionRecord] = Field(default_factory=list)
+    variables: List[str] = Field(default_factory=list)
+    sample_context: Dict[str, str] = Field(default_factory=dict)
+    applicable_scenarios: List[str] = Field(default_factory=list)
+    style_rules: List[str] = Field(default_factory=list)
+    privacy_rules: List[str] = Field(default_factory=list)
+    validation_methods: List[str] = Field(default_factory=list)
+    managed_block: str = ""
+    validation_issues: List[TemplateValidationIssue] = Field(default_factory=list)
+    render_preview: TemplateRenderPreview = Field(default_factory=TemplateRenderPreview)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class CustomTemplateCreateRequest(BaseModel):
+    name: str
+    template_type: str
+    content: str
+    description: str = ""
+    status: TemplateLifecycleStatus = "draft"
+    variables: List[str] = Field(default_factory=list)
+    sample_context: Dict[str, str] = Field(default_factory=dict)
+    applicable_scenarios: List[str] = Field(default_factory=lambda: ["user_custom"])
+    style_rules: List[str] = Field(default_factory=lambda: ["保留事实证据，不使用夸大承诺。"])
+    privacy_rules: List[str] = Field(default_factory=lambda: ["不得写入真实个人隐私字面量。"])
+    validation_methods: List[str] = Field(default_factory=lambda: ["sample_render", "privacy_scan"])
+    managed_block: str = "workspace_custom_template"
+    note: str = ""
+
+
+class CustomTemplateUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    template_type: Optional[str] = None
+    content: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[TemplateLifecycleStatus] = None
+    variables: Optional[List[str]] = None
+    sample_context: Optional[Dict[str, str]] = None
+    applicable_scenarios: Optional[List[str]] = None
+    style_rules: Optional[List[str]] = None
+    privacy_rules: Optional[List[str]] = None
+    validation_methods: Optional[List[str]] = None
+    managed_block: Optional[str] = None
+    note: str = ""
+
+
+class CustomTemplateUploadResponse(BaseModel):
+    template: CustomTemplateRecord
+    filename: str = ""
+
+
+class TemplateDiffReport(BaseModel):
+    diff_id: str = Field(default_factory=lambda: new_id("tmpldiff"))
+    template_id: str
+    from_version_id: str = ""
+    to_version_id: str = ""
+    diff_text: str = ""
+    summary: str = ""
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -599,6 +689,11 @@ class SourceConnectorRegistryItem(BaseModel):
     live_test_status: Literal["not_run", "passed", "failed", "skipped"] = "not_run"
     live_test_id: str = ""
     registration_eligible: bool = False
+    refresh_interval_days: int = 7
+    refresh_state: Literal["not_tested", "fresh", "due", "stale", "needs_review"] = "not_tested"
+    last_live_test_at: str = ""
+    next_refresh_at: str = ""
+    refresh_due: bool = False
     validation_issues: List[TemplateValidationIssue] = Field(default_factory=list)
 
 
@@ -641,6 +736,22 @@ class SourceConnectorLiveTestResult(BaseModel):
     notes: List[str] = Field(default_factory=list)
 
 
+class SourceConnectorRefreshRequest(BaseModel):
+    tos_acknowledged: bool = False
+    query: str = ""
+
+
+class SourceConnectorRefreshReport(BaseModel):
+    connector_id: str
+    refresh_due: bool = False
+    refresh_state: Literal["not_tested", "fresh", "due", "stale", "needs_review"] = "not_tested"
+    next_refresh_at: str = ""
+    last_live_test_at: str = ""
+    live_test_status: Literal["not_run", "passed", "failed", "skipped"] = "not_run"
+    registration_eligible: bool = False
+    checked_at: str = Field(default_factory=now_iso)
+
+
 class MaterialQualityReport(BaseModel):
     quality_id: str = Field(default_factory=lambda: new_id("quality"))
     material_id: str
@@ -648,6 +759,33 @@ class MaterialQualityReport(BaseModel):
     passed: bool
     checks: List[Dict[str, Any]] = Field(default_factory=list)
     risk_level: Literal["low", "medium", "high"] = "low"
+    pdf_readability_report_id: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class PdfReadabilityIssue(BaseModel):
+    code: str
+    message: str
+    severity: Literal["info", "warning", "error"] = "warning"
+
+
+class PdfReadabilityReport(BaseModel):
+    report_id: str = Field(default_factory=lambda: new_id("pdfcheck"))
+    filename: str = ""
+    material_id: str = ""
+    source_document_id: str = ""
+    content_hash: str = ""
+    parser_name: str = ""
+    page_count: int = 0
+    extractable_pages: int = 0
+    blank_pages: int = 0
+    text_layer_detected: bool = False
+    needs_ocr: bool = False
+    readable: bool = False
+    expected_fields: List[str] = Field(default_factory=list)
+    extracted_fields: List[str] = Field(default_factory=list)
+    issues: List[PdfReadabilityIssue] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)
 
 

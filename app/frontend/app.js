@@ -17,6 +17,8 @@ const state = {
   strategyStatus: null,
   templateRegistry: null,
   sourceConnectorRegistry: null,
+  selectedCustomTemplate: null,
+  pdfReadabilityReport: null,
   referencePresentations: [],
   presentationPrechecks: [],
   presentationQualityReports: [],
@@ -442,7 +444,7 @@ function renderStrategy() {
 
   const templateRegistryHtml = state.templateRegistry
     ? `<div class="template-registry-list">
-        <div class="strategy-summary">模板 ${escapeHtml(String(state.templateRegistry.template_count || 0))} 个，已激活 ${escapeHtml(String(state.templateRegistry.active_count || 0))} 个。</div>
+        <div class="strategy-summary">内置模板 ${escapeHtml(String(state.templateRegistry.template_count || 0))} 个，已激活 ${escapeHtml(String(state.templateRegistry.active_count || 0))} 个；用户模板 ${escapeHtml(String(state.templateRegistry.custom_template_count || 0))} 个，已启用 ${escapeHtml(String(state.templateRegistry.custom_active_count || 0))} 个。</div>
         <div class="stack-list">
           ${(state.templateRegistry.templates || [])
             .map(
@@ -450,6 +452,15 @@ function renderStrategy() {
                 <div class="item-title">${escapeHtml(item.name || item.template_id)} · ${item.active ? "可激活" : "需修正"}</div>
                 <div class="item-meta">${escapeHtml(item.template_type)} · ${escapeHtml(item.path)} · 变量 ${escapeHtml(String((item.variables || []).length))} 个</div>
                 <div class="item-meta">${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "manifest、变量、样例渲染和隐私扫描通过。")}</div>
+              </div>`
+            )
+            .join("")}
+          ${(state.templateRegistry.custom_templates || [])
+            .map(
+              (item) => `<div class="list-item strategy-item">
+                <div class="item-title">${escapeHtml(item.name || item.template_id)} · ${escapeHtml(item.status || "draft")}</div>
+                <div class="item-meta">${escapeHtml(item.template_type)} · 版本 ${escapeHtml(String(item.version_count || 0))} · ${item.active ? "当前启用" : "未启用"}</div>
+                <div class="item-meta">${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "模板校验通过。")}</div>
               </div>`
             )
             .join("")}
@@ -464,10 +475,11 @@ function renderStrategy() {
           ${(state.sourceConnectorRegistry.connectors || [])
             .map(
               (item) => `<div class="list-item strategy-item">
-                <div class="item-title">${escapeHtml(item.name || item.connector_id)} · ${item.registration_eligible ? "可注册" : item.live_test_status === "not_run" ? "待 live test" : "不可注册"}</div>
+                <div class="item-title">${escapeHtml(item.name || item.connector_id)} · ${item.registration_eligible ? "可注册" : item.refresh_state === "stale" ? "已过期" : item.refresh_state === "needs_review" ? "需复核" : item.live_test_status === "not_run" ? "待 live test" : "不可注册"}</div>
                 <div class="item-meta">${escapeHtml(item.source_type)} · ${escapeHtml(item.path)} · URL pattern ${escapeHtml(String((item.url_patterns || []).length))} 个 · 字段 ${escapeHtml(String(Object.keys(item.field_mapping || {}).length))} 个</div>
-                <div class="item-meta">live test：${escapeHtml(item.live_test_status || "not_run")} · ${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "manifest、字段映射、访问规则和测试查询通过。")}</div>
-                ${item.test_urls && item.test_urls.length ? `<button class="secondary" data-source-connector-id="${escapeHtml(item.connector_id)}">运行公开 live test</button>` : "<div class='item-meta'>未声明公开测试 URL，只能手动粘贴兜底。</div>"}
+                <div class="item-meta">live test：${escapeHtml(item.live_test_status || "not_run")} · 刷新：${escapeHtml(item.refresh_state || "not_tested")} · 下次检查 ${escapeHtml(item.next_refresh_at || "尚未安排")}</div>
+                <div class="item-meta">${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "manifest、字段映射、访问规则和测试查询通过。")}</div>
+                ${item.test_urls && item.test_urls.length ? `<button class="secondary" data-source-connector-id="${escapeHtml(item.connector_id)}">${item.refresh_due || item.refresh_state === "stale" ? "刷新公开 live test" : "运行公开 live test"}</button>` : "<div class='item-meta'>未声明公开测试 URL，只能手动粘贴兜底。</div>"}
               </div>`
             )
             .join("")}
@@ -501,6 +513,95 @@ function renderStrategy() {
     </div>
     ${registryHtml}
   `;
+  renderCustomTemplateOptions();
+}
+
+function customTemplates() {
+  return state.templateRegistry?.custom_templates || [];
+}
+
+function renderCustomTemplateOptions(selectedId = "") {
+  const select = $("customTemplateSelect");
+  if (!select) return;
+  const current = selectedId || select.value || state.selectedCustomTemplate?.template_id || "";
+  select.innerHTML = "<option value=''>新建用户模板</option>";
+  customTemplates().forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.template_id;
+    option.textContent = `${item.name || item.template_id} · ${item.status}`;
+    select.appendChild(option);
+  });
+  select.value = customTemplates().some((item) => item.template_id === current) ? current : "";
+  const selected = customTemplates().find((item) => item.template_id === select.value);
+  if (selected && selected.template_id !== state.selectedCustomTemplate?.template_id) {
+    fillCustomTemplateEditor(selected);
+  } else if (!selected && !state.selectedCustomTemplate) {
+    clearCustomTemplateEditor();
+  }
+}
+
+function fillCustomTemplateEditor(template) {
+  state.selectedCustomTemplate = template;
+  $("customTemplateName").value = template.name || "";
+  $("customTemplateType").value = template.template_type || "contact_email";
+  $("customTemplateStatus").value = template.status || "draft";
+  $("customTemplateContent").value = template.content || "";
+  $("customTemplateDescription").value = template.description || "";
+  $("customTemplateVariables").value = listToText(template.variables);
+  $("customTemplateSampleContext").value = JSON.stringify(template.sample_context || {}, null, 2);
+  $("customTemplateApplicableScenarios").value = listToText(template.applicable_scenarios);
+  $("customTemplateStyleRules").value = listToText(template.style_rules);
+  $("customTemplatePrivacyRules").value = listToText(template.privacy_rules);
+  $("customTemplateValidationMethods").value = listToText(template.validation_methods);
+  $("customTemplateManagedBlock").value = template.managed_block || "";
+  $("templateDiffView").textContent = `版本数：${template.version_count || 0} · 当前状态：${template.status || "draft"}`;
+}
+
+function clearCustomTemplateEditor() {
+  state.selectedCustomTemplate = null;
+  [
+    "customTemplateName",
+    "customTemplateContent",
+    "customTemplateDescription",
+    "customTemplateVariables",
+    "customTemplateSampleContext",
+    "customTemplateApplicableScenarios",
+    "customTemplateStyleRules",
+    "customTemplatePrivacyRules",
+    "customTemplateValidationMethods",
+    "customTemplateManagedBlock",
+  ].forEach((id) => {
+    $(id).value = "";
+  });
+  $("customTemplateType").value = "contact_email";
+  $("customTemplateStatus").value = "draft";
+  $("templateDiffView").textContent = "尚未选择模板 diff";
+}
+
+function customTemplatePayload() {
+  let sampleContext = {};
+  const rawSample = $("customTemplateSampleContext").value.trim();
+  if (rawSample) {
+    try {
+      sampleContext = JSON.parse(rawSample);
+    } catch {
+      throw new Error("样例上下文必须是合法 JSON");
+    }
+  }
+  return {
+    name: $("customTemplateName").value.trim(),
+    template_type: $("customTemplateType").value,
+    status: $("customTemplateStatus").value,
+    content: $("customTemplateContent").value,
+    description: $("customTemplateDescription").value.trim(),
+    variables: textToList($("customTemplateVariables").value),
+    sample_context: sampleContext,
+    applicable_scenarios: textToList($("customTemplateApplicableScenarios").value),
+    style_rules: textToList($("customTemplateStyleRules").value),
+    privacy_rules: textToList($("customTemplatePrivacyRules").value),
+    validation_methods: textToList($("customTemplateValidationMethods").value),
+    managed_block: $("customTemplateManagedBlock").value.trim(),
+  };
 }
 
 function renderProfile() {
@@ -859,6 +960,12 @@ async function refresh() {
     ]);
     const triageReports = await api("/api/target-triage");
     const expansionReports = await api("/api/profile-expansion");
+    const [templateRegistry, sourceConnectorRegistry] = await Promise.all([
+      api("/api/template-registry/status"),
+      api("/api/source-connectors/status"),
+    ]);
+    state.templateRegistry = templateRegistry;
+    state.sourceConnectorRegistry = sourceConnectorRegistry;
     state.triageReport = triageReports.slice(-1)[0] || null;
     state.profileExpansionReport = expansionReports.slice(-1)[0] || null;
     renderAll();
@@ -1257,6 +1364,7 @@ async function checkTemplateRegistry() {
       message: `${result.activation_policy} ${result.privacy_policy}`,
     };
     renderStrategy();
+    renderCustomTemplateOptions();
   } catch (error) {
     toast(`模板 registry 检查失败：${error.message}`);
   }
@@ -1274,6 +1382,96 @@ async function checkSourceConnectors() {
   } catch (error) {
     toast(`来源连接器检查失败：${error.message}`);
   }
+}
+
+async function saveCustomTemplate() {
+  try {
+    const payload = customTemplatePayload();
+    const existingId = state.selectedCustomTemplate?.template_id;
+    const template = existingId
+      ? await api(`/api/templates/${encodeURIComponent(existingId)}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        })
+      : await api("/api/templates", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+    await checkTemplateRegistry();
+    renderCustomTemplateOptions(template.template_id);
+    toast("模板已保存");
+  } catch (error) {
+    toast(`模板保存失败：${error.message}`);
+  }
+}
+
+async function toggleCustomTemplateLifecycle() {
+  const templateId = $("customTemplateSelect").value || state.selectedCustomTemplate?.template_id;
+  if (!templateId) return toast("请先选择一个用户模板");
+  const nextStatus = $("customTemplateStatus").value;
+  try {
+    const template = await api(`/api/templates/${encodeURIComponent(templateId)}/lifecycle`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    await checkTemplateRegistry();
+    renderCustomTemplateOptions(template.template_id);
+    toast("模板状态已更新");
+  } catch (error) {
+    toast(`模板状态更新失败：${error.message}`);
+  }
+}
+
+async function showCustomTemplateDiff() {
+  const templateId = $("customTemplateSelect").value || state.selectedCustomTemplate?.template_id;
+  if (!templateId) return toast("请先选择一个用户模板");
+  try {
+    const diff = await api(`/api/templates/${encodeURIComponent(templateId)}/diff`);
+    $("templateDiffView").textContent = diff.diff_text || diff.summary || "没有差异";
+  } catch (error) {
+    toast(`查看 diff 失败：${error.message}`);
+  }
+}
+
+async function checkPdfReadability() {
+  const file = $("pdfReadabilityFile").files[0];
+  if (!file) return toast("请先选择 PDF 文件");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("expected_fields", $("pdfReadabilityFields").value || "");
+  if (state.selectedMaterial?.material_id) {
+    form.append("material_id", state.selectedMaterial.material_id);
+  }
+  try {
+    const report = await api("/api/pdf/readability-check", { method: "POST", body: form });
+    state.pdfReadabilityReport = report;
+    renderPdfReadabilityReport(report);
+    toast(report.readable ? "PDF 可读性检查通过" : "PDF 需要复核");
+    await refresh();
+  } catch (error) {
+    toast(`PDF 检查失败：${error.message}`);
+  }
+}
+
+function renderPdfReadabilityReport(report) {
+  const view = $("pdfReadabilityView");
+  if (!view) return;
+  if (!report) {
+    view.innerHTML = "";
+    return;
+  }
+  const issues = (report.issues || [])
+    .map((issue) => `<li>${escapeHtml(issue.severity)}：${escapeHtml(issue.message)}</li>`)
+    .join("");
+  const suggestions = (report.suggestions || [])
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("");
+  view.innerHTML = `<div class="quality-summary ${report.readable ? "low" : "medium"}">
+    <strong>PDF ${report.readable ? "可读" : "需复核"}</strong>
+    <div class="item-meta">${escapeHtml(report.filename || "")} · ${escapeHtml(String(report.page_count || 0))} 页 · 文本层 ${report.text_layer_detected ? "有" : "无"}</div>
+    <ul>${issues || "<li>未发现阻断问题。</li>"}</ul>
+    ${suggestions ? `<div class="item-meta">建议</div><ul>${suggestions}</ul>` : ""}
+  </div>`;
 }
 
 async function runSourceConnectorLiveTest(connectorId) {
@@ -1363,6 +1561,38 @@ $("profileExpandBtn").addEventListener("click", generateProfileExpansion);
 $("gapPlanBtn").addEventListener("click", generateGapPlan);
 $("templateRegistryBtn").addEventListener("click", checkTemplateRegistry);
 $("sourceConnectorBtn").addEventListener("click", checkSourceConnectors);
+$("saveTemplateBtn").addEventListener("click", saveCustomTemplate);
+$("activateTemplateBtn").addEventListener("click", toggleCustomTemplateLifecycle);
+$("archiveTemplateBtn").addEventListener("click", async () => {
+  $("customTemplateStatus").value = "archived";
+  await toggleCustomTemplateLifecycle();
+});
+$("diffTemplateBtn").addEventListener("click", showCustomTemplateDiff);
+$("customTemplateSelect").addEventListener("change", () => {
+  const template = customTemplates().find((item) => item.template_id === $("customTemplateSelect").value);
+  if (template) fillCustomTemplateEditor(template);
+  else clearCustomTemplateEditor();
+});
+$("customTemplateFile").addEventListener("change", async () => {
+  const file = $("customTemplateFile").files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("template_type", $("customTemplateType").value || "contact_email");
+  form.append("name", $("customTemplateName").value || file.name.replace(/\.[^.]+$/, ""));
+  form.append("description", $("customTemplateDescription").value || "");
+  try {
+    const template = await api("/api/templates/upload", { method: "POST", body: form });
+    await checkTemplateRegistry();
+    renderCustomTemplateOptions(template.template_id);
+    toast("模板文件已导入");
+  } catch (error) {
+    toast(`模板导入失败：${error.message}`);
+  } finally {
+    $("customTemplateFile").value = "";
+  }
+});
+$("pdfReadabilityBtn").addEventListener("click", checkPdfReadability);
 $("saveAdvisorEditBtn").addEventListener("click", saveAdvisorEdit);
 $("cancelAdvisorEditBtn").addEventListener("click", hideAdvisorEditor);
 

@@ -41,6 +41,7 @@
   "test_urls": [
     "https://air.tsinghua.edu.cn/gyair/yzjj.htm"
   ],
+  "refresh_interval_days": 7,
   "fallback": "保存 URL、标题和用户粘贴正文；字段缺失时进入 needs_review。",
   "output_scope": "workspace_or_fork"
 }

@@ -40,6 +40,9 @@ from models import (
     BatchTriageRequest,
     CommunicationDraft,
     CommunicationDraftRequest,
+    CustomTemplateCreateRequest,
+    CustomTemplateRecord,
+    CustomTemplateUpdateRequest,
     EmailSignalCandidate,
     EmailSignalDecisionRequest,
     EmailSignalImportRequest,
@@ -51,6 +54,7 @@ from models import (
     MatchReport,
     MaterialQualityReport,
     OutcomeUpdate,
+    PdfReadabilityReport,
     PipelineSyncRequest,
     PipelineSyncResult,
     PresentationGenerationRequest,
@@ -66,10 +70,12 @@ from models import (
     StudentProfile,
     Target,
     TargetCreate,
+    TemplateDiffReport,
     TemplateRegistryStatus,
     UserDocumentManifest,
     now_iso,
 )
+from pdf_readability import inspect_pdf_bytes
 from presentation_quality import build_presentation_quality_report, save_reference_presentation
 from quality import audit_material
 from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever
@@ -94,7 +100,14 @@ from strategy import (
     build_gap_plan,
     build_profile_expansion_report,
 )
-from template_registry import scan_template_registry
+from template_registry import (
+    create_custom_template,
+    get_custom_template,
+    get_custom_template_diff,
+    scan_template_registry,
+    set_custom_template_status,
+    update_custom_template,
+)
 
 from integrations.presentation_engine import LocalPptxAdapter, PresentationRequest
 
@@ -729,9 +742,87 @@ def create_gap_plan(payload: GapPlanRequest) -> GapPlan:
 
 @app.get("/api/template-registry/status")
 def get_template_registry_status() -> TemplateRegistryStatus:
-    status = scan_template_registry(PROJECT_ROOT)
+    status = scan_template_registry(PROJECT_ROOT, workspace.root)
     workspace.write("template_registry", dump(status), "registry_id")
     return status
+
+
+@app.post("/api/templates")
+def create_template(payload: CustomTemplateCreateRequest) -> CustomTemplateRecord:
+    try:
+        record = create_custom_template(workspace, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.post("/api/templates/upload")
+async def upload_template(
+    file: UploadFile = File(...),
+    template_type: str = Form("contact_email"),
+    name: str = Form(""),
+    description: str = Form(""),
+) -> CustomTemplateRecord:
+    filename = file.filename or "custom-template.md"
+    if Path(filename).suffix.lower() not in {".md", ".txt"}:
+        raise HTTPException(status_code=400, detail="自定义文本模板只支持 .md 或 .txt。")
+    content = (await file.read()).decode("utf-8", errors="replace")
+    payload = CustomTemplateCreateRequest(
+        name=name.strip() or Path(filename).stem,
+        template_type=template_type,
+        description=description,
+        content=content,
+    )
+    try:
+        record = create_custom_template(workspace, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.get("/api/templates/{template_id}")
+def get_template(template_id: str) -> CustomTemplateRecord:
+    try:
+        return get_custom_template(workspace, template_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/api/templates/{template_id}")
+def edit_template(
+    template_id: str,
+    payload: CustomTemplateUpdateRequest,
+) -> CustomTemplateRecord:
+    try:
+        record = update_custom_template(workspace, template_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.patch("/api/templates/{template_id}/lifecycle")
+def change_template_lifecycle(template_id: str, payload: dict) -> CustomTemplateRecord:
+    try:
+        record = set_custom_template_status(workspace, template_id, str(payload.get("status", "")))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.get("/api/templates/{template_id}/diff")
+def diff_template_versions(
+    template_id: str,
+    from_version_id: str = "",
+    to_version_id: str = "",
+) -> TemplateDiffReport:
+    try:
+        return get_custom_template_diff(workspace, template_id, from_version_id, to_version_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/source-connectors/status")
@@ -762,12 +853,65 @@ def run_source_connector_test(
     return result
 
 
+@app.post("/api/source-connectors/{connector_id}/refresh")
+def refresh_source_connector(
+    connector_id: str,
+    payload: SourceConnectorLiveTestRequest,
+) -> SourceConnectorLiveTestResult:
+    """Manually rerun a bounded public connector test after refresh is due."""
+    return run_source_connector_test(connector_id, payload)
+
+
 @app.get("/api/source-connectors/live-tests")
 def list_source_connector_live_tests() -> List[SourceConnectorLiveTestResult]:
     return [
         SourceConnectorLiveTestResult(**item)
         for item in workspace.list("source_connector_live_tests")
     ]
+
+
+@app.post("/api/pdf/readability-check")
+async def check_pdf_readability(
+    file: UploadFile = File(...),
+    expected_fields: str = Form("name,email"),
+    material_id: str = Form(""),
+) -> PdfReadabilityReport:
+    content = await file.read()
+    fields = [item.strip() for item in expected_fields.split(",") if item.strip()]
+    report = inspect_pdf_bytes(content, file.filename or "document.pdf", fields)
+    report.material_id = material_id
+    workspace.write("pdf_readability_reports", dump(report), "report_id")
+    if material_id:
+        quality_items = [
+            MaterialQualityReport(**item)
+            for item in workspace.list("quality_reports")
+            if item.get("material_id") == material_id
+        ]
+        if quality_items:
+            quality = quality_items[-1]
+            quality.pdf_readability_report_id = report.report_id
+            quality.checks.append(
+                {
+                    "name": "pdf_readability",
+                    "passed": report.readable,
+                    "message": (
+                        "PDF 可读性检查通过。" if report.readable else "PDF 需要人工复核或 OCR。"
+                    ),
+                    "report_id": report.report_id,
+                    "needs_ocr": report.needs_ocr,
+                    "issues": [issue.message for issue in report.issues],
+                }
+            )
+            if not report.readable:
+                quality.passed = False
+                quality.risk_level = "high" if report.needs_ocr else "medium"
+            workspace.write("quality_reports", dump(quality), "quality_id")
+    return report
+
+
+@app.get("/api/pdf/readability-reports")
+def list_pdf_readability_reports() -> List[PdfReadabilityReport]:
+    return [PdfReadabilityReport(**item) for item in workspace.list("pdf_readability_reports")]
 
 
 @app.get("/api/reference-presentations")

@@ -67,8 +67,10 @@ class Workspace:
             "profile_expansion_candidates",
             "gap_plans",
             "template_registry",
+            "templates",
             "source_connectors",
             "source_connector_live_tests",
+            "pdf_readability_reports",
             "sync_runs",
             "knowledge_base",
             "rag_index",
@@ -116,6 +118,27 @@ class Workspace:
 
     def write_user_document_manifest(self, manifest: Dict[str, Any]) -> Dict[str, Any]:
         self.user_document_manifest_path().write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return manifest
+
+    def template_workspace_dir(self) -> Path:
+        return self.root / "templates"
+
+    def template_workspace_manifest_path(self) -> Path:
+        return self.template_workspace_dir() / "manifest.json"
+
+    def template_workspace_template_dir(self, template_id: str) -> Path:
+        return self.template_workspace_dir() / template_id
+
+    def read_template_workspace_manifest(self) -> Dict[str, Any]:
+        path = self.template_workspace_manifest_path()
+        if not path.exists():
+            return {"templates": []}
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def write_template_workspace_manifest(self, manifest: Dict[str, Any]) -> Dict[str, Any]:
+        self.template_workspace_manifest_path().write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return manifest
