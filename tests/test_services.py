@@ -9,10 +9,13 @@ from agents.advisor_extraction_agent import AdvisorExtractionAgent
 from agents.evidence_audit_agent import EvidenceAuditAgent
 from agents.match_analysis_agent import MatchAnalysisAgent
 from lifecycle import (  # noqa: E402
+    apply_email_signal_candidate,
     build_application_archive,
     email_signal_sync_status,
     generate_communication_draft,
+    import_email_signal_candidates,
     pipeline_sync_status,
+    reject_email_signal_candidate,
     update_outcome,
 )
 from models import (
@@ -20,6 +23,7 @@ from models import (
     AdvisorSourceCreate,
     ApplicationRecord,
     CommunicationDraftRequest,
+    EmailSignalDecisionRequest,
     GeneratedMaterial,
     KnowledgeBaseSourceCreate,
     OutcomeUpdate,
@@ -598,6 +602,90 @@ def test_application_lifecycle_archive_outcome_and_sync_skeletons(tmp_path):
     assert not email_status.candidates
     assert pipeline_status.direction == "one_way_export"
     assert "material_content" in pipeline_status.skipped_fields
+
+
+def test_email_signal_candidates_require_confirmation_before_tracker_update(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    source = create_advisor_source(
+        AdvisorSourceCreate(
+            source_type="manual_text",
+            manual_text="李四教授，邮箱 lisi@example.edu，研究方向包括多模态学习。",
+        )
+    )
+    advisor = parse_advisor_profile([source])
+    target = Target(
+        name="某大学李四教授课题组",
+        advisor_id=advisor.advisor_id,
+        school="某大学",
+        deadline="2026-09-10",
+    )
+    application = ApplicationRecord(
+        target_id=target.target_id,
+        status="contacted",
+        deadline=target.deadline,
+    )
+
+    result = import_email_signal_candidates(
+        workspace,
+        "gmail",
+        """Subject: 某大学李四教授课题组 面试通知
+From: lisi@example.edu
+Date: 2026-08-23
+同学你好，请参加预推免面试，并准备成绩单和项目介绍。
+""",
+        [target],
+        [application],
+        [advisor],
+    )
+
+    candidate = result.candidates[0]
+    assert candidate.status == "needs_user_confirmation"
+    assert candidate.target_id == target.target_id
+    assert candidate.signal_type == "interview_invitation"
+    assert candidate.proposed_status == "interview_scheduled"
+    assert application.status == "contacted"
+
+    applied = apply_email_signal_candidate(
+        workspace,
+        candidate,
+        target,
+        application,
+        EmailSignalDecisionRequest(user_note="已确认邮件来自导师。"),
+    )
+
+    saved_application = workspace.read("applications", application.application_id)
+    assert applied.status == "approved"
+    assert saved_application["status"] == "interview_scheduled"
+    assert workspace.list("application_archives")
+    assert workspace.read("email_signal_candidates", candidate.candidate_id)["status"] == "approved"
+
+
+def test_email_signal_reject_does_not_update_tracker(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    target = Target(name="某大学王教授课题组")
+    application = ApplicationRecord(target_id=target.target_id, status="contacted")
+    result = import_email_signal_candidates(
+        workspace,
+        "qq",
+        """主题：某大学王教授课题组 offer
+发件人：wang@example.edu
+日期：2026-08-23
+恭喜，你已获得拟录取资格。
+""",
+        [target],
+        [application],
+        [],
+    )
+
+    candidate = result.candidates[0]
+    rejected = reject_email_signal_candidate(
+        workspace,
+        candidate,
+        EmailSignalDecisionRequest(user_note="测试中拒绝候选。"),
+    )
+
+    assert rejected.status == "rejected"
+    assert application.status == "contacted"
 
 
 def test_quality_audit_flags_false_publication_claim():

@@ -387,12 +387,34 @@ class EmailSignalCandidate(BaseModel):
     candidate_id: str = Field(default_factory=lambda: new_id("emailsig"))
     provider: Literal["gmail", "qq", "unknown"] = "unknown"
     target_id: str = ""
+    target_name: str = ""
     signal_type: str = ""
+    proposed_status: LifecycleStatus = "replied"
     subject: str = ""
     sender: str = ""
     received_at: str = ""
+    body_excerpt: str = ""
+    source_hash: str = ""
+    evidence_summary: str = ""
+    action_summary: str = ""
     confidence: float = 0.0
-    status: Literal["needs_user_confirmation"] = "needs_user_confirmation"
+    status: Literal["needs_user_confirmation", "approved", "rejected", "needs_review"] = (
+        "needs_user_confirmation"
+    )
+    user_note: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    decided_at: str = ""
+
+
+class EmailSignalImportRequest(BaseModel):
+    provider: Literal["gmail", "qq", "unknown"] = "unknown"
+    raw_text: str = ""
+
+
+class EmailSignalDecisionRequest(BaseModel):
+    user_note: str = ""
+    apply_to_outcome: bool = True
+    override_status: Optional[LifecycleStatus] = None
 
 
 class EmailSignalSyncResult(BaseModel):

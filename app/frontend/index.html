@@ -318,7 +318,13 @@
               <button id="emailSyncBtn" class="secondary">检查邮箱同步</button>
               <button id="pipelineSyncBtn" class="secondary">检查 Notion 同步</button>
             </div>
+            <label for="emailSignalText">邮件文本导入</label>
+            <textarea id="emailSignalText" rows="7" placeholder="Subject: 面试通知&#10;From: advisor@example.edu&#10;Date: 2026-08-23&#10;正文..."></textarea>
+            <div class="button-row compact-actions">
+              <button id="emailImportBtn" class="secondary">识别邮件信号</button>
+            </div>
             <div id="lifecycleView"></div>
+            <div id="emailSignalView"></div>
           </section>
         </section>
 

@@ -6,6 +6,7 @@ const state = {
   applications: [],
   archives: [],
   communications: [],
+  emailSignals: [],
   materials: [],
   userDocuments: [],
   readinessScore: null,
@@ -344,6 +345,38 @@ function renderLifecycle() {
     </div>
     ${syncHtml}
   `;
+  renderEmailSignals();
+}
+
+function renderEmailSignals() {
+  const view = $("emailSignalView");
+  if (!view) return;
+  const selectedId = $("readinessTargetSelect").value || $("targetSelect").value;
+  const signals = (state.emailSignals || [])
+    .filter((item) => !selectedId || !item.target_id || item.target_id === selectedId)
+    .slice()
+    .reverse();
+  if (!signals.length) {
+    view.innerHTML = "<div class='empty-state'>尚未识别邮件信号。</div>";
+    return;
+  }
+  view.innerHTML = `<div class="stack-list email-signal-list">
+    ${signals
+      .slice(0, 8)
+      .map(
+        (item) => `<div class="list-item strategy-item">
+          <div class="item-title">${escapeHtml(item.signal_type)} · ${escapeHtml(item.proposed_status)} · ${escapeHtml(item.status)}</div>
+          <div class="item-meta">${escapeHtml(item.target_name || "未匹配目标")} · ${escapeHtml(item.subject || "无主题")}</div>
+          <div class="item-meta">${escapeHtml(item.sender || "未知发件人")} · ${escapeHtml(item.received_at || "未知日期")} · confidence ${escapeHtml(String(Math.round((item.confidence || 0) * 100)))}%</div>
+          <div class="item-meta">${escapeHtml(item.body_excerpt || item.evidence_summary || "")}</div>
+          <div class="button-row compact-actions">
+            <button data-approve-email-signal-id="${escapeHtml(item.candidate_id)}" ${item.status !== "needs_user_confirmation" ? "disabled" : ""}>确认写入</button>
+            <button class="secondary" data-reject-email-signal-id="${escapeHtml(item.candidate_id)}" ${item.status === "approved" || item.status === "rejected" ? "disabled" : ""}>拒绝</button>
+          </div>
+        </div>`
+      )
+      .join("")}
+  </div>`;
 }
 
 function latestGapPlanForTarget(targetId) {
@@ -799,6 +832,7 @@ async function refresh() {
       state.applications,
       state.archives,
       state.communications,
+      state.emailSignals,
       state.materials,
       state.userDocuments,
       state.readinessScore,
@@ -813,6 +847,7 @@ async function refresh() {
       api("/api/applications"),
       api("/api/application-archives"),
       api("/api/communications"),
+      api("/api/email-signals"),
       api("/api/generated"),
       api("/api/user-documents").then((manifest) => manifest.documents || []),
       api("/api/readiness-score"),
@@ -1126,6 +1161,40 @@ async function checkEmailSync() {
   }
 }
 
+async function importEmailSignals() {
+  const rawText = $("emailSignalText").value.trim();
+  if (!rawText) return toast("请先粘贴邮件文本");
+  $("emailImportBtn").disabled = true;
+  try {
+    const result = await api("/api/email-signals/import", {
+      method: "POST",
+      body: JSON.stringify({ provider: "gmail", raw_text: rawText }),
+    });
+    state.emailSignals = [...(state.emailSignals || []), ...(result.candidates || [])];
+    $("emailSignalText").value = "";
+    state.lifecycleSync = { title: "邮箱信号识别", message: result.message };
+    renderLifecycle();
+    toast(`识别到 ${result.candidates.length} 条候选信号`);
+  } catch (error) {
+    toast(`邮件信号识别失败：${error.message}`);
+  } finally {
+    $("emailImportBtn").disabled = false;
+  }
+}
+
+async function decideEmailSignal(candidateId, action) {
+  try {
+    await api(`/api/email-signals/${encodeURIComponent(candidateId)}/${action}`, {
+      method: "POST",
+      body: JSON.stringify({ apply_to_outcome: true }),
+    });
+    toast(action === "approve" ? "邮件信号已确认写入" : "邮件信号已拒绝");
+    await refresh();
+  } catch (error) {
+    toast(`邮件信号处理失败：${error.message}`);
+  }
+}
+
 async function checkPipelineSync() {
   try {
     const result = await api("/api/pipeline-sync/status", {
@@ -1257,6 +1326,7 @@ $("archiveTargetBtn").addEventListener("click", createArchive);
 $("followUpBtn").addEventListener("click", () => createCommunication("follow_up"));
 $("thankYouBtn").addEventListener("click", () => createCommunication("thank_you"));
 $("emailSyncBtn").addEventListener("click", checkEmailSync);
+$("emailImportBtn").addEventListener("click", importEmailSignals);
 $("pipelineSyncBtn").addEventListener("click", checkPipelineSync);
 $("triageBtn").addEventListener("click", generateTriageReport);
 $("profileExpandBtn").addEventListener("click", generateProfileExpansion);
@@ -1284,6 +1354,12 @@ $("targetList").addEventListener("click", (event) => {
 $("targetList").addEventListener("change", (event) => {
   const applicationId = event.target.dataset.applicationId;
   if (applicationId) updateApplication(applicationId, event.target.value);
+});
+$("emailSignalView").addEventListener("click", (event) => {
+  const approveId = event.target.dataset.approveEmailSignalId;
+  if (approveId) decideEmailSignal(approveId, "approve");
+  const rejectId = event.target.dataset.rejectEmailSignalId;
+  if (rejectId) decideEmailSignal(rejectId, "reject");
 });
 $("strategyView").addEventListener("click", (event) => {
   const targetId = event.target.dataset.strategyTargetId;

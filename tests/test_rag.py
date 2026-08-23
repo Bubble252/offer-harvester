@@ -13,6 +13,8 @@ from models import (  # noqa: E402
     ApplicationRecord,
     BatchTriageRequest,
     CommunicationDraftRequest,
+    EmailSignalDecisionRequest,
+    EmailSignalImportRequest,
     GapPlanRequest,
     GeneratedMaterial,
     KnowledgeBaseSourceCreate,
@@ -353,6 +355,40 @@ def test_lifecycle_endpoints_persist_archive_and_sync_runs(tmp_path):
     assert email_status.read_only
     assert pipeline_status.direction == "one_way_export"
     assert len(workspace.list("sync_runs")) == 2
+
+
+def test_email_signal_endpoints_import_and_apply_candidate(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    target = Target(name="某大学王教授课题组", deadline="2026-09-10")
+    workspace.write("targets", dump(target), "target_id")
+    application = ApplicationRecord(target_id=target.target_id, status="contacted")
+    workspace.write("applications", dump(application), "application_id")
+
+    result = backend_main.import_email_signals(
+        EmailSignalImportRequest(
+            provider="gmail",
+            raw_text="""Subject: 某大学王教授课题组 拟录取通知
+From: wang@example.edu
+Date: 2026-08-23
+恭喜，你已获得拟录取资格，请后续确认。
+""",
+        )
+    )
+
+    candidate = result.candidates[0]
+    approved = backend_main.approve_email_signal(
+        candidate.candidate_id,
+        EmailSignalDecisionRequest(user_note="用户确认该邮件可信。"),
+    )
+
+    saved_application = workspace.read("applications", application.application_id)
+    assert approved.status == "approved"
+    assert saved_application["status"] == "offer"
+    assert workspace.list("application_archives")
 
 
 def test_stage16_strategy_endpoints_persist_reports(tmp_path):

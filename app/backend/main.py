@@ -15,10 +15,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from lifecycle import (
+    apply_email_signal_candidate,
     build_application_archive,
     email_signal_sync_status,
     generate_communication_draft,
+    import_email_signal_candidates,
     pipeline_sync_status,
+    reject_email_signal_candidate,
     should_generate_follow_up,
     update_outcome,
 )
@@ -37,6 +40,9 @@ from models import (
     BatchTriageRequest,
     CommunicationDraft,
     CommunicationDraftRequest,
+    EmailSignalCandidate,
+    EmailSignalDecisionRequest,
+    EmailSignalImportRequest,
     EmailSignalSyncResult,
     GapPlan,
     GapPlanRequest,
@@ -210,6 +216,13 @@ def get_presentation_task_or_404(task_id: str) -> PresentationTaskRecord:
     if not item:
         raise HTTPException(status_code=404, detail="Presentation task not found")
     return PresentationTaskRecord(**item)
+
+
+def get_email_signal_or_404(candidate_id: str) -> EmailSignalCandidate:
+    item = workspace.read("email_signal_candidates", candidate_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Email signal candidate not found")
+    return EmailSignalCandidate(**item)
 
 
 @app.get("/api/health")
@@ -981,6 +994,60 @@ def get_email_sync_status(provider: str = "unknown") -> EmailSignalSyncResult:
         "sync_id",
     )
     return result
+
+
+@app.get("/api/email-signals")
+def list_email_signal_candidates() -> List[EmailSignalCandidate]:
+    return [EmailSignalCandidate(**item) for item in workspace.list("email_signal_candidates")]
+
+
+@app.post("/api/email-signals/import")
+def import_email_signals(payload: EmailSignalImportRequest) -> EmailSignalSyncResult:
+    if not payload.raw_text.strip():
+        raise HTTPException(status_code=400, detail="Email text is required")
+    targets = [Target(**item) for item in workspace.list("targets")]
+    applications = [ApplicationRecord(**item) for item in workspace.list("applications")]
+    advisors = [AdvisorProfile(**item) for item in workspace.list("advisors")]
+    result = import_email_signal_candidates(
+        workspace,
+        payload.provider,
+        payload.raw_text,
+        targets,
+        applications,
+        advisors,
+    )
+    workspace.write(
+        "sync_runs",
+        {
+            "sync_id": f"email_import_{now_iso().replace(':', '').replace('+', '_')}",
+            "kind": "email_signal_import",
+            **dump(result),
+        },
+        "sync_id",
+    )
+    return result
+
+
+@app.post("/api/email-signals/{candidate_id}/approve")
+def approve_email_signal(
+    candidate_id: str,
+    payload: EmailSignalDecisionRequest = EmailSignalDecisionRequest(),
+) -> EmailSignalCandidate:
+    candidate = get_email_signal_or_404(candidate_id)
+    if not candidate.target_id:
+        raise HTTPException(status_code=409, detail="Candidate has no matched target")
+    target = get_target_or_404(candidate.target_id)
+    application = application_for_target(target)
+    return apply_email_signal_candidate(workspace, candidate, target, application, payload)
+
+
+@app.post("/api/email-signals/{candidate_id}/reject")
+def reject_email_signal(
+    candidate_id: str,
+    payload: EmailSignalDecisionRequest = EmailSignalDecisionRequest(),
+) -> EmailSignalCandidate:
+    candidate = get_email_signal_or_404(candidate_id)
+    return reject_email_signal_candidate(workspace, candidate, payload)
 
 
 @app.post("/api/pipeline-sync/status")

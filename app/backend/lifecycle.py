@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
@@ -12,6 +14,8 @@ from models import (
     ApplicationRecord,
     CommunicationDraft,
     CommunicationDraftRequest,
+    EmailSignalCandidate,
+    EmailSignalDecisionRequest,
     EmailSignalSyncResult,
     GeneratedMaterial,
     OutcomeUpdate,
@@ -39,6 +43,52 @@ PRIVATE_SYNC_FIELDS = [
     "recommendation_letters",
     "contact_details",
     "email_body",
+]
+
+SIGNAL_RULES = [
+    (
+        "offer",
+        "offer",
+        ["拟录取", "录取", "offer", "admitted", "congratulations"],
+        "记录 offer，并准备确认录取或后续沟通。",
+    ),
+    ("waitlist", "waitlist", ["候补", "waitlist"], "记录候补状态，并准备补充材料或礼貌跟进。"),
+    (
+        "rejection",
+        "rejected",
+        ["未通过", "遗憾", "拒信", "reject", "not selected", "unable to offer"],
+        "记录未录取结果，并沉淀复盘。",
+    ),
+    (
+        "interview_invitation",
+        "interview_scheduled",
+        ["面试", "复试", "考核", "interview"],
+        "确认面试安排，并准备面试材料。",
+    ),
+    (
+        "material_request",
+        "materials_preparing",
+        ["补充材料", "补材料", "材料", "成绩单", "推荐信", "简历"],
+        "整理对方要求的补充材料，确认后回复。",
+    ),
+    (
+        "summer_camp_notice",
+        "shortlisted",
+        ["夏令营", "summer camp"],
+        "记录夏令营通知，并准备参营材料。",
+    ),
+    (
+        "pre_recommendation_interview",
+        "interview",
+        ["预推免", "推免面试"],
+        "记录预推免信号，并准备面试或系统填报。",
+    ),
+    (
+        "advisor_reply",
+        "replied",
+        ["收到", "回复", "欢迎", "可以", "保持联系", "thank", "thanks"],
+        "记录导师回复，并准备下一轮沟通。",
+    ),
 ]
 
 
@@ -185,6 +235,115 @@ def email_signal_sync_status(provider: str = "unknown") -> EmailSignalSyncResult
     )
 
 
+def import_email_signal_candidates(
+    workspace: Workspace,
+    provider: str,
+    raw_text: str,
+    targets: List[Target],
+    applications: List[ApplicationRecord],
+    advisors: List[AdvisorProfile],
+) -> EmailSignalSyncResult:
+    provider = provider if provider in {"gmail", "qq"} else "unknown"
+    messages = _split_email_messages(raw_text)
+    candidates: List[EmailSignalCandidate] = []
+    for message in messages:
+        candidate = _candidate_from_message(provider, message, targets, advisors)
+        if not candidate:
+            continue
+        if candidate.target_id and _has_application(applications, candidate.target_id):
+            candidate.status = "needs_user_confirmation"
+        else:
+            candidate.status = "needs_review"
+            if not candidate.action_summary:
+                candidate.action_summary = "无法稳定匹配申请目标，请人工复核。"
+        workspace.write("email_signal_candidates", _dump(candidate), "candidate_id")
+        candidates.append(candidate)
+
+    return EmailSignalSyncResult(
+        provider=provider,  # type: ignore[arg-type]
+        configured=False,
+        read_only=True,
+        candidates=candidates,
+        message=(
+            f"已从粘贴/导入邮件文本中识别 {len(candidates)} 条候选信号；"
+            "需要用户确认后才会写入 tracker / archive / outcome。"
+        ),
+    )
+
+
+def apply_email_signal_candidate(
+    workspace: Workspace,
+    candidate: EmailSignalCandidate,
+    target: Target,
+    application: ApplicationRecord,
+    decision: EmailSignalDecisionRequest,
+) -> EmailSignalCandidate:
+    if candidate.status == "approved":
+        return candidate
+    status = decision.override_status or candidate.proposed_status
+    application.status = status  # type: ignore[assignment]
+    application.updated_at = now_iso()
+    application.next_action = candidate.action_summary or _next_action_for_signal(
+        candidate.signal_type
+    )
+    note = (
+        f"{candidate.received_at or now_iso()} 邮箱信号确认："
+        f"{candidate.signal_type} / {candidate.subject} / {candidate.sender}"
+    )
+    if decision.user_note:
+        note = f"{note}；{decision.user_note}"
+    application.notes = list(dict.fromkeys(application.notes + [note]))
+    workspace.write("applications", _dump(application), "application_id")
+
+    archive = build_application_archive(
+        workspace,
+        target,
+        application,
+        [],
+        stage=status,
+        notes=f"邮箱候选信号确认：{candidate.subject}",
+    )
+    if decision.apply_to_outcome and status in {"offer", "accepted", "rejected", "waitlist"}:
+        update_outcome(
+            workspace,
+            target,
+            application,
+            OutcomeUpdate(
+                stage=status,
+                outcome_date=candidate.received_at or datetime.now().date().isoformat(),
+                feedback=candidate.evidence_summary or candidate.subject,
+                user_reflection=decision.user_note,
+                calibration_signals=[
+                    f"email:{candidate.signal_type}:{candidate.subject}:{candidate.sender}"
+                ],
+                next_steps=[
+                    candidate.action_summary or _next_action_for_signal(candidate.signal_type)
+                ],
+            ),
+        )
+    else:
+        workspace.write("application_archives", _dump(archive), "archive_id")
+
+    candidate.status = "approved"
+    candidate.user_note = decision.user_note
+    candidate.decided_at = now_iso()
+    candidate.proposed_status = status
+    workspace.write("email_signal_candidates", _dump(candidate), "candidate_id")
+    return candidate
+
+
+def reject_email_signal_candidate(
+    workspace: Workspace,
+    candidate: EmailSignalCandidate,
+    decision: EmailSignalDecisionRequest,
+) -> EmailSignalCandidate:
+    candidate.status = "rejected"
+    candidate.user_note = decision.user_note
+    candidate.decided_at = now_iso()
+    workspace.write("email_signal_candidates", _dump(candidate), "candidate_id")
+    return candidate
+
+
 def pipeline_sync_status(request: PipelineSyncRequest) -> PipelineSyncResult:
     env_name = {
         "notion": "NOTION_SYNC_TOKEN",
@@ -216,6 +375,160 @@ def should_generate_follow_up(application: ApplicationRecord) -> bool:
     if not last_contact:
         return True
     return datetime.now().astimezone() - last_contact >= timedelta(days=FOLLOW_UP_INTERVAL_DAYS)
+
+
+def _split_email_messages(raw_text: str) -> List[dict]:
+    chunks = [
+        item.strip()
+        for item in re.split(r"\n(?=(?:Subject|主题)\s*[:：])", raw_text or "", flags=re.I)
+        if item.strip()
+    ]
+    if not chunks and raw_text.strip():
+        chunks = [raw_text.strip()]
+    return [_parse_email_message(chunk) for chunk in chunks]
+
+
+def _parse_email_message(chunk: str) -> dict:
+    headers = {"subject": "", "sender": "", "received_at": ""}
+    body_lines = []
+    for line in chunk.splitlines():
+        key, value = _parse_email_header(line)
+        if key:
+            headers[key] = value
+        else:
+            body_lines.append(line)
+    headers["body"] = "\n".join(body_lines).strip()
+    if not headers["subject"]:
+        first = next((line.strip() for line in body_lines if line.strip()), "")
+        headers["subject"] = first[:80] or "未命名邮件"
+    return headers
+
+
+def _parse_email_header(line: str) -> tuple:
+    match = re.match(r"^\s*(Subject|主题)\s*[:：]\s*(.+)$", line, flags=re.I)
+    if match:
+        return "subject", match.group(2).strip()
+    match = re.match(r"^\s*(From|发件人)\s*[:：]\s*(.+)$", line, flags=re.I)
+    if match:
+        return "sender", match.group(2).strip()
+    match = re.match(r"^\s*(Date|日期|时间)\s*[:：]\s*(.+)$", line, flags=re.I)
+    if match:
+        return "received_at", match.group(2).strip()
+    return "", ""
+
+
+def _candidate_from_message(
+    provider: str,
+    message: dict,
+    targets: List[Target],
+    advisors: List[AdvisorProfile],
+) -> Optional[EmailSignalCandidate]:
+    searchable = " ".join(
+        [
+            message.get("subject", ""),
+            message.get("sender", ""),
+            message.get("body", ""),
+        ]
+    ).lower()
+    rule = _match_signal_rule(searchable)
+    if not rule:
+        return None
+    signal_type, proposed_status, _keywords, action = rule
+    target = _match_target(searchable, targets, advisors)
+    confidence = 0.58
+    if target:
+        confidence += 0.25
+    if message.get("subject"):
+        confidence += 0.08
+    if message.get("sender"):
+        confidence += 0.04
+    body = message.get("body", "")
+    digest = hashlib.sha256(
+        "\n".join(
+            [
+                message.get("subject", ""),
+                message.get("sender", ""),
+                message.get("received_at", ""),
+                body,
+            ]
+        ).encode("utf-8")
+    ).hexdigest()
+    return EmailSignalCandidate(
+        provider=provider,  # type: ignore[arg-type]
+        target_id=target.target_id if target else "",
+        target_name=target.name if target else "",
+        signal_type=signal_type,
+        proposed_status=proposed_status,  # type: ignore[arg-type]
+        subject=message.get("subject", ""),
+        sender=message.get("sender", ""),
+        received_at=message.get("received_at", ""),
+        body_excerpt=_excerpt(body),
+        source_hash=f"sha256:{digest}",
+        evidence_summary=_evidence_summary(message, signal_type),
+        action_summary=action,
+        confidence=min(confidence, 0.95),
+    )
+
+
+def _match_signal_rule(text: str):
+    for rule in SIGNAL_RULES:
+        if any(keyword.lower() in text for keyword in rule[2]):
+            return rule
+    return None
+
+
+def _match_target(
+    text: str,
+    targets: List[Target],
+    advisors: List[AdvisorProfile],
+) -> Optional[Target]:
+    advisor_by_id = {advisor.advisor_id: advisor for advisor in advisors}
+    scored = []
+    for target in targets:
+        score = 0
+        tokens = [
+            target.name,
+            target.school,
+            target.college,
+            target.program_name,
+        ]
+        advisor = advisor_by_id.get(target.advisor_id)
+        if advisor:
+            tokens.extend([advisor.name_zh, advisor.name_en, advisor.email, advisor.school])
+        for token in tokens:
+            token = (token or "").strip().lower()
+            if token and token in text:
+                score += max(1, min(4, len(token) // 4))
+        if score:
+            scored.append((score, target))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[0][1] if scored else None
+
+
+def _has_application(applications: List[ApplicationRecord], target_id: str) -> bool:
+    return any(item.target_id == target_id for item in applications)
+
+
+def _excerpt(body: str) -> str:
+    text = re.sub(r"\s+", " ", body or "").strip()
+    return text[:240]
+
+
+def _evidence_summary(message: dict, signal_type: str) -> str:
+    parts = [
+        f"signal={signal_type}",
+        f"subject={message.get('subject', '')}",
+        f"from={message.get('sender', '')}",
+        f"date={message.get('received_at', '')}",
+    ]
+    return "；".join(item for item in parts if not item.endswith("="))
+
+
+def _next_action_for_signal(signal_type: str) -> str:
+    for item in SIGNAL_RULES:
+        if item[0] == signal_type:
+            return item[3]
+    return "人工复核邮件信号后更新申请状态。"
 
 
 def _existing_archive(workspace: Workspace, target_id: str) -> Optional[ApplicationArchive]:
