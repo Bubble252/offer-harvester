@@ -61,6 +61,7 @@ class Workspace:
             "reference_presentations",
             "presentation_prechecks",
             "presentation_quality_reports",
+            "presentation_slide_versions",
             "reports",
             "readiness_scores",
             "target_triage_reports",
