@@ -11,6 +11,7 @@ from storage import Workspace
 
 from rag.chunking import tokenize
 from rag.embeddings import EmbeddingProvider, HashEmbeddingProvider
+from rag.evidence_graph import EvidenceBundle, LocalEvidenceGraphStore, build_evidence_bundle
 from rag.index import KnowledgeBaseIndex
 from rag.reranker import NoopReranker, Reranker
 
@@ -20,6 +21,7 @@ class RetrievalResult:
     query: str
     hits: List[RAGSearchHit]
     rebuilt: bool = False
+    evidence_bundle: Optional[EvidenceBundle] = None
 
 
 class KnowledgeBaseRetriever:
@@ -36,6 +38,7 @@ class KnowledgeBaseRetriever:
             embedding_provider=self.embedding_provider,
         )
         self.reranker = reranker or NoopReranker()
+        self.evidence_store = LocalEvidenceGraphStore(workspace)
 
     def search(
         self,
@@ -84,7 +87,20 @@ class KnowledgeBaseRetriever:
         except (OSError, RuntimeError, ValueError):
             # A broken or missing vector adapter must never block evidence retrieval.
             hits = rank_chunks(query, filtered)[: max(limit, 0)]
-        return RetrievalResult(query=query, hits=hits, rebuilt=rebuilt)
+        bundle = build_evidence_bundle(
+            query,
+            hits,
+            query_plan={
+                "retrieval": "hybrid",
+                "source_kinds": source_kinds or [],
+                "limit": limit,
+                "include_unconfirmed": include_unconfirmed,
+                "include_historical": include_historical,
+                "as_of_year": as_of_year,
+            },
+        )
+        self.evidence_store.save(bundle)
+        return RetrievalResult(query=query, hits=hits, rebuilt=rebuilt, evidence_bundle=bundle)
 
 
 def rank_chunks(query: str, chunks: Iterable[RAGChunk]) -> List[RAGSearchHit]:

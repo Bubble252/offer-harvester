@@ -664,6 +664,19 @@ def search_rag(
     )
 
 
+@app.get("/api/rag/evidence-bundles")
+def list_evidence_bundles():
+    return workspace.list("evidence_bundles")
+
+
+@app.get("/api/rag/evidence-bundles/{bundle_id}")
+def get_evidence_bundle(bundle_id: str):
+    bundle = workspace.read("evidence_bundles", bundle_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Evidence bundle not found")
+    return bundle
+
+
 @app.get("/api/readiness-score")
 def get_readiness_score(target_id: str = "") -> ReadinessScoreReport:
     return score_readiness(target_id=target_id)

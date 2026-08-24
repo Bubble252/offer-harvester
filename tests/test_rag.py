@@ -21,6 +21,7 @@ from models import (  # noqa: E402
     MaterialVersion,
     PipelineSyncRequest,
     PresentationGenerationRequest,
+    RAGSearchHit,
     Target,
 )
 from rag import (  # noqa: E402
@@ -28,6 +29,8 @@ from rag import (  # noqa: E402
     KnowledgeBaseIndex,
     KnowledgeBaseRetriever,
     LexicalReranker,
+    build_evidence_bundle,
+    detect_conflicts,
 )
 from services import build_profile_from_text, make_match, parse_advisor_profile  # noqa: E402
 from storage import Workspace  # noqa: E402
@@ -82,6 +85,64 @@ def test_rag_indexes_manual_knowledge_student_docs_and_advisor_sources(tmp_path)
     assert "#" in policy_hits[0].evidence_ref
 
 
+def test_retrieval_persists_evidence_bundle_with_lineage(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="某学院预推免通知",
+            text="2026 年预推免报名截止日期为 9 月 10 日，申请材料包括成绩单和中文简历。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+
+    retrieval = KnowledgeBaseRetriever(workspace).search("预推免 截止日期 成绩单", limit=3)
+
+    assert retrieval.evidence_bundle is not None
+    bundle = retrieval.evidence_bundle
+    assert bundle.bundle_id
+    assert bundle.retrieval_refs == [hit.evidence_ref for hit in retrieval.hits]
+    assert bundle.snapshot_ids
+    assert bundle.lineages[0].source_id == retrieval.hits[0].source_id
+    assert bundle.claims[0].source_refs[0] == retrieval.hits[0].evidence_ref
+    assert workspace.read("evidence_bundles", bundle.bundle_id)["bundle_id"] == bundle.bundle_id
+
+
+def test_evidence_bundle_detects_explicit_claim_conflicts():
+    first = {
+        "source_id": "src_policy_a",
+        "chunk_id": "chunk_a",
+        "source_kind": "policy",
+        "title": "A 学院通知",
+        "score": 0.9,
+        "confidence": 0.9,
+        "snippet": "截止日期为 9 月 10 日。",
+        "evidence_ref": "src_policy_a#chunk_a",
+    }
+    second = {
+        **first,
+        "source_id": "src_policy_b",
+        "chunk_id": "chunk_b",
+        "title": "B 学院通知",
+        "snippet": "截止日期为 9 月 20 日。",
+        "evidence_ref": "src_policy_b#chunk_b",
+    }
+    hits = [RAGSearchHit(**first), RAGSearchHit(**second)]
+    bundle = build_evidence_bundle("截止日期", hits)
+    bundle.claims[0].claim_key = "deadline:target_demo"
+    bundle.claims[0].value = "2026-09-10"
+    bundle.claims[1].claim_key = "deadline:target_demo"
+    bundle.claims[1].value = "2026-09-20"
+    bundle.conflicts = detect_conflicts(bundle.claims, bundle.links)
+
+    assert bundle.conflicts
+    assert bundle.conflicts[0].claim_key == "deadline:target_demo"
+
+
 def test_contact_email_workflow_adds_rag_evidence_refs(tmp_path):
     workspace = Workspace(str(tmp_path))
     index = KnowledgeBaseIndex(workspace)
@@ -122,7 +183,22 @@ def test_contact_email_workflow_adds_rag_evidence_refs(tmp_path):
     )
 
     assert any("#chunk_" in item for item in result.material.evidence)
-    assert any(event.event_type == "retrieval_completed" for event in result.events)
+    retrieval_event = next(
+        event for event in result.events if event.event_type == "retrieval_completed"
+    )
+    assert retrieval_event.payload["evidence_bundle_id"]
+    assert retrieval_event.payload["claim_count"] >= 1
+    graph_event = next(
+        event
+        for event in result.events
+        if event.agent_name == "EvidenceGraph" and event.event_type == "audit_completed"
+    )
+    assert graph_event.payload["bundle_claim_count"] >= retrieval_event.payload["claim_count"]
+    saved_bundle = workspace.read(
+        "evidence_bundles",
+        retrieval_event.payload["evidence_bundle_id"],
+    )
+    assert saved_bundle["audit_ref"] == result.agent_run.run_id
 
 
 def test_rag_blocks_expired_policy_by_default_but_can_return_historical(tmp_path):

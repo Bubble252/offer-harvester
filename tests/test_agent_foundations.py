@@ -82,3 +82,55 @@ def test_layered_memory_requires_explicit_confirmation(tmp_path):
     summary = manager.summarize()
     assert summary.by_kind["semantic"] == 1
     assert summary.by_status["rejected"] == 1
+
+
+def test_memory_governance_lifecycle_conflict_export_and_tombstone(tmp_path):
+    manager = LocalMemoryManager(Workspace(str(tmp_path)))
+    first = manager.write_candidate(
+        kind="fact",
+        key="policy.deadline.demo",
+        value={"deadline": "2026-09-10"},
+        source_ref="src_a#chunk_a",
+        confidence=0.9,
+        sensitivity="high",
+    )
+    second = manager.write_candidate(
+        kind="fact",
+        key="policy.deadline.demo",
+        value={"deadline": "2026-09-20"},
+        source_ref="src_b#chunk_b",
+        confidence=0.8,
+    )
+
+    conflicted = manager.mark_conflict(
+        first.memory_id, second.memory_id, reason="deadline mismatch"
+    )
+    assert second.memory_id in conflicted.conflicts_with
+    assert first.memory_id in manager.records()[1].conflicts_with
+
+    replacement = manager.supersede(
+        first.memory_id,
+        kind="fact",
+        key="policy.deadline.demo",
+        value={"deadline": "2026-09-15"},
+        source_ref="src_official#chunk_1",
+        confidence=0.95,
+    )
+    assert replacement.supersedes == [first.memory_id]
+    assert manager.records()[0].status == "superseded"
+    assert manager.records()[0].superseded_by == replacement.memory_id
+
+    archived = manager.archive(second.memory_id, reason="older college page")
+    assert archived.status == "archived"
+    expired = manager.expire(replacement.memory_id, reason="year changed")
+    assert expired.status == "expired"
+
+    exported = manager.export_records()
+    assert exported[0]["redacted"] is True
+    assert exported[0]["value"] == {}
+
+    tombstone = manager.delete(second.memory_id, reason="user deletion")
+    assert tombstone.status == "tombstone"
+    assert tombstone.value == {}
+    assert all(item["memory_id"] != second.memory_id for item in manager.export_records())
+    assert any(item["status"] == "tombstone" for item in manager.replay())

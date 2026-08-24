@@ -15,7 +15,7 @@ from models import (
 )
 from pydantic import BaseModel, Field
 from quality import audit_material
-from rag import KnowledgeBaseRetriever, evidence_refs
+from rag import KnowledgeBaseRetriever, attach_audit_claims, evidence_refs
 
 from agents.base import dump_model, finish_agent_run, make_agent_run, make_material_version
 from agents.evidence_audit_agent import EvidenceAuditAgent, EvidenceAuditResult
@@ -60,10 +60,12 @@ def run_contact_email_workflow(
     recorder.record("draft_started", status="started", agent_name=draft_agent.name)
     draft = draft_agent.draft_contact_email(profile, target, advisor, match)
     retrieval_hits = []
+    evidence_bundle = None
     if retriever:
         query = _contact_email_retrieval_query(profile, target, advisor)
         retrieval = retriever.search(query, limit=6, profile=profile)
         retrieval_hits = retrieval.hits
+        evidence_bundle = retrieval.evidence_bundle
         draft.evidence = list(dict.fromkeys(draft.evidence + evidence_refs(retrieval_hits)))
         recorder.record(
             "retrieval_completed",
@@ -72,6 +74,9 @@ def run_contact_email_workflow(
                 "query": query,
                 "hit_count": len(retrieval_hits),
                 "evidence_refs": evidence_refs(retrieval_hits),
+                "evidence_bundle_id": evidence_bundle.bundle_id if evidence_bundle else "",
+                "claim_count": len(evidence_bundle.claims) if evidence_bundle else 0,
+                "conflict_count": len(evidence_bundle.conflicts) if evidence_bundle else 0,
                 "rebuilt": retrieval.rebuilt,
             },
         )
@@ -128,6 +133,24 @@ def run_contact_email_workflow(
             "needs_confirmation_count": len(audit.needs_confirmation),
         },
     )
+    if evidence_bundle and retriever:
+        evidence_bundle = attach_audit_claims(
+            evidence_bundle,
+            audit.claims,
+            audit_ref=agent_run.run_id,
+            passed=audit.passed,
+        )
+        retriever.evidence_store.save(evidence_bundle)
+        recorder.record(
+            "audit_completed",
+            agent_name="EvidenceGraph",
+            payload={
+                "evidence_bundle_id": evidence_bundle.bundle_id,
+                "bundle_audit_status": evidence_bundle.audit_status,
+                "bundle_claim_count": len(evidence_bundle.claims),
+                "bundle_conflict_count": len(evidence_bundle.conflicts),
+            },
+        )
 
     revision = GeneratedMaterial(**dump_model(draft))
     final_version = make_material_version(
