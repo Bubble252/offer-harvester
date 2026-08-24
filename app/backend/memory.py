@@ -49,6 +49,9 @@ class MemoryRecord(BaseModel):
     retention: str = "long_term"
     sensitivity: Literal["low", "medium", "high"] = "medium"
     version: int = 1
+    created_event_ref: str = ""
+    last_verified_at: str = ""
+    deletion_reason: str = ""
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
     expires_at: str = ""
@@ -86,6 +89,7 @@ class LocalMemoryManager:
         sensitivity: Literal["low", "medium", "high"] = "medium",
         conflicts_with: Optional[List[str]] = None,
         notes: str = "",
+        created_event_ref: str = "",
     ) -> MemoryRecord:
         refs = list(dict.fromkeys([source_ref] + list(source_refs or [])))
         refs = [ref for ref in refs if ref]
@@ -104,6 +108,8 @@ class LocalMemoryManager:
             sensitivity=sensitivity,
             conflicts_with=conflicts_with or [],
             notes=notes,
+            created_event_ref=created_event_ref,
+            last_verified_at=now_iso() if authority in {"user", "official"} else "",
         )
         self._append(record)
         return record
@@ -134,6 +140,7 @@ class LocalMemoryManager:
         retention: str = "long_term",
         sensitivity: Literal["low", "medium", "high"] = "medium",
         notes: str = "",
+        created_event_ref: str = "",
     ) -> MemoryRecord:
         records = self.records()
         old_index = _find_index(records, old_memory_id)
@@ -153,6 +160,8 @@ class LocalMemoryManager:
             sensitivity=sensitivity,
             version=old.version + 1,
             notes=notes,
+            created_event_ref=created_event_ref,
+            last_verified_at=now_iso() if authority in {"user", "official"} else "",
         )
         records[old_index] = old.model_copy(
             update={
@@ -176,8 +185,12 @@ class LocalMemoryManager:
         records = self.records()
         first_index = _find_index(records, memory_id)
         second_index = _find_index(records, conflict_memory_id)
+        if memory_id == conflict_memory_id:
+            raise ValueError("A memory record cannot conflict with itself")
         first = records[first_index]
         second = records[second_index]
+        if "tombstone" in {first.status, second.status}:
+            raise ValueError("Tombstone records cannot participate in conflicts")
         records[first_index] = first.model_copy(
             update={
                 "conflicts_with": _unique(first.conflicts_with + [conflict_memory_id]),
@@ -199,6 +212,7 @@ class LocalMemoryManager:
         records = self.records()
         index = _find_index(records, memory_id)
         record = records[index]
+        _ensure_transition(record.status, "tombstone")
         tombstone = record.model_copy(
             update={
                 "status": "tombstone",
@@ -208,6 +222,7 @@ class LocalMemoryManager:
                 "source_refs": [],
                 "updated_at": now_iso(),
                 "notes": _append_note(record.notes, reason or "deleted"),
+                "deletion_reason": reason or "deleted",
             }
         )
         records[index] = tombstone
@@ -268,6 +283,7 @@ class LocalMemoryManager:
         kinds: Optional[Iterable[MemoryKind]] = None,
         include_candidates: bool = True,
         include_rejected: bool = False,
+        include_historical: bool = False,
         limit: int = 20,
     ) -> List[MemoryRecord]:
         terms = [term.lower() for term in re.findall(r"[\w\u4e00-\u9fff]+", query or "")]
@@ -279,6 +295,8 @@ class LocalMemoryManager:
             if not include_candidates and record.status == "candidate":
                 continue
             if not include_rejected and record.status in {"rejected", "tombstone"}:
+                continue
+            if not include_historical and record.status in {"expired", "superseded", "archived"}:
                 continue
             haystack = json.dumps(record.value, ensure_ascii=False).lower() + record.key.lower()
             if terms and not all(term in haystack for term in terms):

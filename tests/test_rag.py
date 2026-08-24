@@ -105,6 +105,8 @@ def test_retrieval_persists_evidence_bundle_with_lineage(tmp_path):
     assert retrieval.evidence_bundle is not None
     bundle = retrieval.evidence_bundle
     assert bundle.bundle_id
+    assert bundle.snapshots
+    assert bundle.snapshots[0].snapshot_id == bundle.snapshot_ids[0]
     assert bundle.retrieval_refs == [hit.evidence_ref for hit in retrieval.hits]
     assert bundle.snapshot_ids
     assert bundle.lineages[0].source_id == retrieval.hits[0].source_id
@@ -199,6 +201,7 @@ def test_contact_email_workflow_adds_rag_evidence_refs(tmp_path):
         retrieval_event.payload["evidence_bundle_id"],
     )
     assert saved_bundle["audit_ref"] == result.agent_run.run_id
+    assert saved_bundle["snapshots"]
 
 
 def test_rag_blocks_expired_policy_by_default_but_can_return_historical(tmp_path):

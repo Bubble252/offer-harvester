@@ -104,6 +104,7 @@ class EvidenceBundle(BaseModel):
     query: str = ""
     created_at: str = Field(default_factory=now_iso)
     query_plan: Dict[str, Any] = Field(default_factory=dict)
+    snapshots: List[SourceSnapshot] = Field(default_factory=list)
     snapshot_ids: List[str] = Field(default_factory=list)
     lineages: List[ChunkLineage] = Field(default_factory=list)
     claims: List[Claim] = Field(default_factory=list)
@@ -214,6 +215,7 @@ def build_evidence_bundle(
     bundle = EvidenceBundle(
         query=query,
         query_plan=query_plan or {"retrieval": "hybrid", "source_count": len(snapshots)},
+        snapshots=list(snapshots.values()),
         snapshot_ids=[snapshot.snapshot_id for snapshot in snapshots.values()],
         lineages=lineages,
         claims=claims,

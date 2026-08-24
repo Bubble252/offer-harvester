@@ -15,7 +15,7 @@ from models import (
 )
 from pydantic import BaseModel, Field
 from quality import audit_material
-from rag import KnowledgeBaseRetriever, attach_audit_claims, evidence_refs
+from rag import EvidenceBundle, KnowledgeBaseRetriever, attach_audit_claims, evidence_refs
 
 from agents.base import dump_model, finish_agent_run, make_agent_run, make_material_version
 from agents.evidence_audit_agent import EvidenceAuditAgent, EvidenceAuditResult
@@ -30,6 +30,7 @@ class MaterialWorkflowResult(BaseModel):
     draft: GeneratedMaterial
     review: MaterialReviewResult
     evidence_audit: EvidenceAuditResult
+    evidence_bundle: Optional[EvidenceBundle] = None
     revision: GeneratedMaterial
     versions: List[MaterialVersion] = Field(default_factory=list)
     events: List[WorkflowEvent] = Field(default_factory=list)
@@ -197,6 +198,7 @@ def run_contact_email_workflow(
         draft=draft,
         review=review,
         evidence_audit=audit,
+        evidence_bundle=evidence_bundle,
         revision=revision,
         versions=[draft_version, final_version],
         events=recorder.events,

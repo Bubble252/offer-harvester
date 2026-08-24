@@ -124,6 +124,8 @@ def test_memory_governance_lifecycle_conflict_export_and_tombstone(tmp_path):
     assert archived.status == "archived"
     expired = manager.expire(replacement.memory_id, reason="year changed")
     assert expired.status == "expired"
+    assert manager.search("policy.deadline.demo") == []
+    assert manager.search("policy.deadline.demo", include_historical=True)
 
     exported = manager.export_records()
     assert exported[0]["redacted"] is True
