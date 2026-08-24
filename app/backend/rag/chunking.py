@@ -68,6 +68,10 @@ def chunk_source(
             flush()
         buffer.append(block)
     flush()
+    if not chunks:
+        # Very short notices can be mistaken for a heading by the structural
+        # parser; never drop an otherwise valid source from the index.
+        chunks.append(make_chunk(source, text, section_path, chunk_rule=chunk_rule))
     return chunks
 
 

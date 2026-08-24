@@ -14,6 +14,7 @@ from rag.embeddings import EmbeddingProvider, HashEmbeddingProvider
 from rag.evidence_graph import EvidenceBundle, LocalEvidenceGraphStore, build_evidence_bundle
 from rag.index import KnowledgeBaseIndex
 from rag.reranker import NoopReranker, Reranker
+from rag.vector_store import VectorStore
 
 
 @dataclass
@@ -31,11 +32,15 @@ class KnowledgeBaseRetriever:
         *,
         embedding_provider: EmbeddingProvider | None = None,
         reranker: Reranker | None = None,
+        vector_store: VectorStore | None = None,
+        storage_backend: str = "json",
     ):
         self.embedding_provider = embedding_provider or HashEmbeddingProvider()
         self.index = KnowledgeBaseIndex(
             workspace,
             embedding_provider=self.embedding_provider,
+            vector_store=vector_store,
+            storage_backend=storage_backend,
         )
         self.reranker = reranker or NoopReranker()
         self.evidence_store = LocalEvidenceGraphStore(workspace)
@@ -51,6 +56,7 @@ class KnowledgeBaseRetriever:
         as_of_year: Optional[int] = None,
         profile: Optional[StudentProfile] = None,
         auto_rebuild: bool = True,
+        allow_external_public_query: bool = False,
     ) -> RetrievalResult:
         query = query.strip()
         if not query:
@@ -83,6 +89,8 @@ class KnowledgeBaseRetriever:
                 embedding_provider=self.embedding_provider,
                 reranker=self.reranker,
                 limit=limit,
+                source_kinds=source_kinds,
+                allow_external_public_query=allow_external_public_query,
             )
         except (OSError, RuntimeError, ValueError):
             # A broken or missing vector adapter must never block evidence retrieval.
@@ -97,6 +105,7 @@ class KnowledgeBaseRetriever:
                 "include_unconfirmed": include_unconfirmed,
                 "include_historical": include_historical,
                 "as_of_year": as_of_year,
+                "allow_external_public_query": allow_external_public_query,
             },
         )
         self.evidence_store.save(bundle)
@@ -143,14 +152,40 @@ def rank_hybrid_chunks(
     embedding_provider: EmbeddingProvider,
     reranker: Reranker,
     limit: int,
+    source_kinds: Optional[List[str]] = None,
+    allow_external_public_query: bool = False,
 ) -> List[RAGSearchHit]:
     chunks = list(chunks)
     if not chunks:
         return []
-    keyword_hits = {hit.chunk_id: hit for hit in rank_chunks(query, chunks)}
-    query_vector = embedding_provider.embed_query(query)
+    keyword_hits = {
+        hit.chunk_id: hit
+        for hit in _rank_text_index(
+            query, chunks, vector_store=vector_store, limit=max(limit * 8, 20)
+        )
+    }
+    query_model_filter = None
+    if hasattr(embedding_provider, "embed_query_for_sources"):
+        query_embedding = embedding_provider.embed_query_for_sources(
+            query,
+            source_kinds or [],
+            allow_external=allow_external_public_query,
+        )
+        query_vector = query_embedding.vector
+        query_model_filter = {
+            "model_name": query_embedding.model_name,
+            "model_version": query_embedding.model_version,
+            "embedding_route": query_embedding.route,
+        }
+    else:
+        query_vector = embedding_provider.embed_query(query)
     vector_hits = {
-        item.chunk_id: item for item in vector_store.search(query_vector, limit=max(limit * 8, 20))
+        item.chunk_id: item
+        for item in vector_store.search(
+            query_vector,
+            limit=max(limit * 8, 20),
+            metadata_filter=query_model_filter,
+        )
     }
     if not vector_hits:
         return list(keyword_hits.values())[: max(limit, 0)]
@@ -183,6 +218,36 @@ def rank_hybrid_chunks(
         hit.score = round(hit.rerank_score or hit.score, 4)
         hit.confidence = round(min(1.0, hit.score), 4)
     return reranked[: max(limit, 0)]
+
+
+def _rank_text_index(
+    query: str,
+    chunks: List[RAGChunk],
+    *,
+    vector_store,
+    limit: int,
+) -> List[RAGSearchHit]:
+    chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
+    try:
+        text_results = vector_store.search_text(query, limit=limit)
+    except (AttributeError, OSError, RuntimeError, ValueError):
+        return rank_chunks(query, chunks)
+    hits = []
+    query_terms = tokenize(query)
+    for result in text_results:
+        chunk = chunk_by_id.get(result.chunk_id)
+        if not chunk:
+            continue
+        hits.append(
+            _make_hit(
+                chunk,
+                result.score,
+                keyword_score=result.score,
+                vector_score=0.0,
+                query_terms=query_terms,
+            )
+        )
+    return hits or rank_chunks(query, chunks)
 
 
 def _make_hit(

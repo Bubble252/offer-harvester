@@ -164,6 +164,12 @@ class Workspace:
     def rag_vectors_path(self) -> Path:
         return self.rag_index_dir() / "vectors.jsonl"
 
+    def rag_sqlite_path(self) -> Path:
+        return self.rag_index_dir() / "rag.sqlite3"
+
+    def rag_chroma_dir(self) -> Path:
+        return self.rag_index_dir() / "chroma"
+
     def rag_index_manifest_path(self) -> Path:
         return self.rag_index_dir() / "manifest.json"
 

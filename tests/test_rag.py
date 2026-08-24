@@ -25,10 +25,15 @@ from models import (  # noqa: E402
     Target,
 )
 from rag import (  # noqa: E402
+    ApiEmbeddingProvider,
+    ChromaVectorStore,
     HashEmbeddingProvider,
     KnowledgeBaseIndex,
     KnowledgeBaseRetriever,
     LexicalReranker,
+    PrivacyAwareEmbeddingProvider,
+    SqliteVectorStore,
+    VectorRecord,
     build_evidence_bundle,
     detect_conflicts,
 )
@@ -306,6 +311,209 @@ def test_rag_rebuild_persists_vectors_and_hybrid_scores(tmp_path):
     assert hits[0].vector_score > 0
     assert hits[0].rerank_score > 0
     assert "vector=" in hits[0].retrieval_explanation
+
+
+def test_sqlite_storage_persists_fts_and_local_vectors(tmp_path):
+    store = SqliteVectorStore(tmp_path / "rag.sqlite3")
+    store.replace(
+        [
+            VectorRecord(
+                chunk_id="chunk_deadline",
+                source_id="policy_a",
+                vector=[1.0, 0.0],
+                text="报名截止日期为 2026 年 9 月 10 日。",
+                metadata={"source_kind": "policy", "embedding_route": "local"},
+            ),
+            VectorRecord(
+                chunk_id="chunk_research",
+                source_id="advisor_a",
+                vector=[0.0, 1.0],
+                text="导师研究方向是多模态学习。",
+                metadata={"source_kind": "advisor_source", "embedding_route": "local"},
+            ),
+        ],
+        index_version="test-sqlite-v1",
+    )
+
+    text_hits = store.search_text("截止日期")
+    vector_hits = store.search([1.0, 0.0], metadata_filter={"source_kind": "policy"})
+
+    assert text_hits[0].chunk_id == "chunk_deadline"
+    assert vector_hits[0].chunk_id == "chunk_deadline"
+    assert store.records()[0].text
+
+
+def test_sqlite_index_and_retriever_use_same_evidence_contract(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace, storage_backend="sqlite")
+    source = index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="SQLite 政策样本",
+            text="推免报名截止日期为 2026 年 9 月 10 日。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    manifest = index.rebuild()
+    retrieval = KnowledgeBaseRetriever(
+        workspace,
+        storage_backend="sqlite",
+    ).search("报名截止日期", source_kinds=["policy"])
+
+    assert manifest["storage_backend"] == "sqlite"
+    assert workspace.rag_sqlite_path().exists()
+    assert retrieval.hits[0].source_id == source.source_id
+    assert retrieval.evidence_bundle is not None
+
+
+def test_chroma_adapter_supports_injected_collection_without_dependency():
+    class FakeCollection:
+        def __init__(self):
+            self.items = {}
+
+        def get(self, include=None):
+            return {"ids": list(self.items)}
+
+        def delete(self, ids):
+            for item_id in ids:
+                self.items.pop(item_id, None)
+
+        def add(self, ids, embeddings, documents, metadatas):
+            for item_id, vector, document, metadata in zip(ids, embeddings, documents, metadatas):
+                self.items[item_id] = (vector, document, metadata)
+
+        def query(self, query_embeddings, n_results, include, where=None):
+            query = query_embeddings[0]
+            candidates = []
+            for item_id, (vector, _, metadata) in self.items.items():
+                if where and not _fake_where_matches(metadata, where):
+                    continue
+                distance = sum((left - right) ** 2 for left, right in zip(query, vector))
+                candidates.append((distance, item_id, metadata))
+            candidates.sort()
+            selected = candidates[:n_results]
+            return {
+                "ids": [[item_id for _, item_id, _ in selected]],
+                "distances": [[distance for distance, _, _ in selected]],
+                "metadatas": [[metadata for _, _, metadata in selected]],
+            }
+
+    store = ChromaVectorStore(FakeCollection())
+    store.replace(
+        [
+            VectorRecord(
+                chunk_id="chunk_a",
+                source_id="source_a",
+                vector=[1.0, 0.0],
+                text="公开政策",
+                metadata={"source_kind": "policy"},
+            ),
+        ],
+        index_version="test-chroma-v1",
+    )
+
+    hits = store.search([1.0, 0.0], metadata_filter={"source_kind": "policy"})
+
+    assert hits[0].chunk_id == "chunk_a"
+    assert hits[0].source_id == "source_a"
+
+
+def test_chroma_backend_falls_back_to_json_when_adapter_missing(tmp_path, monkeypatch):
+    def raise_missing(*args, **kwargs):
+        raise RuntimeError("chromadb not available")
+
+    monkeypatch.setattr("rag.index.ChromaVectorStore.from_path", raise_missing)
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace, storage_backend="chroma")
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="Chroma fallback policy",
+            text="公开政策说明需要保留本地回退。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    manifest = index.rebuild()
+
+    assert manifest["requested_storage_backend"] == "chroma"
+    assert manifest["storage_backend"] == "json"
+    assert manifest["storage_fallback_reason"]
+    assert workspace.rag_vectors_path().exists()
+
+
+def test_privacy_embedding_router_never_sends_student_text_to_public_provider(tmp_path):
+    public_calls = []
+
+    def public_embed(texts):
+        public_calls.extend(texts)
+        return [[0.0, 1.0] for _ in texts]
+
+    router = PrivacyAwareEmbeddingProvider(
+        local_provider=HashEmbeddingProvider(dimension=2),
+        public_provider=ApiEmbeddingProvider(
+            model_name="public-api",
+            dimension=2,
+            embed_fn=public_embed,
+        ),
+        allow_external_public=True,
+    )
+    workspace = Workspace(str(tmp_path))
+    workspace.save_user_document(
+        "匿名学生\n项目：私有研究经历。".encode("utf-8"),
+        "resume.txt",
+        category="resumes",
+        source_type="local_upload",
+        trusted=True,
+        confirmed=False,
+    )
+    index = KnowledgeBaseIndex(
+        workspace,
+        embedding_provider=router,
+        storage_backend="sqlite",
+    )
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="公开政策",
+            text="公开报名截止日期为 9 月 10 日。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+    retriever = KnowledgeBaseRetriever(
+        workspace,
+        embedding_provider=router,
+        storage_backend="sqlite",
+    )
+    public_hits = retriever.search(
+        "公开报名截止日期",
+        source_kinds=["policy"],
+        allow_external_public_query=True,
+    ).hits
+
+    assert public_calls
+    assert all("私有研究经历" not in text for text in public_calls)
+    records = SqliteVectorStore(workspace.rag_sqlite_path()).records()
+    assert any(item.metadata["embedding_route"] == "local" for item in records)
+    assert any(item.metadata["embedding_route"] == "external_public" for item in records)
+    assert public_hits
+
+
+def _fake_where_matches(metadata, where):
+    if "$and" in where:
+        return all(_fake_where_matches(metadata, item) for item in where["$and"])
+    for key, condition in where.items():
+        if "$eq" in condition and metadata.get(key) != condition["$eq"]:
+            return False
+        if "$in" in condition and metadata.get(key) not in condition["$in"]:
+            return False
+    return True
 
 
 def test_rag_falls_back_to_bm25_when_vector_provider_fails(tmp_path):

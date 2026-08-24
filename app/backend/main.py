@@ -124,8 +124,9 @@ app.add_middleware(
 )
 workspace = Workspace(os.environ.get("WORKSPACE_DIR") or str(PROJECT_ROOT / "workspace"))
 ppt_adapter = LocalPptxAdapter()
-rag_index = KnowledgeBaseIndex(workspace)
-rag_retriever = KnowledgeBaseRetriever(workspace)
+rag_storage_backend = os.environ.get("RAG_STORAGE_BACKEND", "json").strip().lower() or "json"
+rag_index = KnowledgeBaseIndex(workspace, storage_backend=rag_storage_backend)
+rag_retriever = KnowledgeBaseRetriever(workspace, storage_backend=rag_storage_backend)
 
 
 def dump(model):
@@ -652,6 +653,7 @@ def search_rag(
     include_unconfirmed: bool = True,
     include_historical: bool = False,
     as_of_year: Optional[int] = None,
+    allow_external_public_query: bool = False,
 ):
     source_kinds = [source_kind] if source_kind else None
     return rag_retriever.search(
@@ -661,6 +663,7 @@ def search_rag(
         include_unconfirmed=include_unconfirmed,
         include_historical=include_historical,
         as_of_year=as_of_year,
+        allow_external_public_query=allow_external_public_query,
     )
 
 
