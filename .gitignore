@@ -39,6 +39,7 @@ build/
 runs/
 workspace/
 workspace.demo/
+workspace.eval/
 app/backend/data/
 
 # Local planning drafts and pre-implementation research notes.
