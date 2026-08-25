@@ -12,7 +12,20 @@ from local_model_runtime import (  # noqa: E402
     diagnose_hardware,
 )
 from models import RAGSearchHit  # noqa: E402
-from rag import LocalOpenAICompatibleEmbeddingProvider, LocalOpenAICompatibleReranker  # noqa: E402
+from rag import (  # noqa: E402
+    ApiReranker,
+    LocalOpenAICompatibleEmbeddingProvider,
+    LocalOpenAICompatibleReranker,
+    OpenAICompatibleEmbeddingProvider,
+    configured_embedding_provider_from_env,
+    configured_reranker_from_env,
+)
+
+
+def test_runtime_endpoint_accepts_full_operation_url():
+    runtime = LocalRuntimeEndpoint(base_url="https://api.siliconflow.cn/v1/rerank")
+
+    assert runtime.endpoint("/rerank") == "https://api.siliconflow.cn/v1/rerank"
 
 
 def test_local_embedding_provider_parses_openai_compatible_response():
@@ -39,6 +52,36 @@ def test_local_embedding_provider_parses_openai_compatible_response():
     assert vectors == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
     assert calls[0][0] == "http://127.0.0.1:11434/v1/embeddings"
     assert calls[0][1]["model"] == "bge-small"
+
+
+def test_siliconflow_embedding_provider_from_env_uses_official_shape():
+    provider = configured_embedding_provider_from_env(
+        {
+            "RAG_EMBEDDING_PROVIDER": "siliconflow",
+            "SILICONFLOW_API_KEY": "test-key",
+            "SILICONFLOW_EMBEDDING_BASE_URL": "https://api.siliconflow.cn/v1/embeddings",
+            "SILICONFLOW_EMBEDDING_MODEL": "BAAI/bge-m3",
+            "SILICONFLOW_EMBEDDING_DIMENSION": "4",
+            "SILICONFLOW_EMBEDDING_ENCODING_FORMAT": "float",
+        }
+    )
+    calls = []
+
+    def fake_request(endpoint, payload):
+        calls.append((endpoint, payload))
+        return {"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3, 0.4]}]}
+
+    assert isinstance(provider, OpenAICompatibleEmbeddingProvider)
+    provider._request_fn = fake_request
+
+    assert provider.embed_query("推免政策") == [0.1, 0.2, 0.3, 0.4]
+    assert calls[0][0] == "https://api.siliconflow.cn/v1/embeddings"
+    assert calls[0][1] == {
+        "model": "BAAI/bge-m3",
+        "input": ["推免政策"],
+        "encoding_format": "float",
+        "dimensions": 4,
+    }
 
 
 def test_local_reranker_reorders_hits_without_changing_content():
@@ -68,6 +111,39 @@ def test_local_reranker_reorders_hits_without_changing_content():
     assert ranked[0].snippet == "second"
     assert ranked[0].rerank_score == 0.91
     assert "local-reranker:bge-reranker" in ranked[0].retrieval_explanation
+
+
+def test_siliconflow_reranker_from_env_uses_official_shape():
+    reranker = configured_reranker_from_env(
+        {
+            "RAG_RERANKER": "siliconflow",
+            "SILICONFLOW_API_KEY": "test-key",
+            "SILICONFLOW_RERANK_BASE_URL": "https://api.siliconflow.cn/v1/rerank",
+            "SILICONFLOW_RERANK_MODEL": "BAAI/bge-reranker-v2-m3",
+            "SILICONFLOW_RERANK_RETURN_DOCUMENTS": "false",
+        }
+    )
+    calls = []
+
+    def fake_request(endpoint, payload):
+        calls.append((endpoint, payload))
+        return {"results": [{"index": 0, "relevance_score": 0.88}]}
+
+    assert isinstance(reranker, ApiReranker)
+    reranker._request_fn = fake_request
+    hits = [RAGSearchHit(source_id="s1", chunk_id="c1", snippet="报名截止日期", score=0.4)]
+
+    ranked = reranker.rerank("推免报名什么时候截止", hits)
+
+    assert ranked[0].rerank_score == 0.88
+    assert calls[0][0] == "https://api.siliconflow.cn/v1/rerank"
+    assert calls[0][1] == {
+        "model": "BAAI/bge-reranker-v2-m3",
+        "query": "推免报名什么时候截止",
+        "documents": ["报名截止日期"],
+        "top_n": 1,
+        "return_documents": False,
+    }
 
 
 def test_configured_llm_provider_prefers_local_env(monkeypatch):

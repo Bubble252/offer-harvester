@@ -6,6 +6,7 @@ from .embeddings import (
     LocalOpenAICompatibleEmbeddingProvider,
     OpenAICompatibleEmbeddingProvider,
     PrivacyAwareEmbeddingProvider,
+    configured_embedding_provider_from_env,
 )
 from .evidence import evidence_refs, format_evidence_bullets
 from .evidence_graph import (
@@ -27,6 +28,7 @@ from .reranker import (
     LocalOpenAICompatibleReranker,
     NoopReranker,
     Reranker,
+    configured_reranker_from_env,
 )
 from .retriever import KnowledgeBaseRetriever, RetrievalResult
 from .vector_store import (
@@ -50,6 +52,7 @@ __all__ = [
     "OpenAICompatibleEmbeddingProvider",
     "LocalOpenAICompatibleEmbeddingProvider",
     "PrivacyAwareEmbeddingProvider",
+    "configured_embedding_provider_from_env",
     "ChromaVectorStore",
     "JsonVectorStore",
     "SqliteVectorStore",
@@ -62,6 +65,7 @@ __all__ = [
     "LocalOpenAICompatibleReranker",
     "NoopReranker",
     "Reranker",
+    "configured_reranker_from_env",
     "evidence_refs",
     "format_evidence_bullets",
     "SourceSnapshot",

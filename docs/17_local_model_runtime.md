@@ -58,6 +58,9 @@ Not recommended on this machine as the default path:
 ## Environment Variables
 
 ```bash
+RAG_EMBEDDING_PROVIDER=hash
+RAG_RERANKER=noop
+
 LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1
 LOCAL_LLM_MODEL=qwen2.5:7b-instruct-q4
 LOCAL_LLM_API_KEY=
@@ -71,6 +74,34 @@ LOCAL_RERANK_MODEL=bge-reranker-base
 ```
 
 These variables are optional. If they are absent, the project must still run through local fallback providers.
+
+## SiliconFlow API Route
+
+SiliconFlow can be used as an optional public API route for embedding and reranking. It is not enabled by default.
+
+```bash
+RAG_EMBEDDING_PROVIDER=siliconflow
+RAG_RERANKER=siliconflow
+SILICONFLOW_API_KEY=your-local-env-only-key
+
+SILICONFLOW_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
+SILICONFLOW_EMBEDDING_MODEL=BAAI/bge-m3
+SILICONFLOW_EMBEDDING_ENCODING_FORMAT=float
+SILICONFLOW_EMBEDDING_DIMENSION=
+
+SILICONFLOW_RERANK_BASE_URL=https://api.siliconflow.cn/v1
+SILICONFLOW_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+SILICONFLOW_RERANK_RETURN_DOCUMENTS=false
+```
+
+The full operation URLs also work:
+
+```bash
+SILICONFLOW_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1/embeddings
+SILICONFLOW_RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
+```
+
+If `SILICONFLOW_API_KEY` is missing, the project falls back to `HashEmbeddingProvider` and `NoopReranker`.
 
 ## Privacy Rule
 
@@ -89,6 +120,8 @@ Public material may use external API routes only when explicitly enabled:
 - school policy pages
 - official admission notices
 - public lab pages
+
+SiliconFlow should first be used for public advisor and policy sources. Private student files, pasted email text, and unconfirmed profile facts should stay on the local route unless the user explicitly allows external processing.
 
 The adapter layer must record provider name, model name, route, and fallback reason, but must not log raw private text or API keys.
 

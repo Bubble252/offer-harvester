@@ -83,7 +83,12 @@ from pdf_readability import inspect_pdf_bytes
 from presentation_quality import build_presentation_quality_report, save_reference_presentation
 from pydantic import BaseModel, Field
 from quality import audit_material
-from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever
+from rag import (
+    KnowledgeBaseIndex,
+    KnowledgeBaseRetriever,
+    configured_embedding_provider_from_env,
+    configured_reranker_from_env,
+)
 from services import (
     build_profile_from_text,
     build_readiness_score_report,
@@ -130,8 +135,19 @@ app.add_middleware(
 workspace = Workspace(os.environ.get("WORKSPACE_DIR") or str(PROJECT_ROOT / "workspace"))
 ppt_adapter = LocalPptxAdapter()
 rag_storage_backend = os.environ.get("RAG_STORAGE_BACKEND", "json").strip().lower() or "json"
-rag_index = KnowledgeBaseIndex(workspace, storage_backend=rag_storage_backend)
-rag_retriever = KnowledgeBaseRetriever(workspace, storage_backend=rag_storage_backend)
+rag_embedding_provider = configured_embedding_provider_from_env()
+rag_reranker = configured_reranker_from_env()
+rag_index = KnowledgeBaseIndex(
+    workspace,
+    embedding_provider=rag_embedding_provider,
+    storage_backend=rag_storage_backend,
+)
+rag_retriever = KnowledgeBaseRetriever(
+    workspace,
+    embedding_provider=rag_embedding_provider,
+    reranker=rag_reranker,
+    storage_backend=rag_storage_backend,
+)
 
 
 def dump(model):

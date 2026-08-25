@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Callable, List, Optional, Protocol
 
 from local_model_runtime import LocalRuntimeEndpoint, post_json
@@ -54,11 +55,13 @@ class ApiReranker:
         api_key: str = "",
         path: str = "/rerank",
         timeout: int = 30,
+        extra_payload: Optional[dict] = None,
         request_fn: Optional[Callable[[str, dict], dict]] = None,
     ):
         self.runtime = LocalRuntimeEndpoint(base_url=base_url, api_key=api_key, timeout=timeout)
         self.model_name = model_name
         self.path = path
+        self.extra_payload = extra_payload or {}
         self._request_fn = request_fn
         self.name = f"api-reranker:{model_name}"
 
@@ -72,6 +75,7 @@ class ApiReranker:
             "documents": documents,
             "top_n": len(documents),
         }
+        payload.update(self.extra_payload)
         endpoint = self.runtime.endpoint(self.path)
         data = (
             self._request_fn(endpoint, payload)
@@ -110,6 +114,7 @@ class LocalOpenAICompatibleReranker(ApiReranker):
         api_key: str = "",
         path: str = "/rerank",
         timeout: int = 30,
+        extra_payload: Optional[dict] = None,
         request_fn: Optional[Callable[[str, dict], dict]] = None,
     ):
         super().__init__(
@@ -118,6 +123,7 @@ class LocalOpenAICompatibleReranker(ApiReranker):
             api_key=api_key,
             path=path,
             timeout=timeout,
+            extra_payload=extra_payload,
             request_fn=request_fn,
         )
         self.name = f"local-reranker:{model_name}"
@@ -144,3 +150,75 @@ def _parse_rerank_scores(data: dict, *, expected_count: int) -> List[tuple[int, 
         if index not in seen:
             scores.append((index, 0.0))
     return scores
+
+
+def configured_reranker_from_env(env: Optional[dict[str, str]] = None) -> Reranker:
+    """Build the configured reranker, falling back locally when optional API config is incomplete."""
+
+    env = env or os.environ
+    mode = (env.get("RAG_RERANKER") or "noop").strip().lower()
+    if mode in {"", "noop", "none"}:
+        return NoopReranker()
+    if mode in {"lexical", "lexical-lite"}:
+        return LexicalReranker()
+    if mode == "siliconflow":
+        api_key = env.get("SILICONFLOW_API_KEY", "").strip()
+        model = env.get("SILICONFLOW_RERANK_MODEL", "BAAI/bge-reranker-v2-m3").strip()
+        base_url = env.get("SILICONFLOW_RERANK_BASE_URL", "https://api.siliconflow.cn/v1").strip()
+        if not api_key or not model or not base_url:
+            return NoopReranker()
+        extra_payload = {
+            "return_documents": _env_bool(env.get("SILICONFLOW_RERANK_RETURN_DOCUMENTS"), False)
+        }
+        instruction = env.get("SILICONFLOW_RERANK_INSTRUCTION", "").strip()
+        if instruction:
+            extra_payload["instruction"] = instruction
+        max_chunks = _env_int(env.get("SILICONFLOW_RERANK_MAX_CHUNKS_PER_DOC"))
+        if max_chunks is not None:
+            extra_payload["max_chunks_per_doc"] = max_chunks
+        overlap = _env_int(env.get("SILICONFLOW_RERANK_OVERLAP_TOKENS"))
+        if overlap is not None:
+            extra_payload["overlap_tokens"] = overlap
+        return ApiReranker(
+            base_url=base_url,
+            model_name=model,
+            api_key=api_key,
+            path="/rerank",
+            extra_payload=extra_payload,
+        )
+    if mode == "api":
+        api_key = env.get("RAG_RERANK_API_KEY", "").strip()
+        model = env.get("RAG_RERANK_MODEL", "").strip()
+        base_url = env.get("RAG_RERANK_BASE_URL", "").strip()
+        path = env.get("RAG_RERANK_PATH", "/rerank").strip() or "/rerank"
+        if not api_key or not model or not base_url:
+            return NoopReranker()
+        return ApiReranker(base_url=base_url, model_name=model, api_key=api_key, path=path)
+    if mode == "local":
+        model = env.get("LOCAL_RERANK_MODEL", "").strip()
+        base_url = env.get("LOCAL_RERANK_BASE_URL", "").strip()
+        path = env.get("LOCAL_RERANK_PATH", "/rerank").strip() or "/rerank"
+        if not model or not base_url:
+            return NoopReranker()
+        return LocalOpenAICompatibleReranker(
+            base_url=base_url,
+            model_name=model,
+            api_key=env.get("LOCAL_RERANK_API_KEY", ""),
+            path=path,
+        )
+    return NoopReranker()
+
+
+def _env_bool(value: Optional[str], default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(value: Optional[str]) -> Optional[int]:
+    if value is None or value.strip() == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None

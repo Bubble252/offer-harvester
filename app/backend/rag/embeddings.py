@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Protocol
 
@@ -200,18 +201,21 @@ class OpenAICompatibleEmbeddingProvider:
         model_version: str = "configured",
         dimension: int | None = None,
         timeout: int = 30,
+        extra_payload: Optional[dict] = None,
         request_fn: Optional[Callable[[str, dict], dict]] = None,
     ):
         self.runtime = LocalRuntimeEndpoint(base_url=base_url, api_key=api_key, timeout=timeout)
         self.model_name = model_name
         self.model_version = model_version
         self.dimension = dimension or 0
+        self.extra_payload = extra_payload or {}
         self._request_fn = request_fn
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
         payload = {"model": self.model_name, "input": texts}
+        payload.update(self.extra_payload)
         endpoint = self.runtime.endpoint("/embeddings")
         data = (
             self._request_fn(endpoint, payload)
@@ -247,6 +251,7 @@ class LocalOpenAICompatibleEmbeddingProvider(OpenAICompatibleEmbeddingProvider):
         model_version: str = "local-openai-compatible",
         dimension: int | None = None,
         timeout: int = 30,
+        extra_payload: Optional[dict] = None,
         request_fn: Optional[Callable[[str, dict], dict]] = None,
     ):
         super().__init__(
@@ -256,6 +261,7 @@ class LocalOpenAICompatibleEmbeddingProvider(OpenAICompatibleEmbeddingProvider):
             model_version=model_version,
             dimension=dimension,
             timeout=timeout,
+            extra_payload=extra_payload,
             request_fn=request_fn,
         )
 
@@ -278,3 +284,73 @@ def _parse_openai_embedding_response(
     if any(len(vector) != dimension for vector in vectors):
         raise ValueError("Embedding provider returned inconsistent vector dimensions")
     return vectors
+
+
+def configured_embedding_provider_from_env(
+    env: Optional[dict[str, str]] = None,
+) -> EmbeddingProvider:
+    """Build the configured embedding provider with a deterministic local fallback."""
+
+    env = env or os.environ
+    mode = (env.get("RAG_EMBEDDING_PROVIDER") or "hash").strip().lower()
+    if mode in {"", "hash", "local-hash"}:
+        return HashEmbeddingProvider(dimension=_env_int(env.get("HASH_EMBEDDING_DIMENSION")) or 64)
+    if mode == "siliconflow":
+        api_key = env.get("SILICONFLOW_API_KEY", "").strip()
+        model = env.get("SILICONFLOW_EMBEDDING_MODEL", "BAAI/bge-m3").strip()
+        base_url = env.get(
+            "SILICONFLOW_EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1"
+        ).strip()
+        if not api_key or not model or not base_url:
+            return HashEmbeddingProvider()
+        dimensions = _env_int(env.get("SILICONFLOW_EMBEDDING_DIMENSION"))
+        extra_payload = {}
+        encoding_format = env.get("SILICONFLOW_EMBEDDING_ENCODING_FORMAT", "").strip()
+        if encoding_format:
+            extra_payload["encoding_format"] = encoding_format
+        if dimensions is not None:
+            extra_payload["dimensions"] = dimensions
+        return OpenAICompatibleEmbeddingProvider(
+            base_url=base_url,
+            model_name=model,
+            api_key=api_key,
+            model_version="siliconflow",
+            dimension=dimensions,
+            extra_payload=extra_payload,
+        )
+    if mode == "api":
+        api_key = env.get("RAG_EMBEDDING_API_KEY", "").strip()
+        model = env.get("RAG_EMBEDDING_MODEL", "").strip()
+        base_url = env.get("RAG_EMBEDDING_BASE_URL", "").strip()
+        dimension = _env_int(env.get("RAG_EMBEDDING_DIMENSION"))
+        if not api_key or not model or not base_url:
+            return HashEmbeddingProvider()
+        return OpenAICompatibleEmbeddingProvider(
+            base_url=base_url,
+            model_name=model,
+            api_key=api_key,
+            model_version="api",
+            dimension=dimension,
+        )
+    if mode == "local":
+        model = env.get("LOCAL_EMBEDDING_MODEL", "").strip()
+        base_url = env.get("LOCAL_EMBEDDING_BASE_URL", "").strip()
+        dimension = _env_int(env.get("LOCAL_EMBEDDING_DIMENSION"))
+        if not model or not base_url:
+            return HashEmbeddingProvider()
+        return LocalOpenAICompatibleEmbeddingProvider(
+            base_url=base_url,
+            model_name=model,
+            api_key=env.get("LOCAL_EMBEDDING_API_KEY", ""),
+            dimension=dimension,
+        )
+    return HashEmbeddingProvider()
+
+
+def _env_int(value: Optional[str]) -> Optional[int]:
+    if value is None or value.strip() == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None

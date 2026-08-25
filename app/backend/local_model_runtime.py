@@ -22,6 +22,9 @@ class LocalRuntimeEndpoint:
 
     def endpoint(self, path: str) -> str:
         base = self.base_url.rstrip("/")
+        path = path if path.startswith("/") else f"/{path}"
+        if base.endswith(path):
+            return base
         if base.endswith("/v1"):
             return base + path
         return base + "/v1" + path
