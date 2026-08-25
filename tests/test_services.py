@@ -131,10 +131,14 @@ def test_rag_context_flows_into_match_questions_and_outline(tmp_path):
     questions = make_interview_questions(profile, target, advisor, retriever=retriever)
     outline = make_ppt_outline(profile, target, advisor, retriever=retriever)
     result = MatchAnalysisAgent().analyze(profile, target, advisor, retriever=retriever)
+    retrieval_event = next(
+        event for event in result.events if event.event_type == "retrieval_completed"
+    )
 
     assert "申请流程和材料要求" in questions.content
     assert "可引用证据" in outline.content
-    assert any(event.event_type == "retrieval_completed" for event in result.events)
+    assert retrieval_event.payload["evidence_bundle_id"]
+    assert retrieval_event.payload["bundle_claim_count"] >= 1
     assert any(strength.get("dimension") == "rag_evidence" for strength in result.report.strengths)
 
 

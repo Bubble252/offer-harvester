@@ -7,6 +7,7 @@ sys.path.insert(0, str(ROOT / "app" / "backend"))
 
 import main as backend_main  # noqa: E402
 from agents import run_contact_email_workflow  # noqa: E402
+from memory import LocalMemoryManager  # noqa: E402
 from models import (  # noqa: E402
     AdvisorSource,
     ApplicationArchiveRequest,
@@ -27,6 +28,8 @@ from models import (  # noqa: E402
 from rag import (  # noqa: E402
     ApiEmbeddingProvider,
     ChromaVectorStore,
+    Claim,
+    EvidenceBundle,
     HashEmbeddingProvider,
     KnowledgeBaseIndex,
     KnowledgeBaseRetriever,
@@ -207,6 +210,56 @@ def test_contact_email_workflow_adds_rag_evidence_refs(tmp_path):
     )
     assert saved_bundle["audit_ref"] == result.agent_run.run_id
     assert saved_bundle["snapshots"]
+
+
+def test_contact_email_endpoint_records_audit_feedback_loop(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：多模态论文问答系统")
+    target = Target(name="某大学李四教授课题组")
+    workspace.write("profiles", dump(profile), "profile_id")
+    workspace.write("targets", dump(target), "target_id")
+
+    payload = backend_main.generate_contact_email(target.target_id)
+
+    feedback_loop = payload["feedback_loop"]
+    assert feedback_loop is not None
+    assert feedback_loop.feedback_memory_ids
+    assert feedback_loop.procedural_candidate_ids
+    assert LocalMemoryManager(workspace).search("", kinds=["feedback"])
+    assert workspace.list("procedural_candidates")
+
+
+def test_evidence_bundle_audit_feedback_endpoint_persists_memory(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+    bundle = EvidenceBundle(
+        query="推免申请材料",
+        retrieval_refs=["policy_old#chunk_1"],
+        claims=[
+            Claim(
+                claim_key="policy_materials",
+                claim_type="policy_fact",
+                text="旧年度推免申请材料说明。",
+                status="stale",
+                source_refs=["policy_old#chunk_1"],
+                needs_confirmation=True,
+            )
+        ],
+    )
+    backend_main.rag_retriever.evidence_store.save(bundle)
+
+    payload = backend_main.audit_evidence_bundle_feedback(bundle.bundle_id)
+
+    assert payload["evidence_bundle"].audit_status == "needs_review"
+    assert payload["feedback_loop"].feedback_memory_ids
+    assert LocalMemoryManager(workspace).search("", kinds=["feedback"])
+    assert workspace.read("evidence_bundles", bundle.bundle_id)["audit_ref"]
 
 
 def test_rag_blocks_expired_policy_by_default_but_can_return_historical(tmp_path):

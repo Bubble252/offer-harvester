@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from feedback_loop import FeedbackLoopResult, record_evidence_audit_feedback
 from models import (
     AdvisorProfile,
     AgentRun,
@@ -31,6 +32,7 @@ class MaterialWorkflowResult(BaseModel):
     review: MaterialReviewResult
     evidence_audit: EvidenceAuditResult
     evidence_bundle: Optional[EvidenceBundle] = None
+    feedback_loop: Optional[FeedbackLoopResult] = None
     revision: GeneratedMaterial
     versions: List[MaterialVersion] = Field(default_factory=list)
     events: List[WorkflowEvent] = Field(default_factory=list)
@@ -43,6 +45,7 @@ def run_contact_email_workflow(
     advisor: Optional[AdvisorProfile],
     match: Optional[MatchReport],
     retriever: Optional[KnowledgeBaseRetriever] = None,
+    workspace=None,
 ) -> MaterialWorkflowResult:
     agent_run = make_agent_run(profile, target, advisor, match)
     recorder = WorkflowEventRecorder(agent_run)
@@ -164,6 +167,16 @@ def run_contact_email_workflow(
         ],
     )
     quality = audit_material(revision, profile, advisor)
+    feedback_loop = None
+    if workspace:
+        feedback_loop = record_evidence_audit_feedback(
+            workspace,
+            audit,
+            bundle=evidence_bundle,
+            material=revision,
+            quality=quality,
+            run_id=agent_run.run_id,
+        )
     recorder.record(
         "quality_completed",
         payload={
@@ -199,6 +212,7 @@ def run_contact_email_workflow(
         review=review,
         evidence_audit=audit,
         evidence_bundle=evidence_bundle,
+        feedback_loop=feedback_loop,
         revision=revision,
         versions=[draft_version, final_version],
         events=recorder.events,

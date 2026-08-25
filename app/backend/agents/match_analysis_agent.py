@@ -100,6 +100,15 @@ class MatchAnalysisAgent:
                         for hit in retrieval.hits
                         if getattr(hit, "evidence_ref", "")
                     ],
+                    "evidence_bundle_id": retrieval.evidence_bundle.bundle_id
+                    if retrieval.evidence_bundle
+                    else "",
+                    "bundle_claim_count": len(retrieval.evidence_bundle.claims)
+                    if retrieval.evidence_bundle
+                    else 0,
+                    "bundle_conflict_count": len(retrieval.evidence_bundle.conflicts)
+                    if retrieval.evidence_bundle
+                    else 0,
                 },
             )
         if profile:

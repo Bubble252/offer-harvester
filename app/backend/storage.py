@@ -68,6 +68,7 @@ class Workspace:
             "profile_expansion_candidates",
             "gap_plans",
             "memory",
+            "procedural_candidates",
             "evidence_bundles",
             "template_registry",
             "templates",

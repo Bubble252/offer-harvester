@@ -10,10 +10,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agents import AdvisorExtractionAgent, MatchAnalysisAgent, run_contact_email_workflow
+from agents.evidence_audit_agent import EvidenceAuditAgent
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from feedback_loop import record_evidence_audit_feedback, record_material_edit_feedback
 from lifecycle import (
     apply_email_signal_candidate,
     build_application_archive,
@@ -54,6 +56,7 @@ from models import (
     KnowledgeBaseSourceCreate,
     MatchReport,
     MaterialQualityReport,
+    MaterialVersion,
     OutcomeUpdate,
     PdfReadabilityReport,
     PipelineSyncRequest,
@@ -159,6 +162,13 @@ class MemoryPromotionRequest(BaseModel):
     target: PromotionTarget
     reason: str = ""
     payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MaterialEditFeedbackRequest(BaseModel):
+    before_version_id: str
+    after_version_id: str
+    accepted: bool = True
+    evidence_refs: List[str] = Field(default_factory=list)
 
 
 def memory_manager() -> LocalMemoryManager:
@@ -650,6 +660,7 @@ def generate_contact_email(target_id: str):
         advisor_for_target(target),
         latest_match(target_id),
         retriever=rag_retriever,
+        workspace=workspace,
     )
     for version in result.versions:
         workspace.write("material_versions", dump(version), "version_id")
@@ -664,6 +675,7 @@ def generate_contact_email(target_id: str):
         "draft": result.draft,
         "review": result.review,
         "evidence_audit": result.evidence_audit,
+        "feedback_loop": result.feedback_loop,
         "revision": result.revision,
         "events": result.events,
         "agent_run": result.agent_run,
@@ -705,6 +717,11 @@ def list_generated():
     return workspace.list("generated")
 
 
+@app.get("/api/procedural-candidates")
+def list_procedural_candidates():
+    return workspace.list("procedural_candidates")
+
+
 @app.get("/api/agent-runs")
 def list_agent_runs():
     return workspace.list("agent_runs")
@@ -736,6 +753,25 @@ def download_generated_material(material_id: str):
         item["content"],
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/generated/{material_id}/edit-feedback")
+def create_material_edit_feedback(material_id: str, payload: MaterialEditFeedbackRequest):
+    before = workspace.read("material_versions", payload.before_version_id)
+    after = workspace.read("material_versions", payload.after_version_id)
+    if not before or not after:
+        raise HTTPException(status_code=404, detail="Material version not found")
+    before_version = MaterialVersion(**before)
+    after_version = MaterialVersion(**after)
+    if before_version.material_id != material_id or after_version.material_id != material_id:
+        raise HTTPException(status_code=400, detail="Material versions do not belong to material")
+    return record_material_edit_feedback(
+        workspace,
+        before_version,
+        after_version,
+        accepted=payload.accepted,
+        evidence_refs=payload.evidence_refs,
     )
 
 
@@ -792,6 +828,19 @@ def get_evidence_bundle(bundle_id: str):
     if not bundle:
         raise HTTPException(status_code=404, detail="Evidence bundle not found")
     return bundle
+
+
+@app.post("/api/rag/evidence-bundles/{bundle_id}/audit-feedback")
+def audit_evidence_bundle_feedback(bundle_id: str):
+    bundle = rag_retriever.evidence_store.get(bundle_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Evidence bundle not found")
+    audit = EvidenceAuditAgent().audit_evidence_bundle(bundle)
+    feedback = record_evidence_audit_feedback(workspace, audit, bundle=bundle)
+    bundle.audit_status = "passed" if audit.passed else "needs_review"
+    bundle.audit_ref = feedback.feedback_memory_ids[0] if feedback.feedback_memory_ids else ""
+    rag_retriever.evidence_store.save(bundle)
+    return {"audit": audit, "feedback_loop": feedback, "evidence_bundle": bundle}
 
 
 @app.get("/api/readiness-score")

@@ -6,8 +6,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "app" / "backend"))
 
+from agents.evidence_audit_agent import EvidenceAuditAgent  # noqa: E402
 from agents.swarm import LeadAgent, SwarmTask  # noqa: E402
+from feedback_loop import (  # noqa: E402
+    record_evidence_audit_feedback,
+    record_material_edit_feedback,
+)
 from memory import FeedbackRecord, LocalMemoryManager, SessionSummary  # noqa: E402
+from models import GeneratedMaterial, MaterialQualityReport, MaterialVersion  # noqa: E402
+from rag import Claim, ConflictSet, EvidenceBundle  # noqa: E402
 from storage import Workspace  # noqa: E402
 
 
@@ -250,3 +257,116 @@ def test_confirmed_memory_can_create_promotion_candidate_without_applying_it(tmp
     assert candidate.requires_user_confirmation is True
     assert candidate.payload["key"] == "student.project"
     assert manager.promotion_candidates(target="profile")[0].candidate_id == candidate.candidate_id
+
+
+def test_evidence_bundle_audit_writes_feedback_and_procedural_candidates(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    bundle = EvidenceBundle(
+        query="推免截止日期",
+        retrieval_refs=["policy_a#chunk_1", "policy_b#chunk_2"],
+        claims=[
+            Claim(
+                claim_key="deadline",
+                claim_type="policy_fact",
+                text="截止日期为 2026-09-10",
+                value="2026-09-10",
+                status="supported",
+                source_refs=["policy_a#chunk_1"],
+            ),
+            Claim(
+                claim_key="deadline",
+                claim_type="policy_fact",
+                text="截止日期为 2026-09-20",
+                value="2026-09-20",
+                status="supported",
+                source_refs=["policy_b#chunk_2"],
+            ),
+        ],
+    )
+    bundle.conflicts = [
+        ConflictSet(
+            claim_key="deadline",
+            claim_ids=[item.claim_id for item in bundle.claims],
+            evidence_refs=["policy_a#chunk_1", "policy_b#chunk_2"],
+            explanation="同一截止日期存在冲突。",
+        )
+    ]
+
+    audit = EvidenceAuditAgent().audit_evidence_bundle(bundle)
+    result = record_evidence_audit_feedback(workspace, audit, bundle=bundle)
+
+    assert not audit.passed
+    assert result.feedback_memory_ids
+    assert result.procedural_candidate_ids
+    assert workspace.list("procedural_candidates")
+    assert LocalMemoryManager(workspace).search("feedback", kinds=["feedback"])
+
+
+def test_material_edit_feedback_creates_prompt_candidate(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    before = MaterialVersion(
+        material_id="mat_1",
+        target_id="target_1",
+        material_type="contact_email",
+        stage="draft",
+        content="老师您好，我对您的方向很感兴趣。",
+    )
+    after = MaterialVersion(
+        material_id="mat_1",
+        target_id="target_1",
+        material_type="contact_email",
+        stage="user_edited",
+        content="老师您好，我关注您近期关于多模态学习的论文，并希望请教申请机会。",
+    )
+
+    result = record_material_edit_feedback(
+        workspace,
+        before,
+        after,
+        accepted=True,
+        evidence_refs=["advisor_src#chunk_1"],
+    )
+
+    candidate = workspace.list("procedural_candidates")[0]
+    assert result.feedback_memory_ids
+    assert candidate["candidate_kind"] == "prompt"
+    assert "多模态学习" in candidate["proposed_change"]
+
+
+def test_failed_quality_report_enters_feedback_memory(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    audit = EvidenceAuditAgent().audit_evidence_bundle(
+        EvidenceBundle(
+            query="材料证据",
+            claims=[
+                Claim(
+                    claim_key="profile_field",
+                    claim_type="profile_field_confirmation",
+                    text="材料使用了用户已否认字段。",
+                    status="unsupported",
+                )
+            ],
+        )
+    )
+    material = GeneratedMaterial(
+        material_id="mat_quality",
+        target_id="target_1",
+        material_type="contact_email",
+        title="套磁邮件",
+        content="我发表过顶会论文。",
+    )
+    quality = MaterialQualityReport(
+        material_id=material.material_id,
+        target_id=material.target_id,
+        passed=False,
+        checks=[{"code": "overclaim", "passed": False}],
+        risk_level="high",
+    )
+
+    result = record_evidence_audit_feedback(workspace, audit, material=material, quality=quality)
+
+    records = LocalMemoryManager(workspace).search("", kinds=["feedback"])
+    candidates = workspace.list("procedural_candidates")
+    assert len(records) >= 2
+    assert result.procedural_candidate_ids
+    assert any(item["candidate_kind"] == "skill" for item in candidates)
