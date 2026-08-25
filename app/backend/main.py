@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -26,6 +26,7 @@ from lifecycle import (
     update_outcome,
 )
 from llm_client import llm_configured
+from memory import MEMORY_KINDS, LocalMemoryManager, MemoryKind, PromotionTarget
 from models import (
     AdvisorProfile,
     AdvisorProfileUpdate,
@@ -77,6 +78,7 @@ from models import (
 )
 from pdf_readability import inspect_pdf_bytes
 from presentation_quality import build_presentation_quality_report, save_reference_presentation
+from pydantic import BaseModel, Field
 from quality import audit_material
 from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever
 from services import (
@@ -131,6 +133,42 @@ rag_retriever = KnowledgeBaseRetriever(workspace, storage_backend=rag_storage_ba
 
 def dump(model):
     return model.model_dump() if hasattr(model, "model_dump") else model.dict()
+
+
+class MemoryWriteRequest(BaseModel):
+    kind: MemoryKind
+    key: str
+    value: Dict[str, Any] = Field(default_factory=dict)
+    scope: str = "workspace"
+    source_ref: str = ""
+    source_refs: List[str] = Field(default_factory=list)
+    authority: str = "user"
+    confidence: float = 0.0
+    retention: str = "long_term"
+    sensitivity: Literal["low", "medium", "high"] = "medium"
+    notes: str = ""
+    negative: bool = False
+    blocked_patterns: List[str] = Field(default_factory=list)
+
+
+class MemoryTransitionRequest(BaseModel):
+    reason: str = ""
+
+
+class MemoryPromotionRequest(BaseModel):
+    target: PromotionTarget
+    reason: str = ""
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+def memory_manager() -> LocalMemoryManager:
+    return LocalMemoryManager(workspace)
+
+
+def _validate_memory_kind(kind: str) -> MemoryKind:
+    if kind not in MEMORY_KINDS:
+        raise HTTPException(status_code=400, detail=f"Unsupported memory kind: {kind}")
+    return kind
 
 
 def latest_profile() -> Optional[StudentProfile]:
@@ -253,6 +291,82 @@ def health():
 @app.get("/api/llm/status")
 def llm_status():
     return {"configured": llm_configured()}
+
+
+@app.get("/api/memory/summary")
+def get_memory_summary():
+    return memory_manager().summarize()
+
+
+@app.get("/api/memory")
+def list_memory(
+    q: str = "",
+    kind: str = "",
+    scope: str = "",
+    include_candidates: bool = True,
+    include_rejected: bool = False,
+    include_historical: bool = False,
+    include_negative: bool = False,
+):
+    kinds = [_validate_memory_kind(kind)] if kind else None
+    scopes = [scope] if scope else None
+    return memory_manager().search(
+        q,
+        kinds=kinds,
+        scopes=scopes,
+        include_candidates=include_candidates,
+        include_rejected=include_rejected,
+        include_historical=include_historical,
+        include_negative=include_negative,
+    )
+
+
+@app.post("/api/memory")
+def create_memory_candidate(payload: MemoryWriteRequest):
+    return memory_manager().write_candidate(**dump(payload))
+
+
+@app.post("/api/memory/{memory_id}/confirm")
+def confirm_memory(memory_id: str):
+    try:
+        return memory_manager().confirm(memory_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Memory record not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/memory/{memory_id}/reject")
+def reject_memory(memory_id: str, payload: MemoryTransitionRequest = MemoryTransitionRequest()):
+    try:
+        return memory_manager().reject(memory_id, reason=payload.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Memory record not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/memory/{memory_id}/promotion-candidates")
+def create_memory_promotion_candidate(memory_id: str, payload: MemoryPromotionRequest):
+    try:
+        return memory_manager().create_promotion_candidate(
+            memory_id,
+            target=payload.target,
+            reason=payload.reason,
+            payload=payload.payload or None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Memory record not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/memory-promotion-candidates")
+def list_memory_promotion_candidates(status: str = "", target: str = ""):
+    return memory_manager().promotion_candidates(
+        status=status or None,
+        target=target or None,
+    )
 
 
 @app.post("/api/profile/upload")

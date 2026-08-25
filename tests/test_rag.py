@@ -778,6 +778,42 @@ Date: 2026-08-23
     assert workspace.list("application_archives")
 
 
+def test_memory_endpoints_write_confirm_search_and_create_promotion(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+
+    memory = backend_main.create_memory_candidate(
+        backend_main.MemoryWriteRequest(
+            kind="fact",
+            scope="student:demo",
+            key="student.award",
+            value={"award": "校级优秀学生"},
+            source_ref="doc_awards#1",
+            confidence=0.8,
+        )
+    )
+    assert memory.status == "candidate"
+    assert backend_main.list_memory(q="student.award", include_candidates=False) == []
+
+    confirmed = backend_main.confirm_memory(memory.memory_id)
+    assert confirmed.status == "confirmed"
+    assert backend_main.list_memory(q="student.award", include_candidates=False)[0].memory_id == (
+        memory.memory_id
+    )
+
+    promotion = backend_main.create_memory_promotion_candidate(
+        confirmed.memory_id,
+        backend_main.MemoryPromotionRequest(
+            target="profile",
+            reason="用户确认奖项可以进入学生画像",
+        ),
+    )
+    assert promotion.status == "candidate"
+    assert backend_main.list_memory_promotion_candidates(target="profile")[0].candidate_id == (
+        promotion.candidate_id
+    )
+
+
 def test_stage16_strategy_endpoints_persist_reports(tmp_path):
     workspace = Workspace(str(tmp_path))
     backend_main.workspace = workspace

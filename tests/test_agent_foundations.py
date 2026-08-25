@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "app" / "backend"))
 
 from agents.swarm import LeadAgent, SwarmTask  # noqa: E402
-from memory import LocalMemoryManager  # noqa: E402
+from memory import FeedbackRecord, LocalMemoryManager, SessionSummary  # noqa: E402
 from storage import Workspace  # noqa: E402
 
 
@@ -136,3 +136,117 @@ def test_memory_governance_lifecycle_conflict_export_and_tombstone(tmp_path):
     assert tombstone.value == {}
     assert all(item["memory_id"] != second.memory_id for item in manager.export_records())
     assert any(item["status"] == "tombstone" for item in manager.replay())
+
+
+def test_memory_writes_layer_files_index_and_filtered_exports(tmp_path):
+    manager = LocalMemoryManager(Workspace(str(tmp_path)))
+    fact = manager.write_candidate(
+        kind="fact",
+        scope="student:demo",
+        key="student.gpa",
+        value={"gpa": "3.8/4.0"},
+        source_ref="doc_profile#field_gpa",
+        authority="local_upload",
+        confidence=0.8,
+    )
+    semantic = manager.write_candidate(
+        kind="semantic",
+        scope="student:demo",
+        key="preferred_target",
+        value={"direction": "多模态学习"},
+        source_ref="user_note#1",
+        confidence=0.7,
+    )
+
+    assert (tmp_path / "memory" / "layers" / "fact" / "records.jsonl").exists()
+    assert (tmp_path / "memory" / "layers" / "semantic" / "records.jsonl").exists()
+    assert (tmp_path / "memory" / "index.json").exists()
+
+    exported = manager.export_records(kinds=["fact"], scopes=["student:demo"])
+    assert [item["memory_id"] for item in exported] == [fact.memory_id]
+    assert manager.replay(source_refs=["user_note#1"])[0]["memory_id"] == semantic.memory_id
+
+    deleted = manager.delete_matching(
+        scopes=["student:demo"], source_refs=["doc_profile#field_gpa"]
+    )
+    assert [item.memory_id for item in deleted] == [fact.memory_id]
+    assert manager.get(fact.memory_id).status == "tombstone"
+
+
+def test_working_memory_session_summary_feedback_and_negative_memory(tmp_path):
+    manager = LocalMemoryManager(Workspace(str(tmp_path)))
+    working = manager.write_working_memory(
+        run_id="run_demo",
+        key="query_plan",
+        value={"query": "导师截止日期"},
+        source_refs=["bundle_1"],
+    )
+    assert working.kind == "working"
+    assert working.scope == "workflow:run_demo"
+
+    summary = manager.create_session_summary(
+        SessionSummary(
+            run_id="run_demo",
+            goal="复核导师网页",
+            key_facts=["截止日期需要官方来源确认"],
+            unconfirmed_items=["deadline"],
+            evidence_refs=["bundle_1"],
+        )
+    )
+    assert summary.kind == "episodic"
+    assert "bundle_1" in summary.source_refs
+
+    negative = manager.write_negative_memory(
+        key="style.too_marketing",
+        value={"avoid": "营销化套话"},
+        blocked_patterns=["营销化"],
+        reason="用户明确否认",
+    )
+    assert negative.negative is True
+    assert manager.is_blocked_by_negative_memory("请生成更营销化的套磁邮件") is True
+    assert manager.search("style.too_marketing") == []
+    assert manager.search("style.too_marketing", include_negative=True)
+
+    feedback = manager.write_feedback(
+        FeedbackRecord(
+            feedback_type="material_edit",
+            subject_ref="material_1",
+            issue_category="tone_mismatch",
+            accepted=True,
+            evidence_refs=["quality_1"],
+            suggested_candidate_type="rule",
+        )
+    )
+    assert feedback.kind == "feedback"
+    assert feedback.value["suggested_candidate_type"] == "rule"
+
+
+def test_confirmed_memory_can_create_promotion_candidate_without_applying_it(tmp_path):
+    manager = LocalMemoryManager(Workspace(str(tmp_path)))
+    memory = manager.write_candidate(
+        kind="fact",
+        scope="student:demo",
+        key="student.project",
+        value={"project": "RAG 保研政策问答系统"},
+        source_ref="doc_project#1",
+        confidence=0.8,
+    )
+
+    try:
+        manager.create_promotion_candidate(memory.memory_id, target="profile")
+    except ValueError as exc:
+        assert "Only confirmed memory" in str(exc)
+    else:
+        raise AssertionError("unconfirmed memory should not create promotion candidates")
+
+    confirmed = manager.confirm(memory.memory_id)
+    candidate = manager.create_promotion_candidate(
+        confirmed.memory_id,
+        target="profile",
+        reason="用户确认该项目可以进入画像",
+    )
+
+    assert candidate.status == "candidate"
+    assert candidate.requires_user_confirmation is True
+    assert candidate.payload["key"] == "student.project"
+    assert manager.promotion_candidates(target="profile")[0].candidate_id == candidate.candidate_id
