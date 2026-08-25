@@ -78,6 +78,8 @@ class Workspace:
             "sync_runs",
             "knowledge_base",
             "rag_index",
+            "public_kb",
+            "rl",
         ]:
             (self.root / name).mkdir(exist_ok=True)
         for name in USER_DOCUMENT_CATEGORIES:
