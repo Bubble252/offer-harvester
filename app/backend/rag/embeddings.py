@@ -5,6 +5,8 @@ import math
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Protocol
 
+from local_model_runtime import LocalRuntimeEndpoint, post_json
+
 from rag.chunking import tokenize
 
 
@@ -184,3 +186,95 @@ class ApiEmbeddingProvider:
 
     def embed_query(self, query: str) -> List[float]:
         return self.embed_texts([query])[0]
+
+
+class OpenAICompatibleEmbeddingProvider:
+    """Embedding provider for OpenAI-compatible local or remote HTTP services."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model_name: str,
+        api_key: str = "",
+        model_version: str = "configured",
+        dimension: int | None = None,
+        timeout: int = 30,
+        request_fn: Optional[Callable[[str, dict], dict]] = None,
+    ):
+        self.runtime = LocalRuntimeEndpoint(base_url=base_url, api_key=api_key, timeout=timeout)
+        self.model_name = model_name
+        self.model_version = model_version
+        self.dimension = dimension or 0
+        self._request_fn = request_fn
+
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        payload = {"model": self.model_name, "input": texts}
+        endpoint = self.runtime.endpoint("/embeddings")
+        data = (
+            self._request_fn(endpoint, payload)
+            if self._request_fn is not None
+            else post_json(
+                endpoint,
+                payload,
+                api_key=self.runtime.api_key,
+                timeout=self.runtime.timeout,
+            )
+        )
+        vectors = _parse_openai_embedding_response(data, expected_count=len(texts))
+        observed_dimension = len(vectors[0]) if vectors else 0
+        if self.dimension and observed_dimension != self.dimension:
+            raise ValueError("Embedding provider returned an unexpected vector dimension")
+        if not self.dimension:
+            self.dimension = observed_dimension
+        return vectors
+
+    def embed_query(self, query: str) -> List[float]:
+        return self.embed_texts([query])[0]
+
+
+class LocalOpenAICompatibleEmbeddingProvider(OpenAICompatibleEmbeddingProvider):
+    """Named adapter for local services such as Ollama, LM Studio, Xinference, or llama.cpp."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model_name: str,
+        api_key: str = "",
+        model_version: str = "local-openai-compatible",
+        dimension: int | None = None,
+        timeout: int = 30,
+        request_fn: Optional[Callable[[str, dict], dict]] = None,
+    ):
+        super().__init__(
+            base_url=base_url,
+            model_name=model_name,
+            api_key=api_key,
+            model_version=model_version,
+            dimension=dimension,
+            timeout=timeout,
+            request_fn=request_fn,
+        )
+
+
+def _parse_openai_embedding_response(
+    data: dict,
+    *,
+    expected_count: int,
+) -> List[List[float]]:
+    items = data.get("data", [])
+    if len(items) != expected_count:
+        raise ValueError("Embedding provider returned an unexpected batch size")
+    ordered = sorted(items, key=lambda item: item.get("index", 0))
+    vectors = [item.get("embedding", []) for item in ordered]
+    if any(not isinstance(vector, list) for vector in vectors):
+        raise ValueError("Embedding provider returned invalid vectors")
+    if not vectors:
+        return []
+    dimension = len(vectors[0])
+    if any(len(vector) != dimension for vector in vectors):
+        raise ValueError("Embedding provider returned inconsistent vector dimensions")
+    return vectors

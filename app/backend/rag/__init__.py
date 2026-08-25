@@ -3,6 +3,8 @@ from .embeddings import (
     EmbeddedVector,
     EmbeddingProvider,
     HashEmbeddingProvider,
+    LocalOpenAICompatibleEmbeddingProvider,
+    OpenAICompatibleEmbeddingProvider,
     PrivacyAwareEmbeddingProvider,
 )
 from .evidence import evidence_refs, format_evidence_bullets
@@ -19,7 +21,13 @@ from .evidence_graph import (
     detect_conflicts,
 )
 from .index import KnowledgeBaseIndex
-from .reranker import LexicalReranker, NoopReranker, Reranker
+from .reranker import (
+    ApiReranker,
+    LexicalReranker,
+    LocalOpenAICompatibleReranker,
+    NoopReranker,
+    Reranker,
+)
 from .retriever import KnowledgeBaseRetriever, RetrievalResult
 from .vector_store import (
     ChromaVectorStore,
@@ -39,6 +47,8 @@ __all__ = [
     "EmbeddedVector",
     "EmbeddingProvider",
     "HashEmbeddingProvider",
+    "OpenAICompatibleEmbeddingProvider",
+    "LocalOpenAICompatibleEmbeddingProvider",
     "PrivacyAwareEmbeddingProvider",
     "ChromaVectorStore",
     "JsonVectorStore",
@@ -48,6 +58,8 @@ __all__ = [
     "VectorStore",
     "TextSearchStore",
     "LexicalReranker",
+    "ApiReranker",
+    "LocalOpenAICompatibleReranker",
     "NoopReranker",
     "Reranker",
     "evidence_refs",
