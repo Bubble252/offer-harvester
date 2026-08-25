@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -12,7 +13,17 @@ from feedback_loop import record_evidence_audit_feedback
 from lifecycle import import_email_signal_candidates
 from memory import LocalMemoryManager
 from models import KnowledgeBaseSourceCreate, StudentProfile, now_iso
-from rag import Claim, EvidenceBundle, KnowledgeBaseIndex, KnowledgeBaseRetriever, LexicalReranker
+from rag import (
+    Claim,
+    EmbeddingProvider,
+    EvidenceBundle,
+    HashEmbeddingProvider,
+    KnowledgeBaseIndex,
+    KnowledgeBaseRetriever,
+    LexicalReranker,
+    configured_embedding_provider_from_env,
+    configured_reranker_from_env,
+)
 from rag.reranker import NoopReranker, Reranker
 from storage import Workspace
 
@@ -54,6 +65,7 @@ def run_rag_memory_evaluation(
     *,
     workspace_dir: Optional[Path] = None,
     storage_backend: str = "sqlite",
+    embedding_provider_name: str = "hash",
     reranker_name: str = "noop",
     reset_workspace: bool = False,
     report_path: Optional[Path] = None,
@@ -67,6 +79,7 @@ def run_rag_memory_evaluation(
                 manifest,
                 Workspace(tmp),
                 storage_backend=storage_backend,
+                embedding_provider_name=embedding_provider_name,
                 reranker_name=reranker_name,
                 report_path=report_path,
             )
@@ -77,6 +90,7 @@ def run_rag_memory_evaluation(
         manifest,
         Workspace(str(workspace_dir)),
         storage_backend=storage_backend,
+        embedding_provider_name=embedding_provider_name,
         reranker_name=reranker_name,
         report_path=report_path,
     )
@@ -88,11 +102,24 @@ def _run_eval(
     workspace: Workspace,
     *,
     storage_backend: str,
+    embedding_provider_name: str,
     reranker_name: str,
     report_path: Optional[Path],
 ) -> Dict[str, Any]:
-    source_map = _index_fixture_sources(fixture_root, manifest, workspace, storage_backend)
-    retriever = _make_eval_retriever(workspace, storage_backend, reranker_name)
+    embedding_provider = _make_embedding_provider(embedding_provider_name)
+    source_map = _index_fixture_sources(
+        fixture_root,
+        manifest,
+        workspace,
+        storage_backend,
+        embedding_provider,
+    )
+    retriever = _make_eval_retriever(
+        workspace,
+        storage_backend,
+        reranker_name,
+        embedding_provider,
+    )
 
     teacher_results = _evaluate_retrieval_group(
         retriever,
@@ -100,6 +127,7 @@ def _run_eval(
         TEACHER_QUERIES,
         source_kind="advisor_source",
         label="teacher_pages",
+        allow_external_public_query=True,
     )
     policy_results = _evaluate_retrieval_group(
         retriever,
@@ -107,6 +135,7 @@ def _run_eval(
         POLICY_QUERIES,
         source_kind="policy",
         label="policy_pages",
+        allow_external_public_query=True,
     )
     student_results = _evaluate_retrieval_group(
         retriever,
@@ -114,10 +143,15 @@ def _run_eval(
         STUDENT_QUERIES,
         source_kind="student_document",
         label="student_profiles",
+        allow_external_public_query=False,
     )
     email_results = _evaluate_email_signals(fixture_root, manifest, workspace)
-    expired_policy = _evaluate_expired_policy_rejection(workspace, storage_backend, reranker_name)
-    rejected_leakage = _evaluate_rejected_student_leakage(workspace, storage_backend, reranker_name)
+    expired_policy = _evaluate_expired_policy_rejection(
+        workspace, storage_backend, reranker_name, embedding_provider
+    )
+    rejected_leakage = _evaluate_rejected_student_leakage(
+        workspace, storage_backend, reranker_name, embedding_provider
+    )
     audit_feedback = _evaluate_audit_feedback_loop(workspace)
 
     retrieval_results = teacher_results + policy_results + student_results
@@ -126,7 +160,8 @@ def _run_eval(
         "created_at": now_iso(),
         "fixture_set_id": manifest.get("set_id", ""),
         "storage_backend": storage_backend,
-        "embedding": "HashEmbeddingProvider",
+        "embedding": embedding_provider.model_name,
+        "embedding_model_version": embedding_provider.model_version,
         "reranker": _make_reranker(reranker_name).name,
         "summary": {
             "retrieval_case_count": len(retrieval_results),
@@ -158,8 +193,9 @@ def _run_eval(
         "rejected_student_leakage": rejected_leakage,
         "audit_feedback": audit_feedback,
         "notes": [
-            "This report evaluates the current lightweight local stack only.",
-            "No external embedding API, reranker API, OCR, MongoDB, Redis, Chroma service, Milvus, or GPU dependency is used.",
+            "This report evaluates the configured local/API RAG stack.",
+            "Private student fixtures are kept on the local embedding route unless explicitly changed in code.",
+            "No OCR, MongoDB, Redis, Chroma service, Milvus, or GPU dependency is used.",
         ],
     }
     output = report_path or (
@@ -176,8 +212,13 @@ def _index_fixture_sources(
     manifest: Dict[str, Any],
     workspace: Workspace,
     storage_backend: str,
+    embedding_provider: EmbeddingProvider,
 ) -> Dict[str, str]:
-    index = KnowledgeBaseIndex(workspace, storage_backend=storage_backend)
+    index = KnowledgeBaseIndex(
+        workspace,
+        storage_backend=storage_backend,
+        embedding_provider=embedding_provider,
+    )
     source_map: Dict[str, str] = {}
     for item in manifest["items"]["teacher_pages"]:
         source = _add_text_source(
@@ -247,6 +288,7 @@ def _evaluate_retrieval_group(
     *,
     source_kind: str,
     label: str,
+    allow_external_public_query: bool,
 ) -> List[Dict[str, Any]]:
     results = []
     for item_id, query in queries.items():
@@ -257,6 +299,7 @@ def _evaluate_retrieval_group(
             include_historical=False,
             as_of_year=2026,
             limit=5,
+            allow_external_public_query=allow_external_public_query,
         )
         gold_source_id = source_map[item_id]
         source_ids = [hit.source_id for hit in retrieval.hits]
@@ -317,9 +360,16 @@ def _evaluate_email_signals(
 
 
 def _evaluate_expired_policy_rejection(
-    workspace: Workspace, storage_backend: str, reranker_name: str
+    workspace: Workspace,
+    storage_backend: str,
+    reranker_name: str,
+    embedding_provider: EmbeddingProvider,
 ) -> Dict[str, Any]:
-    index = KnowledgeBaseIndex(workspace, storage_backend=storage_backend)
+    index = KnowledgeBaseIndex(
+        workspace,
+        storage_backend=storage_backend,
+        embedding_provider=embedding_provider,
+    )
     source = index.add_source(
         KnowledgeBaseSourceCreate(
             source_kind="policy",
@@ -332,13 +382,14 @@ def _evaluate_expired_policy_rejection(
         )
     )
     index.rebuild()
-    retriever = _make_eval_retriever(workspace, storage_backend, reranker_name)
+    retriever = _make_eval_retriever(workspace, storage_backend, reranker_name, embedding_provider)
     current = retriever.search(
         "2025 推免报名截止日期",
         source_kinds=["policy"],
         include_historical=False,
         as_of_year=2026,
         limit=5,
+        allow_external_public_query=True,
     )
     historical = retriever.search(
         "2025 推免报名截止日期",
@@ -346,6 +397,7 @@ def _evaluate_expired_policy_rejection(
         include_historical=True,
         as_of_year=2026,
         limit=5,
+        allow_external_public_query=True,
     )
     current_sources = [hit.source_id for hit in current.hits]
     historical_sources = [hit.source_id for hit in historical.hits]
@@ -361,7 +413,10 @@ def _evaluate_expired_policy_rejection(
 
 
 def _evaluate_rejected_student_leakage(
-    workspace: Workspace, storage_backend: str, reranker_name: str
+    workspace: Workspace,
+    storage_backend: str,
+    reranker_name: str,
+    embedding_provider: EmbeddingProvider,
 ) -> Dict[str, Any]:
     rejected_document = workspace.save_user_document(
         "项目：已否认的量子计算顶会论文。".encode("utf-8"),
@@ -378,9 +433,18 @@ def _evaluate_rejected_student_leakage(
         confirmation_map={"projects": "rejected"},
         evidence_map={"projects": [rejected_document.document_id]},
     )
-    index = KnowledgeBaseIndex(workspace, storage_backend=storage_backend)
+    index = KnowledgeBaseIndex(
+        workspace,
+        storage_backend=storage_backend,
+        embedding_provider=embedding_provider,
+    )
     index.rebuild()
-    retrieval = _make_eval_retriever(workspace, storage_backend, reranker_name).search(
+    retrieval = _make_eval_retriever(
+        workspace,
+        storage_backend,
+        reranker_name,
+        embedding_provider,
+    ).search(
         "量子计算 顶会论文",
         source_kinds=["student_document"],
         include_unconfirmed=True,
@@ -435,11 +499,15 @@ def _reciprocal_rank(rank: int) -> float:
 
 
 def _make_eval_retriever(
-    workspace: Workspace, storage_backend: str, reranker_name: str
+    workspace: Workspace,
+    storage_backend: str,
+    reranker_name: str,
+    embedding_provider: EmbeddingProvider,
 ) -> KnowledgeBaseRetriever:
     return KnowledgeBaseRetriever(
         workspace,
         storage_backend=storage_backend,
+        embedding_provider=embedding_provider,
         reranker=_make_reranker(reranker_name),
     )
 
@@ -449,7 +517,23 @@ def _make_reranker(reranker_name: str) -> Reranker:
         return LexicalReranker()
     if reranker_name == "noop":
         return NoopReranker()
+    if reranker_name in {"env", "siliconflow", "api", "local"}:
+        env = dict(os.environ)
+        if reranker_name != "env":
+            env["RAG_RERANKER"] = reranker_name
+        return configured_reranker_from_env(env)
     raise ValueError(f"Unsupported evaluation reranker: {reranker_name}")
+
+
+def _make_embedding_provider(embedding_provider_name: str) -> EmbeddingProvider:
+    if embedding_provider_name == "hash":
+        return HashEmbeddingProvider()
+    if embedding_provider_name in {"env", "siliconflow", "api", "local"}:
+        env = dict(os.environ)
+        if embedding_provider_name != "env":
+            env["RAG_EMBEDDING_PROVIDER"] = embedding_provider_name
+        return configured_embedding_provider_from_env(env)
+    raise ValueError(f"Unsupported evaluation embedding provider: {embedding_provider_name}")
 
 
 def _reset_eval_workspace(path: Path) -> None:

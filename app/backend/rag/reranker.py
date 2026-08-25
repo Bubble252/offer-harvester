@@ -6,6 +6,8 @@ from typing import Callable, List, Optional, Protocol
 from local_model_runtime import LocalRuntimeEndpoint, post_json
 from models import RAGSearchHit
 
+from rag.embeddings import PUBLIC_SOURCE_KINDS
+
 
 class Reranker(Protocol):
     name: str
@@ -40,6 +42,41 @@ class LexicalReranker:
                 f"reranker={self.name}"
             )
         return sorted(hits, key=lambda hit: hit.rerank_score, reverse=True)
+
+
+class PrivacyAwareReranker:
+    """Route reranking externally only when all candidates are public sources."""
+
+    def __init__(
+        self,
+        *,
+        local_reranker: Reranker | None = None,
+        public_reranker: Reranker | None = None,
+        allow_external_public: bool = False,
+        public_source_kinds: frozenset[str] = PUBLIC_SOURCE_KINDS,
+    ):
+        self.local_reranker = local_reranker or NoopReranker()
+        self.public_reranker = public_reranker
+        self.allow_external_public = allow_external_public
+        self.public_source_kinds = public_source_kinds
+        self.name = (
+            f"privacy-aware:{self.public_reranker.name}"
+            if self.public_reranker
+            else f"privacy-aware:{self.local_reranker.name}"
+        )
+
+    def rerank(self, query: str, hits: List[RAGSearchHit]) -> List[RAGSearchHit]:
+        if (
+            self.allow_external_public
+            and self.public_reranker is not None
+            and hits
+            and all(hit.source_kind in self.public_source_kinds for hit in hits)
+        ):
+            return self.public_reranker.rerank(query, hits)
+        ranked = self.local_reranker.rerank(query, hits)
+        for hit in ranked:
+            hit.retrieval_explanation = f"{hit.retrieval_explanation}; route=local_private_safe"
+        return ranked
 
 
 class ApiReranker:
@@ -179,12 +216,17 @@ def configured_reranker_from_env(env: Optional[dict[str, str]] = None) -> Rerank
         overlap = _env_int(env.get("SILICONFLOW_RERANK_OVERLAP_TOKENS"))
         if overlap is not None:
             extra_payload["overlap_tokens"] = overlap
-        return ApiReranker(
+        public_reranker = ApiReranker(
             base_url=base_url,
             model_name=model,
             api_key=api_key,
             path="/rerank",
             extra_payload=extra_payload,
+        )
+        return PrivacyAwareReranker(
+            local_reranker=NoopReranker(),
+            public_reranker=public_reranker,
+            allow_external_public=True,
         )
     if mode == "api":
         api_key = env.get("RAG_RERANK_API_KEY", "").strip()

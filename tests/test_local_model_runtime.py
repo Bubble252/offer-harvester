@@ -17,6 +17,8 @@ from rag import (  # noqa: E402
     LocalOpenAICompatibleEmbeddingProvider,
     LocalOpenAICompatibleReranker,
     OpenAICompatibleEmbeddingProvider,
+    PrivacyAwareEmbeddingProvider,
+    PrivacyAwareReranker,
     configured_embedding_provider_from_env,
     configured_reranker_from_env,
 )
@@ -71,10 +73,17 @@ def test_siliconflow_embedding_provider_from_env_uses_official_shape():
         calls.append((endpoint, payload))
         return {"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3, 0.4]}]}
 
-    assert isinstance(provider, OpenAICompatibleEmbeddingProvider)
-    provider._request_fn = fake_request
+    assert isinstance(provider, PrivacyAwareEmbeddingProvider)
+    assert isinstance(provider.public_provider, OpenAICompatibleEmbeddingProvider)
+    provider.public_provider._request_fn = fake_request
 
-    assert provider.embed_query("推免政策") == [0.1, 0.2, 0.3, 0.4]
+    result = provider.embed_query_for_sources(
+        "推免政策",
+        ["policy"],
+        allow_external=True,
+    )
+    assert result.vector == [0.1, 0.2, 0.3, 0.4]
+    assert result.route == "external_public"
     assert calls[0][0] == "https://api.siliconflow.cn/v1/embeddings"
     assert calls[0][1] == {
         "model": "BAAI/bge-m3",
@@ -129,9 +138,18 @@ def test_siliconflow_reranker_from_env_uses_official_shape():
         calls.append((endpoint, payload))
         return {"results": [{"index": 0, "relevance_score": 0.88}]}
 
-    assert isinstance(reranker, ApiReranker)
-    reranker._request_fn = fake_request
-    hits = [RAGSearchHit(source_id="s1", chunk_id="c1", snippet="报名截止日期", score=0.4)]
+    assert isinstance(reranker, PrivacyAwareReranker)
+    assert isinstance(reranker.public_reranker, ApiReranker)
+    reranker.public_reranker._request_fn = fake_request
+    hits = [
+        RAGSearchHit(
+            source_id="s1",
+            chunk_id="c1",
+            source_kind="policy",
+            snippet="报名截止日期",
+            score=0.4,
+        )
+    ]
 
     ranked = reranker.rerank("推免报名什么时候截止", hits)
 
@@ -144,6 +162,41 @@ def test_siliconflow_reranker_from_env_uses_official_shape():
         "top_n": 1,
         "return_documents": False,
     }
+
+
+def test_siliconflow_reranker_does_not_send_private_student_hits():
+    reranker = configured_reranker_from_env(
+        {
+            "RAG_RERANKER": "siliconflow",
+            "SILICONFLOW_API_KEY": "test-key",
+            "SILICONFLOW_RERANK_BASE_URL": "https://api.siliconflow.cn/v1/rerank",
+            "SILICONFLOW_RERANK_MODEL": "BAAI/bge-reranker-v2-m3",
+        }
+    )
+    calls = []
+
+    def fake_request(endpoint, payload):
+        calls.append((endpoint, payload))
+        return {"results": [{"index": 0, "relevance_score": 0.88}]}
+
+    assert isinstance(reranker, PrivacyAwareReranker)
+    assert isinstance(reranker.public_reranker, ApiReranker)
+    reranker.public_reranker._request_fn = fake_request
+    hits = [
+        RAGSearchHit(
+            source_id="private",
+            chunk_id="private_chunk",
+            source_kind="student_document",
+            snippet="私有科研经历",
+            score=0.4,
+        )
+    ]
+
+    ranked = reranker.rerank("科研经历", hits)
+
+    assert ranked[0].chunk_id == "private_chunk"
+    assert ranked[0].rerank_score == 0.4
+    assert calls == []
 
 
 def test_configured_llm_provider_prefers_local_env(monkeypatch):

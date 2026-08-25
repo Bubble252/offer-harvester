@@ -310,13 +310,18 @@ def configured_embedding_provider_from_env(
             extra_payload["encoding_format"] = encoding_format
         if dimensions is not None:
             extra_payload["dimensions"] = dimensions
-        return OpenAICompatibleEmbeddingProvider(
+        public_provider = OpenAICompatibleEmbeddingProvider(
             base_url=base_url,
             model_name=model,
             api_key=api_key,
             model_version="siliconflow",
             dimension=dimensions,
             extra_payload=extra_payload,
+        )
+        return PrivacyAwareEmbeddingProvider(
+            local_provider=HashEmbeddingProvider(),
+            public_provider=public_provider,
+            allow_external_public=True,
         )
     if mode == "api":
         api_key = env.get("RAG_EMBEDDING_API_KEY", "").strip()

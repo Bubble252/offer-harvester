@@ -12,6 +12,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from evaluation import run_rag_memory_evaluation  # noqa: E402
+from llm_client import load_local_env  # noqa: E402
 
 
 def main() -> int:
@@ -37,8 +38,14 @@ def main() -> int:
     parser.add_argument(
         "--reranker",
         default="noop",
-        choices=["noop", "lexical"],
+        choices=["noop", "lexical", "env", "siliconflow", "api", "local"],
         help="Local reranker baseline to evaluate.",
+    )
+    parser.add_argument(
+        "--embedding-provider",
+        default="hash",
+        choices=["hash", "env", "siliconflow", "api", "local"],
+        help="Embedding provider to evaluate.",
     )
     parser.add_argument(
         "--report",
@@ -52,10 +59,12 @@ def main() -> int:
         help="Do not reset the evaluation workspace before indexing fixtures.",
     )
     args = parser.parse_args()
+    load_local_env()
     report = run_rag_memory_evaluation(
         args.fixtures,
         workspace_dir=args.workspace,
         storage_backend=args.storage_backend,
+        embedding_provider_name=args.embedding_provider,
         reranker_name=args.reranker,
         reset_workspace=not args.keep_workspace,
         report_path=args.report,
@@ -64,6 +73,7 @@ def main() -> int:
         json.dumps(
             {
                 "summary": report["summary"],
+                "embedding": report["embedding"],
                 "reranker": report["reranker"],
                 "report_path": report["report_path"],
             },

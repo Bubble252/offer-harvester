@@ -27,6 +27,7 @@ from .reranker import (
     LexicalReranker,
     LocalOpenAICompatibleReranker,
     NoopReranker,
+    PrivacyAwareReranker,
     Reranker,
     configured_reranker_from_env,
 )
@@ -64,6 +65,7 @@ __all__ = [
     "ApiReranker",
     "LocalOpenAICompatibleReranker",
     "NoopReranker",
+    "PrivacyAwareReranker",
     "Reranker",
     "configured_reranker_from_env",
     "evidence_refs",

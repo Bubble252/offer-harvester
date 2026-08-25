@@ -27,7 +27,7 @@ from lifecycle import (
     should_generate_follow_up,
     update_outcome,
 )
-from llm_client import llm_configured
+from llm_client import llm_configured, load_local_env
 from memory import MEMORY_KINDS, LocalMemoryManager, MemoryKind, PromotionTarget
 from models import (
     AdvisorProfile,
@@ -123,6 +123,7 @@ from integrations.presentation_engine import LocalPptxAdapter, PresentationReque
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = APP_ROOT / "frontend"
+load_local_env()
 
 app = FastAPI(title="Grad Apply Workflow", version="0.1.0")
 app.add_middleware(
