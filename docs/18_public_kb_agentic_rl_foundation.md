@@ -56,6 +56,12 @@ Prepare a default Qwen 0.5B LoRA dry run:
 python tools/train_agentic_rl.py
 ```
 
+Run offline Agentic RL evaluation:
+
+```bash
+python tools/evaluate_agentic_rl.py
+```
+
 Check optional training dependencies:
 
 ```bash
@@ -89,6 +95,11 @@ The training dry run writes:
 - `training_manifest.json`
 - `report.md`
 
+The offline evaluator writes:
+
+- `agentic_rl_evaluation.json`
+- `agentic_rl_evaluation.md`
+
 ## Cloud Boundary
 
 Only records from `PublicKBStore` are eligible for Supabase sync. The public KB
@@ -120,3 +131,23 @@ RAG Query Planner -> Evidence Retrieval -> EvidenceAudit -> Audit Fix -> RewardV
 
 This scene is intentionally public-data first because it has clearer reward
 signals and lower privacy risk than direct personal-material generation.
+
+## Training Roadmap
+
+The agreed order is:
+
+1. offline evaluation runner
+2. more real public policy/advisor samples
+3. TRL `SFTTrainer`
+4. Qwen 0.5B LoRA smoke train
+5. base vs adapter vs API baseline report
+6. TRL `DPOTrainer`
+7. TRL `GRPOTrainer`
+
+Heavy ML packages are optional. Install them only in a training environment:
+
+```bash
+python -m pip install '.[train]'
+```
+
+The default app install still avoids torch, TRL, and model downloads.

@@ -15,6 +15,14 @@ dev = [
     "pytest",
     "ruff",
 ]
+train = [
+    "accelerate",
+    "datasets",
+    "peft",
+    "torch",
+    "transformers",
+    "trl",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
