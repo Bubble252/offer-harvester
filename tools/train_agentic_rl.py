@@ -12,36 +12,39 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from agentic_training import (  # noqa: E402
+    DEFAULT_DPO_OUTPUT_DIR_NAME,
     DEFAULT_OUTPUT_DIR_NAME,
     DEFAULT_TINY_MODEL_ID,
     SFTTrainingConfig,
     check_training_dependencies,
+    prepare_dpo_training_run,
     prepare_training_run,
+    run_local_dpo_training,
     run_local_sft_training,
 )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Prepare or run Agentic RL SFT with a default Qwen 0.5B LoRA target."
+        description="Prepare or run Agentic RL SFT/DPO with a default Qwen 0.5B LoRA target."
     )
     parser.add_argument(
         "--dataset-dir",
         type=Path,
         default=ROOT / "workspace" / "rl" / "train_ready",
-        help="Directory containing sft_messages.jsonl.",
+        help="Directory containing sft_messages.jsonl and/or preference_pairs.jsonl.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=ROOT / "workspace" / "rl" / "training_runs" / DEFAULT_OUTPUT_DIR_NAME,
+        default=None,
         help="Directory for split data, config, reports, and optional adapters.",
     )
     parser.add_argument(
         "--mode",
-        choices=["dry-run", "sft"],
+        choices=["dry-run", "sft", "dpo"],
         default="dry-run",
-        help="dry-run prepares data only; sft can train only with --allow-actual-training.",
+        help="dry-run prepares SFT data only; sft/dpo can train only with --allow-actual-training.",
     )
     parser.add_argument(
         "--model-id",
@@ -49,6 +52,7 @@ def main() -> int:
         help="Base model id. Default is the 0.5B Qwen smoke-test target.",
     )
     parser.add_argument("--max-seq-length", type=int, default=1024)
+    parser.add_argument("--max-prompt-length", type=int, default=384)
     parser.add_argument("--epochs", type=float, default=1.0)
     parser.add_argument(
         "--max-steps",
@@ -56,16 +60,24 @@ def main() -> int:
         default=-1,
         help="Override total optimizer steps for smoke training. -1 means epoch-based.",
     )
-    parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--lora-r", type=int, default=8)
     parser.add_argument("--lora-alpha", type=int, default=16)
     parser.add_argument("--lora-dropout", type=float, default=0.05)
+    parser.add_argument("--dpo-beta", type=float, default=0.1)
+    parser.add_argument("--dpo-loss-type", default="sigmoid")
+    parser.add_argument(
+        "--sft-adapter-dir",
+        type=Path,
+        default=ROOT / "workspace" / "rl" / "training_runs" / DEFAULT_OUTPUT_DIR_NAME / "adapter",
+        help="Optional prior SFT adapter for SFT vs DPO smoke evaluation.",
+    )
     parser.add_argument(
         "--allow-actual-training",
         action="store_true",
-        help="Required to start local model training in --mode sft.",
+        help="Required to start local model training in --mode sft or --mode dpo.",
     )
     parser.add_argument(
         "--allow-cpu",
@@ -74,9 +86,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--trainer-backend",
-        choices=["auto", "trl-sft", "hf-trainer"],
+        choices=["auto", "trl-sft", "trl-dpo", "hf-trainer"],
         default="auto",
-        help="Prefer TRL SFTTrainer when available; fallback to HuggingFace Trainer in auto mode.",
+        help="Prefer TRL Trainer when available; fallback to HuggingFace Trainer for SFT in auto mode.",
     )
     parser.add_argument(
         "--skip-eval-after-training",
@@ -95,26 +107,48 @@ def main() -> int:
         print(json.dumps(check_training_dependencies().model_dump(), ensure_ascii=False, indent=2))
         return 0
 
+    output_dir = args.output_dir
+    if output_dir is None:
+        name = DEFAULT_DPO_OUTPUT_DIR_NAME if args.mode == "dpo" else DEFAULT_OUTPUT_DIR_NAME
+        output_dir = ROOT / "workspace" / "rl" / "training_runs" / name
+
+    trainer_backend = args.trainer_backend
+    if args.mode == "dpo" and trainer_backend == "auto":
+        trainer_backend = "trl-dpo"
+    learning_rate = args.learning_rate
+    if learning_rate is None:
+        learning_rate = 5e-6 if args.mode == "dpo" else 2e-4
     config = SFTTrainingConfig(
         model_id=args.model_id,
-        trainer_backend=args.trainer_backend,
+        trainer_backend=trainer_backend,
         max_seq_length=args.max_seq_length,
-        learning_rate=args.learning_rate,
+        max_prompt_length=args.max_prompt_length,
+        learning_rate=learning_rate,
         num_train_epochs=args.epochs,
         max_steps=args.max_steps,
+        dpo_beta=args.dpo_beta,
+        dpo_loss_type=args.dpo_loss_type,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
     )
     config.lora.r = args.lora_r
     config.lora.lora_alpha = args.lora_alpha
     config.lora.lora_dropout = args.lora_dropout
-    prepared = prepare_training_run(
-        args.dataset_dir,
-        args.output_dir,
-        mode=args.mode,
-        model_id=args.model_id,
-        training_config=config,
-    )
+    if args.mode == "dpo":
+        prepared = prepare_dpo_training_run(
+            args.dataset_dir,
+            output_dir,
+            model_id=args.model_id,
+            training_config=config,
+        )
+    else:
+        prepared = prepare_training_run(
+            args.dataset_dir,
+            output_dir,
+            mode=args.mode,
+            model_id=args.model_id,
+            training_config=config,
+        )
 
     if args.mode == "sft" and args.allow_actual_training:
         prepared = run_local_sft_training(
@@ -124,6 +158,16 @@ def main() -> int:
             max_eval_samples=args.max_eval_samples,
         )
     elif args.mode == "sft":
+        prepared = prepared.model_copy(update={"training_status": "requires_allow_actual_training"})
+    elif args.mode == "dpo" and args.allow_actual_training:
+        prepared = run_local_dpo_training(
+            prepared,
+            sft_adapter_dir=args.sft_adapter_dir,
+            allow_cpu=args.allow_cpu,
+            evaluate_after_training=not args.skip_eval_after_training,
+            max_eval_samples=args.max_eval_samples,
+        )
+    elif args.mode == "dpo":
         prepared = prepared.model_copy(update={"training_status": "requires_allow_actual_training"})
 
     print(

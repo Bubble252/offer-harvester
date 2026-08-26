@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 DEFAULT_TINY_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 DEFAULT_OUTPUT_DIR_NAME = "qwen2_5_0_5b_lora"
+DEFAULT_DPO_OUTPUT_DIR_NAME = "qwen2_5_0_5b_dpo_lora"
 
 
 class TrainingDatasetIssue(BaseModel):
@@ -59,11 +60,14 @@ class SFTTrainingConfig(BaseModel):
     schema_version: str = "agentic-rl-sft-training.v1"
     model_id: str = DEFAULT_TINY_MODEL_ID
     method: Literal["lora"] = "lora"
-    trainer_backend: Literal["auto", "trl-sft", "hf-trainer"] = "auto"
+    trainer_backend: Literal["auto", "trl-sft", "trl-dpo", "hf-trainer"] = "auto"
     max_seq_length: int = 1024
+    max_prompt_length: int = 384
     learning_rate: float = 2e-4
     num_train_epochs: float = 1.0
     max_steps: int = -1
+    dpo_beta: float = 0.1
+    dpo_loss_type: str = "sigmoid"
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 8
     fp16_if_cuda: bool = True
@@ -103,9 +107,13 @@ class TrainingDependencyReport(BaseModel):
     def ready_for_trl_sft(self) -> bool:
         return self.ready_for_sft and self.datasets and self.trl
 
+    @property
+    def ready_for_trl_dpo(self) -> bool:
+        return self.ready_for_trl_sft
+
 
 class PreparedTrainingRun(BaseModel):
-    mode: Literal["dry-run", "sft"]
+    mode: Literal["dry-run", "sft", "dpo"]
     output_dir: str
     config: SFTTrainingConfig
     dataset_report: TrainingDatasetReport
@@ -161,10 +169,70 @@ def prepare_training_run(
     )
 
 
+def prepare_dpo_training_run(
+    dataset_dir: Path,
+    output_dir: Path,
+    *,
+    model_id: str = DEFAULT_TINY_MODEL_ID,
+    split_config: Optional[DatasetSplitConfig] = None,
+    training_config: Optional[SFTTrainingConfig] = None,
+) -> PreparedTrainingRun:
+    rows = load_preference_pairs(dataset_dir)
+    split_config = split_config or DatasetSplitConfig()
+    config = training_config or SFTTrainingConfig(
+        model_id=model_id,
+        trainer_backend="trl-dpo",
+        learning_rate=5e-6,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    unique_rows, duplicate_count = dedupe_preference_rows(rows)
+    splits = split_rows(unique_rows, split_config)
+    split_files = write_splits(output_dir, splits)
+    report = build_preference_dataset_report(
+        dataset_dir / "preference_pairs.jsonl", rows, unique_rows, splits
+    )
+    report.duplicate_rows = duplicate_count
+    config_path = output_dir / "training_config.json"
+    config_path.write_text(_json(config.model_dump()) + "\n", encoding="utf-8")
+    manifest = {
+        "schema_version": "agentic-rl-dpo-training-run.v1",
+        "mode": "dpo",
+        "created_at": now_iso(),
+        "config_file": str(config_path),
+        "split_files": split_files,
+        "dataset_report": report.model_dump(),
+        "default_model_reason": "0.5B Qwen is the conservative 8GB-GPU DPO smoke-test target.",
+    }
+    (output_dir / "training_manifest.json").write_text(_json(manifest) + "\n", encoding="utf-8")
+    (output_dir / "report.md").write_text(render_training_report(config, report), encoding="utf-8")
+    dependencies = check_training_dependencies()
+    return PreparedTrainingRun(
+        mode="dpo",
+        output_dir=str(output_dir),
+        config=config,
+        dataset_report=report,
+        dependencies=dependencies,
+        split_files=split_files,
+        training_status="ready" if report.valid else "invalid_dataset",
+    )
+
+
 def load_sft_messages(dataset_dir: Path) -> List[Dict[str, Any]]:
     path = dataset_dir / "sft_messages.jsonl"
     if not path.exists():
         raise FileNotFoundError(f"Missing SFT dataset: {path}")
+    rows: List[Dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def load_preference_pairs(dataset_dir: Path) -> List[Dict[str, Any]]:
+    path = dataset_dir / "preference_pairs.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"Missing DPO preference dataset: {path}")
     rows: List[Dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
@@ -178,6 +246,24 @@ def dedupe_rows(rows: Iterable[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], i
     duplicate_count = 0
     for row in rows:
         digest = hashlib.sha256(_json(row.get("messages", [])).encode("utf-8")).hexdigest()
+        if digest in seen:
+            duplicate_count += 1
+            continue
+        seen.add(digest)
+        unique.append(row)
+    return unique, duplicate_count
+
+
+def dedupe_preference_rows(rows: Iterable[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+    seen = set()
+    unique: List[Dict[str, Any]] = []
+    duplicate_count = 0
+    for row in rows:
+        digest = hashlib.sha256(
+            _json([row.get("prompt", ""), row.get("chosen", ""), row.get("rejected", "")]).encode(
+                "utf-8"
+            )
+        ).hexdigest()
         if digest in seen:
             duplicate_count += 1
             continue
@@ -288,6 +374,88 @@ def build_dataset_report(
     )
 
 
+def build_preference_dataset_report(
+    source_file: Path,
+    original_rows: List[Dict[str, Any]],
+    unique_rows: List[Dict[str, Any]],
+    splits: Dict[str, List[Dict[str, Any]]],
+) -> TrainingDatasetReport:
+    issues: List[TrainingDatasetIssue] = []
+    privacy_hits: List[str] = []
+    token_counts: List[int] = []
+    margins: List[float] = []
+    task_type_counts: Dict[str, int] = {}
+    for row in unique_rows:
+        row_id = str(row.get("id", ""))
+        prompt = str(row.get("prompt", "") or "")
+        chosen = str(row.get("chosen", "") or "")
+        rejected = str(row.get("rejected", "") or "")
+        if not prompt or not chosen or not rejected:
+            issues.append(
+                _issue(
+                    "error",
+                    "invalid_preference_pair",
+                    "DPO row must contain prompt, chosen, and rejected.",
+                    row_id,
+                )
+            )
+        if chosen == rejected:
+            issues.append(
+                _issue(
+                    "error",
+                    "identical_chosen_rejected",
+                    "Chosen and rejected responses must differ.",
+                    row_id,
+                )
+            )
+        token_counts.append(estimate_tokens(f"{prompt}\n{chosen}\n{rejected}"))
+        privacy_hits.extend(scan_privacy(f"{prompt}\n{chosen}\n{rejected}", row_id=row_id))
+        chosen_reward = row.get("chosen_reward")
+        rejected_reward = row.get("rejected_reward")
+        if isinstance(chosen_reward, (int, float)) and isinstance(rejected_reward, (int, float)):
+            margin = float(chosen_reward) - float(rejected_reward)
+            margins.append(margin)
+            if margin <= 0:
+                issues.append(
+                    _issue(
+                        "warning",
+                        "non_positive_reward_margin",
+                        "Chosen reward is not greater than rejected reward.",
+                        row_id,
+                    )
+                )
+        task_type = str(row.get("task_type", "unknown") or "unknown")
+        task_type_counts[task_type] = task_type_counts.get(task_type, 0) + 1
+    if privacy_hits:
+        issues.append(
+            _issue(
+                "error",
+                "privacy_scan_hit",
+                "Preference dataset contains unmasked email, phone, API key, or connection string pattern.",
+            )
+        )
+    if len(unique_rows) < 50:
+        issues.append(
+            _issue(
+                "warning",
+                "small_dataset",
+                "Fewer than 50 unique DPO rows; use only for smoke tests.",
+            )
+        )
+    return TrainingDatasetReport(
+        valid=not any(issue.level == "error" for issue in issues),
+        source_file=str(source_file),
+        total_rows=len(original_rows),
+        usable_rows=len(unique_rows),
+        split_counts={name: len(rows) for name, rows in splits.items()},
+        approx_token_stats=_numeric_stats(token_counts),
+        reward_stats=_numeric_stats(margins),
+        task_type_counts=task_type_counts,
+        privacy_scan_hits=privacy_hits,
+        issues=issues,
+    )
+
+
 def check_training_dependencies() -> TrainingDependencyReport:
     return TrainingDependencyReport(
         torch=importlib.util.find_spec("torch") is not None,
@@ -327,7 +495,7 @@ def render_training_report(config: SFTTrainingConfig, report: TrainingDatasetRep
     if not issues:
         issues = "- none"
     return (
-        "# Agentic RL SFT Training Dry Run\n\n"
+        "# Agentic RL Training Dry Run\n\n"
         f"- model: `{config.model_id}`\n"
         f"- method: `{config.method}`\n"
         f"- trainer_backend: `{config.trainer_backend}`\n"
@@ -376,6 +544,34 @@ def run_local_sft_training(
         )
     return _run_hf_sft_training(
         prepared,
+        evaluate_after_training=evaluate_after_training,
+        max_eval_samples=max_eval_samples,
+    )
+
+
+def run_local_dpo_training(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path] = None,
+    allow_cpu: bool = False,
+    evaluate_after_training: bool = True,
+    max_eval_samples: int = 3,
+) -> PreparedTrainingRun:
+    """Run a minimal TRL DPOTrainer LoRA preference optimization."""
+
+    if not prepared.dataset_report.valid:
+        return prepared.model_copy(update={"training_status": "invalid_dataset"})
+    if not prepared.dependencies.ready_for_trl_dpo:
+        return prepared.model_copy(update={"training_status": "missing_dpo_dependencies"})
+
+    import torch
+
+    if not torch.cuda.is_available() and not allow_cpu:
+        return prepared.model_copy(update={"training_status": "cuda_unavailable"})
+
+    return _run_trl_dpo_training(
+        prepared,
+        sft_adapter_dir=sft_adapter_dir,
         evaluate_after_training=evaluate_after_training,
         max_eval_samples=max_eval_samples,
     )
@@ -553,6 +749,96 @@ def _run_trl_sft_training(
     return result
 
 
+def _run_trl_dpo_training(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path],
+    evaluate_after_training: bool,
+    max_eval_samples: int,
+) -> PreparedTrainingRun:
+    import torch
+    from datasets import Dataset
+    from peft import LoraConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from trl import DPOConfig, DPOTrainer
+
+    output_dir = Path(prepared.output_dir)
+    train_rows = _read_jsonl(Path(prepared.split_files["train"]))
+    valid_rows = _read_jsonl(Path(prepared.split_files["valid"]))
+    tokenizer = AutoTokenizer.from_pretrained(prepared.config.model_id, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(
+        prepared.config.model_id,
+        device_map="auto" if torch.cuda.is_available() else None,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        trust_remote_code=True,
+    )
+    lora = LoraConfig(
+        task_type="CAUSAL_LM",
+        r=prepared.config.lora.r,
+        lora_alpha=prepared.config.lora.lora_alpha,
+        lora_dropout=prepared.config.lora.lora_dropout,
+        target_modules=prepared.config.lora.target_modules,
+        bias="none",
+    )
+    train_dataset = Dataset.from_list([format_dpo_row(row) for row in train_rows])
+    eval_dataset = (
+        Dataset.from_list([format_dpo_row(row) for row in valid_rows]) if valid_rows else None
+    )
+    config_kwargs = {
+        "output_dir": str(output_dir / "trainer"),
+        "overwrite_output_dir": True,
+        "num_train_epochs": prepared.config.num_train_epochs,
+        "max_steps": prepared.config.max_steps,
+        "per_device_train_batch_size": prepared.config.per_device_train_batch_size,
+        "per_device_eval_batch_size": prepared.config.per_device_train_batch_size,
+        "gradient_accumulation_steps": prepared.config.gradient_accumulation_steps,
+        "learning_rate": prepared.config.learning_rate,
+        "fp16": bool(prepared.config.fp16_if_cuda and torch.cuda.is_available()),
+        "logging_steps": 1,
+        "save_strategy": "epoch",
+        "save_total_limit": 1,
+        "report_to": [],
+        "max_length": prepared.config.max_seq_length,
+        "max_prompt_length": prepared.config.max_prompt_length,
+        "beta": prepared.config.dpo_beta,
+        "loss_type": prepared.config.dpo_loss_type,
+        "remove_unused_columns": False,
+    }
+    training_args = _build_sft_config(DPOConfig, config_kwargs)
+    trainer = _build_dpo_trainer(
+        DPOTrainer,
+        model=model,
+        ref_model=None,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        peft_config=lora,
+        tokenizer=tokenizer,
+    )
+    trainer.train()
+    adapter_dir = output_dir / "adapter"
+    trainer.model.save_pretrained(adapter_dir)
+    tokenizer.save_pretrained(adapter_dir)
+    eval_report = _safe_evaluate_base_sft_dpo(
+        prepared,
+        sft_adapter_dir=sft_adapter_dir,
+        evaluate_after_training=evaluate_after_training,
+        max_eval_samples=max_eval_samples,
+    )
+    result = prepared.model_copy(
+        update={
+            "training_started": True,
+            "training_status": "completed",
+            "trainer_backend_used": "trl-dpo",
+            "model_eval_report": eval_report,
+        }
+    )
+    write_training_result(result)
+    return result
+
+
 def _build_sft_config(config_type: Any, kwargs: Dict[str, Any]) -> Any:
     parameters = set(inspect.signature(config_type.__init__).parameters)
     adapted = dict(kwargs)
@@ -563,6 +849,17 @@ def _build_sft_config(config_type: Any, kwargs: Dict[str, Any]) -> Any:
 
 
 def _build_sft_trainer(trainer_type: Any, **kwargs: Any) -> Any:
+    parameters = set(inspect.signature(trainer_type.__init__).parameters)
+    adapted = dict(kwargs)
+    tokenizer = adapted.pop("tokenizer")
+    if "processing_class" in parameters:
+        adapted["processing_class"] = tokenizer
+    elif "tokenizer" in parameters:
+        adapted["tokenizer"] = tokenizer
+    return trainer_type(**{key: value for key, value in adapted.items() if key in parameters})
+
+
+def _build_dpo_trainer(trainer_type: Any, **kwargs: Any) -> Any:
     parameters = set(inspect.signature(trainer_type.__init__).parameters)
     adapted = dict(kwargs)
     tokenizer = adapted.pop("tokenizer")
@@ -652,6 +949,139 @@ def evaluate_base_vs_adapter(
     return report
 
 
+def evaluate_base_sft_dpo(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path] = None,
+    max_eval_samples: int = 3,
+) -> Dict[str, Any]:
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    output_dir = Path(prepared.output_dir)
+    dpo_adapter_dir = output_dir / "adapter"
+    test_rows = _read_jsonl(Path(prepared.split_files["test"]))[:max_eval_samples]
+    if not dpo_adapter_dir.exists() or not test_rows:
+        return {}
+    tokenizer = AutoTokenizer.from_pretrained(prepared.config.model_id, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model_kwargs = {
+        "device_map": "auto" if torch.cuda.is_available() else None,
+        "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+        "trust_remote_code": True,
+    }
+    variant_outputs: Dict[str, List[str]] = {}
+    base_model = AutoModelForCausalLM.from_pretrained(prepared.config.model_id, **model_kwargs)
+    variant_outputs["base"] = [
+        _generate_text(base_model, tokenizer, row, torch) for row in test_rows
+    ]
+    del base_model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if sft_adapter_dir and sft_adapter_dir.exists():
+        sft_base = AutoModelForCausalLM.from_pretrained(prepared.config.model_id, **model_kwargs)
+        sft_model = PeftModel.from_pretrained(sft_base, sft_adapter_dir)
+        variant_outputs["sft_adapter"] = [
+            _generate_text(sft_model, tokenizer, row, torch) for row in test_rows
+        ]
+        del sft_model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    dpo_base = AutoModelForCausalLM.from_pretrained(prepared.config.model_id, **model_kwargs)
+    dpo_model = PeftModel.from_pretrained(dpo_base, dpo_adapter_dir)
+    variant_outputs["dpo_adapter"] = [
+        _generate_text(dpo_model, tokenizer, row, torch) for row in test_rows
+    ]
+    del dpo_model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    privacy_hits: List[str] = []
+    rows = []
+    for index, row in enumerate(test_rows):
+        expected = _row_expected(row)
+        row_payload: Dict[str, Any] = {
+            "id": row.get("id", ""),
+            "task_type": row.get("task_type", ""),
+            "chosen_reward": row.get("chosen_reward"),
+            "rejected_reward": row.get("rejected_reward"),
+            "expected_excerpt": expected[:240],
+        }
+        for variant, outputs in variant_outputs.items():
+            generated = outputs[index]
+            privacy_hits.extend(scan_privacy(generated, row_id=f"{row_payload['id']}:{variant}"))
+            masked = _safe_generated_text(generated)
+            row_payload[f"{variant}_score"] = _heuristic_generation_score(masked, expected)
+            row_payload[f"{variant}_output"] = masked
+        rows.append(row_payload)
+    variant_scores = {}
+    for variant in variant_outputs:
+        variant_scores[variant] = _avg([row[f"{variant}_score"] for row in rows])
+    report = {
+        "schema_version": "agentic-rl-sft-dpo-eval.v1",
+        "model_id": prepared.config.model_id,
+        "sft_adapter_dir": str(sft_adapter_dir) if sft_adapter_dir else "",
+        "dpo_adapter_dir": str(dpo_adapter_dir),
+        "sample_count": len(rows),
+        "variant_scores": variant_scores,
+        "dpo_delta_vs_base": round(
+            variant_scores.get("dpo_adapter", 0.0) - variant_scores.get("base", 0.0), 4
+        ),
+        "dpo_delta_vs_sft": round(
+            variant_scores.get("dpo_adapter", 0.0) - variant_scores.get("sft_adapter", 0.0), 4
+        )
+        if "sft_adapter" in variant_scores
+        else None,
+        "privacy_scan_hits": privacy_hits,
+        "rows": rows,
+        "notes": [
+            "Smoke report uses a lightweight lexical heuristic; it proves DPO adapter load/generation, not final task quality."
+        ],
+    }
+    (output_dir / "sft_dpo_eval.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "sft_dpo_eval.md").write_text(render_sft_dpo_report(report), encoding="utf-8")
+    return report
+
+
+def render_sft_dpo_report(report: Dict[str, Any]) -> str:
+    lines = [
+        "# SFT vs DPO Smoke Evaluation",
+        "",
+        f"- model: `{report.get('model_id', '')}`",
+        f"- sft_adapter: `{report.get('sft_adapter_dir', '')}`",
+        f"- dpo_adapter: `{report.get('dpo_adapter_dir', '')}`",
+        f"- samples: `{report.get('sample_count', 0)}`",
+        f"- variant_scores: `{report.get('variant_scores', {})}`",
+        f"- dpo_delta_vs_base: `{report.get('dpo_delta_vs_base', 0)}`",
+        f"- dpo_delta_vs_sft: `{report.get('dpo_delta_vs_sft', None)}`",
+        f"- privacy_scan_hits: `{len(report.get('privacy_scan_hits', []))}`",
+        "",
+        "## Samples",
+        "",
+    ]
+    for row in report.get("rows", []):
+        lines.extend(
+            [
+                f"### {row.get('id', '')}",
+                "",
+                f"- task_type: `{row.get('task_type', '')}`",
+                f"- base_score: `{row.get('base_score', 0)}`",
+                f"- sft_score: `{row.get('sft_adapter_score', 'n/a')}`",
+                f"- dpo_score: `{row.get('dpo_adapter_score', 0)}`",
+                f"- expected_excerpt: {row.get('expected_excerpt', '')}",
+                "",
+            ]
+        )
+    lines.extend(["## Notes", ""])
+    lines.extend(f"- {note}" for note in report.get("notes", []))
+    return "\n".join(lines) + "\n"
+
+
 def _safe_evaluate_base_vs_adapter(
     prepared: PreparedTrainingRun,
     *,
@@ -668,6 +1098,30 @@ def _safe_evaluate_base_vs_adapter(
             "error": type(exc).__name__,
             "message": str(exc),
             "notes": ["Adapter training completed, but smoke generation evaluation failed."],
+        }
+
+
+def _safe_evaluate_base_sft_dpo(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path],
+    evaluate_after_training: bool,
+    max_eval_samples: int,
+) -> Dict[str, Any]:
+    if not evaluate_after_training:
+        return {}
+    try:
+        return evaluate_base_sft_dpo(
+            prepared,
+            sft_adapter_dir=sft_adapter_dir,
+            max_eval_samples=max_eval_samples,
+        )
+    except Exception as exc:  # pragma: no cover - hardware/model failures are environment-specific
+        return {
+            "schema_version": "agentic-rl-sft-dpo-eval.v1",
+            "error": type(exc).__name__,
+            "message": str(exc),
+            "notes": ["DPO adapter training completed, but smoke generation evaluation failed."],
         }
 
 
@@ -717,6 +1171,9 @@ def render_training_result_markdown(payload: Dict[str, Any]) -> str:
         f"- base_avg_score: `{eval_report.get('base_avg_score', 0)}`",
         f"- adapter_avg_score: `{eval_report.get('adapter_avg_score', 0)}`",
         f"- eval_delta: `{eval_report.get('delta', 0)}`",
+        f"- variant_scores: `{eval_report.get('variant_scores', {})}`",
+        f"- dpo_delta_vs_base: `{eval_report.get('dpo_delta_vs_base', None)}`",
+        f"- dpo_delta_vs_sft: `{eval_report.get('dpo_delta_vs_sft', None)}`",
         f"- eval_privacy_scan_hits: `{len(eval_report.get('privacy_scan_hits', []))}`",
         "",
         "## Notes",
@@ -764,7 +1221,7 @@ def render_base_vs_adapter_report(report: Dict[str, Any]) -> str:
 
 
 def _generate_text(model: Any, tokenizer: Any, row: Dict[str, Any], torch_module: Any) -> str:
-    prompt = _message_content(row.get("messages", []), "user")
+    prompt = _row_prompt(row)
     text = f"### Instruction:\n{prompt}\n\n### Response:\n"
     encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
     device = next(model.parameters()).device
@@ -797,6 +1254,26 @@ def _safe_generated_text(text: str) -> str:
     text = re.sub(r"sk-[A-Za-z0-9_-]{16,}", "[API_KEY]", text)
     text = re.sub(r"postgres(?:ql)?://[^\s]+", "[POSTGRES_URL]", text)
     return text
+
+
+def format_dpo_row(row: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "prompt": _row_prompt(row),
+        "chosen": str(row.get("chosen", "") or ""),
+        "rejected": str(row.get("rejected", "") or ""),
+    }
+
+
+def _row_prompt(row: Dict[str, Any]) -> str:
+    if "prompt" in row:
+        return str(row.get("prompt", "") or "")
+    return _message_content(row.get("messages", []), "user")
+
+
+def _row_expected(row: Dict[str, Any]) -> str:
+    if "chosen" in row:
+        return str(row.get("chosen", "") or "")
+    return _message_content(row.get("messages", []), "assistant")
 
 
 class _SFTDataset:

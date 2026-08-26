@@ -17,13 +17,13 @@ dev = [
     "ruff",
 ]
 train = [
-    "accelerate",
-    "datasets",
-    "peft",
+    "accelerate>=0.34",
+    "datasets>=2.21",
+    "peft>=0.13,<0.14",
     "pydantic>=2,<3",
-    "torch",
-    "transformers",
-    "trl",
+    "torch>=2.5,<2.6",
+    "transformers>=4.46,<4.47",
+    "trl>=0.12,<0.13",
 ]
 
 [tool.pytest.ini_options]

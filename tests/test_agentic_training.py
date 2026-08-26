@@ -10,13 +10,16 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "app" / "backend"))
 
 from agentic_training import (  # noqa: E402
+    DEFAULT_DPO_OUTPUT_DIR_NAME,
     DEFAULT_TINY_MODEL_ID,
     DatasetSplitConfig,
     SFTTrainingConfig,
     check_training_dependencies,
     estimate_tokens,
+    prepare_dpo_training_run,
     prepare_training_run,
     render_base_vs_adapter_report,
+    render_sft_dpo_report,
     render_training_result_markdown,
     scan_privacy,
 )
@@ -58,11 +61,46 @@ def test_training_run_dedupes_and_flags_privacy(tmp_path):
     assert any("email" in hit for hit in prepared.dataset_report.privacy_scan_hits)
 
 
+def test_prepare_dpo_training_run_splits_and_reports_preferences(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    _write_jsonl(
+        dataset_dir / "preference_pairs.jsonl", [_preference_row(index) for index in range(10)]
+    )
+
+    prepared = prepare_dpo_training_run(
+        dataset_dir,
+        tmp_path / DEFAULT_DPO_OUTPUT_DIR_NAME,
+        split_config=DatasetSplitConfig(train_ratio=0.8, valid_ratio=0.1, test_ratio=0.1),
+    )
+
+    assert prepared.mode == "dpo"
+    assert prepared.config.trainer_backend == "trl-dpo"
+    assert prepared.dataset_report.valid is True
+    assert prepared.dataset_report.split_counts == {"train": 8, "valid": 1, "test": 1}
+    assert Path(prepared.split_files["train"]).exists()
+    assert "qwen2_5_0_5b_dpo_lora" in prepared.output_dir
+
+
+def test_dpo_training_run_flags_privacy(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    row = _preference_row(1)
+    row["chosen"] = "联系 +8613520978645"
+    _write_jsonl(dataset_dir / "preference_pairs.jsonl", [row])
+
+    prepared = prepare_dpo_training_run(dataset_dir, tmp_path / "run")
+
+    assert prepared.dataset_report.valid is False
+    assert any(issue.code == "privacy_scan_hit" for issue in prepared.dataset_report.issues)
+
+
 def test_training_dependency_report_is_non_throwing():
     report = check_training_dependencies()
 
     assert isinstance(report.ready_for_sft, bool)
     assert isinstance(report.ready_for_trl_sft, bool)
+    assert isinstance(report.ready_for_trl_dpo, bool)
     assert isinstance(report.trl, bool)
 
 
@@ -125,6 +163,39 @@ def test_train_agentic_rl_cli_sft_requires_explicit_training_flag(tmp_path):
     assert payload["config"]["max_steps"] == 1
 
 
+def test_train_agentic_rl_cli_dpo_requires_explicit_training_flag(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    _write_jsonl(
+        dataset_dir / "preference_pairs.jsonl", [_preference_row(index) for index in range(5)]
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools" / "train_agentic_rl.py"),
+            "--dataset-dir",
+            str(dataset_dir),
+            "--output-dir",
+            str(tmp_path / "run"),
+            "--mode",
+            "dpo",
+            "--max-steps",
+            "1",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["mode"] == "dpo"
+    assert payload["training_started"] is False
+    assert payload["training_status"] == "requires_allow_actual_training"
+    assert payload["config"]["trainer_backend"] == "trl-dpo"
+    assert payload["config"]["learning_rate"] == 5e-6
+
+
 def test_token_and_privacy_helpers():
     assert estimate_tokens("北京邮电大学 policy query") > 1
     assert scan_privacy("postgresql://user:pass@example.com/db")
@@ -166,6 +237,24 @@ def test_training_config_and_base_vs_adapter_report_render():
     assert "Agentic RL Training Result" in result_report
     assert "completed" in result_report
 
+    dpo_report = render_sft_dpo_report(
+        {
+            "model_id": DEFAULT_TINY_MODEL_ID,
+            "sft_adapter_dir": "workspace/rl/training_runs/qwen2_5_0_5b_lora/adapter",
+            "dpo_adapter_dir": "workspace/rl/training_runs/qwen2_5_0_5b_dpo_lora/adapter",
+            "sample_count": 1,
+            "variant_scores": {"base": 0.1, "sft_adapter": 0.2, "dpo_adapter": 0.3},
+            "dpo_delta_vs_base": 0.2,
+            "dpo_delta_vs_sft": 0.1,
+            "privacy_scan_hits": [],
+            "rows": [{"id": "row1", "task_type": "evidence_audit_fix"}],
+            "notes": ["smoke"],
+        }
+    )
+
+    assert "SFT vs DPO" in dpo_report
+    assert "dpo_delta_vs_sft" in dpo_report
+
 
 def _sft_row(index: int):
     return {
@@ -183,6 +272,18 @@ def _sft_row(index: int):
         ],
         "evidence_refs": [f"public_kb:{index}"],
         "reward": 0.8,
+    }
+
+
+def _preference_row(index: int):
+    return {
+        "id": f"pref_{index}",
+        "task_type": "evidence_audit_fix",
+        "prompt": f"修复第 {index} 个缺少官方证据的 claim。",
+        "chosen": "补检索官方来源，绑定 URL 和 hash，无法核验时降级为 needs_review。",
+        "rejected": "根据经验直接补齐结论。",
+        "chosen_reward": 1.0,
+        "rejected_reward": -1.0,
     }
 
 
