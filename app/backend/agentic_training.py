@@ -66,6 +66,7 @@ class SFTTrainingConfig(BaseModel):
     max_prompt_length: int = 384
     max_completion_length: int = 96
     learning_rate: float = 2e-4
+    warmup_ratio: float = 0.05
     num_train_epochs: float = 1.0
     max_steps: int = -1
     dpo_beta: float = 0.1
@@ -373,6 +374,10 @@ def split_rows(
     rows: List[Dict[str, Any]],
     split_config: DatasetSplitConfig,
 ) -> Dict[str, List[Dict[str, Any]]]:
+    source_grouped = _split_rows_by_source_records(rows, split_config)
+    if source_grouped is not None:
+        return source_grouped
+
     ordered = sorted(
         rows,
         key=lambda row: hashlib.sha256(
@@ -393,6 +398,59 @@ def split_rows(
         "valid": ordered[train_count : train_count + valid_count],
         "test": ordered[train_count + valid_count :],
     }
+
+
+def _split_rows_by_source_records(
+    rows: List[Dict[str, Any]],
+    split_config: DatasetSplitConfig,
+) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """Keep rows from the same public source out of different data splits.
+
+    This only activates when every row declares provenance.  Legacy fixture
+    data without ``source_records`` keeps the deterministic row-level split.
+    """
+
+    if not rows or any(not _source_group_key(row) for row in rows):
+        return None
+
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(_source_group_key(row), []).append(row)
+    if len(grouped) < 3:
+        return None
+
+    ordered_keys = sorted(
+        grouped,
+        key=lambda key: hashlib.sha256(
+            f"{split_config.seed}:source:{key}".encode("utf-8")
+        ).hexdigest(),
+    )
+    total_groups = len(ordered_keys)
+    valid_groups = max(split_config.min_valid, math.floor(total_groups * split_config.valid_ratio))
+    test_groups = max(split_config.min_test, math.floor(total_groups * split_config.test_ratio))
+    if valid_groups + test_groups >= total_groups:
+        valid_groups = 1
+        test_groups = 1
+    train_groups = total_groups - valid_groups - test_groups
+    if train_groups < 1:
+        return None
+
+    train_keys = ordered_keys[:train_groups]
+    valid_keys = ordered_keys[train_groups : train_groups + valid_groups]
+    test_keys = ordered_keys[train_groups + valid_groups :]
+    return {
+        "train": [row for key in train_keys for row in grouped[key]],
+        "valid": [row for key in valid_keys for row in grouped[key]],
+        "test": [row for key in test_keys for row in grouped[key]],
+    }
+
+
+def _source_group_key(row: Dict[str, Any]) -> str:
+    source_records = row.get("source_records", [])
+    if not isinstance(source_records, list):
+        return ""
+    values = sorted({str(item).strip() for item in source_records if str(item).strip()})
+    return "|".join(values)
 
 
 def _split_fingerprint(row: Dict[str, Any]) -> List[Any]:
@@ -725,6 +783,7 @@ def render_training_report(config: SFTTrainingConfig, report: TrainingDatasetRep
         f"- trainer_backend: `{config.trainer_backend}`\n"
         f"- max_seq_length: `{config.max_seq_length}`\n"
         f"- max_steps: `{config.max_steps}`\n"
+        f"- warmup_ratio: `{config.warmup_ratio}`\n"
         f"- LoRA: r={config.lora.r}, alpha={config.lora.lora_alpha}, "
         f"dropout={config.lora.lora_dropout}\n"
         f"- rows: total={report.total_rows}, usable={report.usable_rows}, "
@@ -842,6 +901,36 @@ def _select_trainer_backend(prepared: PreparedTrainingRun) -> str:
     return "hf-trainer"
 
 
+def _prepare_lora_model_for_training(model: Any, *, gradient_checkpointing: bool) -> Any:
+    """Make LoRA models trainable when checkpointed forward passes are enabled."""
+
+    if not gradient_checkpointing:
+        return model
+
+    enable_checkpointing = getattr(model, "gradient_checkpointing_enable", None)
+    if callable(enable_checkpointing):
+        enable_checkpointing()
+
+    enable_input_grads = getattr(model, "enable_input_require_grads", None)
+    if callable(enable_input_grads):
+        enable_input_grads()
+        return model
+
+    get_embeddings = getattr(model, "get_input_embeddings", None)
+    if not callable(get_embeddings):
+        return model
+    embeddings = get_embeddings()
+    if embeddings is None:
+        return model
+
+    def require_grad(_module: Any, _inputs: Any, output: Any) -> None:
+        if hasattr(output, "requires_grad_"):
+            output.requires_grad_(True)
+
+    embeddings.register_forward_hook(require_grad)
+    return model
+
+
 def _run_hf_sft_training(
     prepared: PreparedTrainingRun,
     *,
@@ -864,8 +953,6 @@ def _run_hf_sft_training(
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         trust_remote_code=True,
     )
-    if prepared.config.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
     lora = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         r=prepared.config.lora.r,
@@ -875,6 +962,10 @@ def _run_hf_sft_training(
         bias="none",
     )
     model = get_peft_model(model, lora)
+    model = _prepare_lora_model_for_training(
+        model,
+        gradient_checkpointing=prepared.config.gradient_checkpointing,
+    )
     training_args = TrainingArguments(
         output_dir=str(output_dir / "trainer"),
         overwrite_output_dir=True,
@@ -883,7 +974,9 @@ def _run_hf_sft_training(
         per_device_train_batch_size=prepared.config.per_device_train_batch_size,
         gradient_accumulation_steps=prepared.config.gradient_accumulation_steps,
         learning_rate=prepared.config.learning_rate,
+        warmup_ratio=prepared.config.warmup_ratio,
         fp16=bool(prepared.config.fp16_if_cuda and torch.cuda.is_available()),
+        gradient_checkpointing=prepared.config.gradient_checkpointing,
         logging_steps=5,
         save_strategy="epoch",
         save_total_limit=1,
@@ -950,6 +1043,10 @@ def _run_trl_sft_training(
         target_modules=prepared.config.lora.target_modules,
         bias="none",
     )
+    model = _prepare_lora_model_for_training(
+        model,
+        gradient_checkpointing=prepared.config.gradient_checkpointing,
+    )
     train_dataset = Dataset.from_list([{"text": format_sft_row(row)} for row in train_rows])
     eval_dataset = (
         Dataset.from_list([{"text": format_sft_row(row)} for row in valid_rows])
@@ -964,7 +1061,9 @@ def _run_trl_sft_training(
         "per_device_train_batch_size": prepared.config.per_device_train_batch_size,
         "gradient_accumulation_steps": prepared.config.gradient_accumulation_steps,
         "learning_rate": prepared.config.learning_rate,
+        "warmup_ratio": prepared.config.warmup_ratio,
         "fp16": bool(prepared.config.fp16_if_cuda and torch.cuda.is_available()),
+        "gradient_checkpointing": prepared.config.gradient_checkpointing,
         "logging_steps": 1,
         "save_strategy": "epoch",
         "save_total_limit": 1,
@@ -1012,7 +1111,7 @@ def _run_trl_dpo_training(
 ) -> PreparedTrainingRun:
     import torch
     from datasets import Dataset
-    from peft import LoraConfig
+    from peft import LoraConfig, PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import DPOConfig, DPOTrainer
 
@@ -1036,6 +1135,15 @@ def _run_trl_dpo_training(
         target_modules=prepared.config.lora.target_modules,
         bias="none",
     )
+    initial_adapter = sft_adapter_dir if sft_adapter_dir and sft_adapter_dir.exists() else None
+    peft_config = lora
+    if initial_adapter:
+        model = PeftModel.from_pretrained(model, initial_adapter, is_trainable=True)
+        peft_config = None
+    model = _prepare_lora_model_for_training(
+        model,
+        gradient_checkpointing=prepared.config.gradient_checkpointing,
+    )
     train_dataset = Dataset.from_list([format_dpo_row(row) for row in train_rows])
     eval_dataset = (
         Dataset.from_list([format_dpo_row(row) for row in valid_rows]) if valid_rows else None
@@ -1049,7 +1157,9 @@ def _run_trl_dpo_training(
         "per_device_eval_batch_size": prepared.config.per_device_train_batch_size,
         "gradient_accumulation_steps": prepared.config.gradient_accumulation_steps,
         "learning_rate": prepared.config.learning_rate,
+        "warmup_ratio": prepared.config.warmup_ratio,
         "fp16": bool(prepared.config.fp16_if_cuda and torch.cuda.is_available()),
+        "gradient_checkpointing": prepared.config.gradient_checkpointing,
         "logging_steps": 1,
         "save_strategy": "epoch",
         "save_total_limit": 1,
@@ -1068,7 +1178,7 @@ def _run_trl_dpo_training(
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        peft_config=lora,
+        peft_config=peft_config,
         tokenizer=tokenizer,
     )
     trainer.train()
@@ -1081,6 +1191,7 @@ def _run_trl_dpo_training(
         evaluate_after_training=evaluate_after_training,
         max_eval_samples=max_eval_samples,
     )
+    eval_report["initial_policy_adapter"] = str(initial_adapter) if initial_adapter else ""
     result = prepared.model_copy(
         update={
             "training_started": True,
@@ -1103,7 +1214,7 @@ def _run_trl_grpo_training(
 ) -> PreparedTrainingRun:
     import torch
     from datasets import Dataset
-    from peft import LoraConfig
+    from peft import LoraConfig, PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import GRPOConfig, GRPOTrainer
 
@@ -1127,6 +1238,19 @@ def _run_trl_grpo_training(
         target_modules=prepared.config.lora.target_modules,
         bias="none",
     )
+    initial_adapter = None
+    if dpo_adapter_dir and dpo_adapter_dir.exists():
+        initial_adapter = dpo_adapter_dir
+    elif sft_adapter_dir and sft_adapter_dir.exists():
+        initial_adapter = sft_adapter_dir
+    peft_config = lora
+    if initial_adapter:
+        model = PeftModel.from_pretrained(model, initial_adapter, is_trainable=True)
+        peft_config = None
+    model = _prepare_lora_model_for_training(
+        model,
+        gradient_checkpointing=prepared.config.gradient_checkpointing,
+    )
     train_dataset = Dataset.from_list([format_grpo_row(row) for row in train_rows])
     eval_dataset = (
         Dataset.from_list([format_grpo_row(row) for row in valid_rows]) if valid_rows else None
@@ -1140,7 +1264,9 @@ def _run_trl_grpo_training(
         "per_device_eval_batch_size": prepared.config.per_device_train_batch_size,
         "gradient_accumulation_steps": prepared.config.gradient_accumulation_steps,
         "learning_rate": prepared.config.learning_rate,
+        "warmup_ratio": prepared.config.warmup_ratio,
         "fp16": bool(prepared.config.fp16_if_cuda and torch.cuda.is_available()),
+        "gradient_checkpointing": prepared.config.gradient_checkpointing,
         "logging_steps": 1,
         "save_strategy": "epoch",
         "save_total_limit": 1,
@@ -1162,7 +1288,7 @@ def _run_trl_grpo_training(
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        peft_config=lora,
+        peft_config=peft_config,
         processing_class=tokenizer,
     )
     trainer.train()
@@ -1176,6 +1302,7 @@ def _run_trl_grpo_training(
         evaluate_after_training=evaluate_after_training,
         max_eval_samples=max_eval_samples,
     )
+    eval_report["initial_policy_adapter"] = str(initial_adapter) if initial_adapter else ""
     result = prepared.model_copy(
         update={
             "training_started": True,
@@ -1513,6 +1640,7 @@ def render_sft_dpo_report(report: Dict[str, Any]) -> str:
         f"- model: `{report.get('model_id', '')}`",
         f"- sft_adapter: `{report.get('sft_adapter_dir', '')}`",
         f"- dpo_adapter: `{report.get('dpo_adapter_dir', '')}`",
+        f"- initial_policy_adapter: `{report.get('initial_policy_adapter', '')}`",
         f"- samples: `{report.get('sample_count', 0)}`",
         f"- variant_scores: `{report.get('variant_scores', {})}`",
         f"- dpo_delta_vs_base: `{report.get('dpo_delta_vs_base', 0)}`",
@@ -1548,6 +1676,7 @@ def render_sft_dpo_grpo_report(report: Dict[str, Any]) -> str:
         f"- sft_adapter: `{report.get('sft_adapter_dir', '')}`",
         f"- dpo_adapter: `{report.get('dpo_adapter_dir', '')}`",
         f"- grpo_adapter: `{report.get('grpo_adapter_dir', '')}`",
+        f"- initial_policy_adapter: `{report.get('initial_policy_adapter', '')}`",
         f"- samples: `{report.get('sample_count', 0)}`",
         f"- variant_scores: `{report.get('variant_scores', {})}`",
         f"- grpo_delta_vs_base: `{report.get('grpo_delta_vs_base', 0)}`",

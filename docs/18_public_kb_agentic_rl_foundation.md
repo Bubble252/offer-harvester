@@ -18,7 +18,7 @@ Implemented now:
 - optional TRL `SFTTrainer` LoRA training path with HuggingFace Trainer fallback
 - optional TRL `DPOTrainer` LoRA training path from `preference_pairs.jsonl`
 - optional TRL `GRPOTrainer` LoRA training path from `grpo_rollouts.jsonl`
-- Qwen 0.5B LoRA smoke training result under ignored `workspace/`
+- one controlled, source-disjoint Qwen 0.5B LoRA SFT -> DPO -> GRPO run under ignored `workspace/`
 - grouped RAG regression metrics for teacher pages, policy pages, and private student fixtures
 - optional local PaddleOCR precheck adapter with manual-text fallback and candidate-only profile extraction
 - RewardV2 citation correctness, factuality, source-authority, and conflict terms with hard gates for failed citation/factuality
@@ -60,6 +60,24 @@ Build train-ready Agentic RL data:
   --workspace ./workspace \
   --replace-public-kb-seed \
   --include-real-public-samples
+```
+
+Collect replayable traces through the public-only RAG/Audit/Reward harness:
+
+```bash
+PYTHONPATH=app/backend ./.venv/bin/python tools/collect_agentic_rl_rollouts.py \
+  --workspace ./workspace.eval/agentic_rl_rollouts \
+  --output-dir ./workspace.eval/formal_public_rollout_v1/rl/train_ready
+```
+
+Check the formal training gate. It requires public summary-only provenance,
+source-disjoint splits, 15+ source records, 50+ training rows per task, three
+reward-diverse candidates per GRPO group, complete agent traces, and no
+privacy-pattern hits:
+
+```bash
+PYTHONPATH=app/backend ./.venv/bin/python tools/check_agentic_rl_readiness.py \
+  --dataset-dir ./workspace.eval/formal_public_rollout_v1/rl/train_ready
 ```
 
 Prepare a default Qwen 0.5B LoRA dry run:
@@ -270,6 +288,66 @@ hard failures for unsupported citations, false facts, expired policy use, and
 rejected facts. This is expected negative supervision, not a model-quality
 result.
 
+## First Controlled Training Result
+
+On August 26, 2026, the project completed its first controlled local
+SFT -> DPO -> GRPO run on a source-disjoint, public-only rollout dataset. The
+collector executed the existing deterministic agent chain:
+
+```text
+QueryPlanner -> Retriever -> EvidenceAudit -> EvidenceAuditFix -> RewardV2 -> SafetyGate
+```
+
+The source material contains metadata and summaries only. It does not store
+web-page bodies, call an LLM, or automatically promote retrieved facts into
+product state.
+
+| Item | Result |
+| --- | --- |
+| Public policy/advisor source records | 17 |
+| Task types | `rag_query_plan`, `evidence_audit_fix`, `policy_advisor_qa` |
+| Scenarios per source/task | 4 |
+| Candidate groups / candidates | 204 / 612 |
+| SFT rows | 408; source-disjoint split `360/24/24` |
+| DPO pairs | 204; source-disjoint split `180/12/12` |
+| GRPO groups | 204; source-disjoint split `180/12/12` |
+| Candidate rollouts per GRPO group | 3, with reward spread |
+| Feedback-memory records from audit issues | 153 |
+
+Formal readiness passed before training. The first run used
+`Qwen/Qwen2.5-0.5B-Instruct`, LoRA `r=8`, `alpha=16`, cached local weights,
+an RTX 4060 Laptop GPU with 8 GB VRAM, and adapter-only output:
+
+| Phase | Steps | Initialization | Lightweight held-out result |
+| --- | ---: | --- | --- |
+| SFT | 24 | base Qwen | `0.1937 -> 0.3465` |
+| DPO | 24 | SFT adapter | base/SFT/DPO = `0.2069 / 0.3463 / 0.3836` |
+| GRPO | 16 | DPO adapter | base/SFT/DPO/GRPO = `0.2319 / 0.3713 / 0.4169 / 0.3845` |
+
+SFT loss decreased from `4.6324` to `2.8007`. DPO completed with a clear
+chosen/rejected separation, but that pair set is intentionally easy and should
+not be treated as a general preference-quality score. GRPO completed after the
+LoRA gradient-checkpoint initialization was fixed; the first two logged
+gradient norms were `NaN`, then subsequent steps were finite. Its lightweight
+score was lower than the DPO adapter by `0.0324`, so the DPO adapter is the
+current experimental candidate and the GRPO adapter must not be selected by
+default.
+
+These outputs prove the controlled training sequence, adapter handoff,
+privacy gate, source-disjoint split, save/load path, and evaluation reporting.
+They do **not** prove production quality. The evaluation is a lightweight
+lexical/reference heuristic and the collector uses deterministic harness
+rollouts rather than model-generated online rollouts.
+
+The post-training offline evaluator intentionally keeps promotion conservative:
+on the same 612 trajectories, it reported 204 citation-incorrect candidates,
+204 factuality-failed candidates, and 51 expired-policy violations in the
+negative/needs-review population. Its recommendation was
+`hold_due_to_hard_failures`. This validates the hard-gate behavior and means
+that no adapter is promoted to the application's default model from this run.
+The next experiment must improve the source-grounded evaluator and data
+quality before increasing training scale.
+
 The first optimization scene is:
 
 ```text
@@ -291,9 +369,11 @@ The agreed order is:
 6. TRL `DPOTrainer`
 7. TRL `GRPOTrainer`
 
-Steps 1-7 now have smoke-level coverage. The next training work should expand
-the public dataset, strengthen reward functions, and run fixed regression
-evaluation before increasing steps or model size.
+Steps 1-7 now have one controlled local run. The next training work should add
+more independent public sources and human-reviewed traces, strengthen reward
+functions, add a semantic/task-level evaluator, and run fixed regression
+evaluation before increasing steps or model size. The DPO adapter remains the
+baseline candidate until a later experiment beats it on those stronger gates.
 
 ## Current Evaluation Baseline
 

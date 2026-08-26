@@ -214,8 +214,15 @@ class TrainReadyDatasetExporter:
                 preference_rows.append(self._preference_row(ordered[0], ordered[-1], reward_by_id))
             grpo_rows.append(
                 {
+                    "id": _group_id_for(group[0]),
                     "prompt": _safe_text(_prompt_for(group[0])),
                     "task_type": group[0].task_type,
+                    "candidate_group_id": group[0].candidate_group_id,
+                    "source_records": list(
+                        dict.fromkeys(
+                            source_record for item in group for source_record in item.source_records
+                        )
+                    ),
                     "rollouts": [
                         self._rollout_row(item, reward_by_id.get(item.trajectory_id))
                         for item in group
@@ -238,6 +245,7 @@ class TrainReadyDatasetExporter:
             "allowed_training_use": True,
             "privacy_scope": "anonymized_or_public_only",
             "source_scope": sorted({item.privacy_route for item in items}),
+            "provenance_fields": ["candidate_group_id", "source_records"],
             "files": counts,
             "created_at": now_iso(),
         }
@@ -258,6 +266,8 @@ class TrainReadyDatasetExporter:
         return {
             "id": trajectory.trajectory_id,
             "task_type": trajectory.task_type,
+            "candidate_group_id": trajectory.candidate_group_id,
+            "source_records": list(trajectory.source_records),
             "messages": [
                 {"role": "user", "content": _safe_text(_prompt_for(trajectory))},
                 {"role": "assistant", "content": _safe_text(trajectory.output)},
@@ -275,6 +285,10 @@ class TrainReadyDatasetExporter:
         return {
             "id": new_id("preference"),
             "task_type": chosen.task_type,
+            "candidate_group_id": chosen.candidate_group_id,
+            "source_records": list(
+                dict.fromkeys([*chosen.source_records, *rejected.source_records])
+            ),
             "prompt": _safe_text(_prompt_for(chosen)),
             "chosen": _safe_text(chosen.output),
             "rejected": _safe_text(rejected.output),
@@ -293,6 +307,7 @@ class TrainReadyDatasetExporter:
     ) -> Dict[str, Any]:
         return {
             "trajectory_id": trajectory.trajectory_id,
+            "source_records": list(trajectory.source_records),
             "output": _safe_text(trajectory.output),
             "actions": [action.name for action in trajectory.actions],
             "evidence_refs": trajectory.evidence_refs,
@@ -353,6 +368,13 @@ def _dump_model(model: Optional[BaseModel]) -> Optional[Dict[str, Any]]:
     if model is None:
         return None
     return model.model_dump() if hasattr(model, "model_dump") else model.dict()
+
+
+def _group_id_for(trajectory: AgentTrajectory) -> str:
+    return (
+        trajectory.candidate_group_id
+        or f"{trajectory.task_type}:{trajectory.target_id}:{trajectory.prompt_version}"
+    )
 
 
 def _safe_text(text: str) -> str:

@@ -15,6 +15,7 @@ from agentic_training import (  # noqa: E402
     DEFAULT_TINY_MODEL_ID,
     DatasetSplitConfig,
     SFTTrainingConfig,
+    _prepare_lora_model_for_training,
     check_training_dependencies,
     estimate_tokens,
     prepare_dpo_training_run,
@@ -118,6 +119,26 @@ def test_prepare_grpo_training_run_splits_and_reports_rollouts(tmp_path):
     assert "qwen2_5_0_5b_grpo_lora" in prepared.output_dir
 
 
+def test_training_split_keeps_source_records_in_one_partition(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    rows = []
+    for source_index in range(6):
+        for variant in range(2):
+            row = _grpo_row(source_index * 10 + variant)
+            row["source_records"] = [f"pubrec_{source_index}"]
+            rows.append(row)
+    _write_jsonl(dataset_dir / "grpo_rollouts.jsonl", rows)
+
+    prepared = prepare_grpo_training_run(dataset_dir, tmp_path / "run")
+    source_splits = {}
+    for split, path in prepared.split_files.items():
+        for row in _read_jsonl(Path(path)):
+            source_splits.setdefault(row["source_records"][0], set()).add(split)
+
+    assert all(len(splits) == 1 for splits in source_splits.values())
+
+
 def test_grpo_training_run_flags_privacy(tmp_path):
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
@@ -140,6 +161,56 @@ def test_training_dependency_report_is_non_throwing():
     assert isinstance(report.ready_for_trl_grpo, bool)
     assert isinstance(report.grpo_trainer, bool)
     assert isinstance(report.trl, bool)
+
+
+def test_prepare_lora_model_enables_input_grads_for_checkpointing():
+    class _Embeddings:
+        def __init__(self):
+            self.hooks = []
+
+        def register_forward_hook(self, hook):
+            self.hooks.append(hook)
+
+    class _Model:
+        def __init__(self):
+            self.checkpointing_enabled = False
+            self.input_grads_enabled = False
+
+        def gradient_checkpointing_enable(self):
+            self.checkpointing_enabled = True
+
+        def enable_input_require_grads(self):
+            self.input_grads_enabled = True
+
+    model = _Model()
+
+    result = _prepare_lora_model_for_training(model, gradient_checkpointing=True)
+
+    assert result is model
+    assert model.checkpointing_enabled is True
+    assert model.input_grads_enabled is True
+
+
+def test_prepare_lora_model_uses_embedding_hook_when_needed():
+    class _Embeddings:
+        def __init__(self):
+            self.hooks = []
+
+        def register_forward_hook(self, hook):
+            self.hooks.append(hook)
+
+    class _Model:
+        def __init__(self):
+            self.embeddings = _Embeddings()
+
+        def get_input_embeddings(self):
+            return self.embeddings
+
+    model = _Model()
+
+    _prepare_lora_model_for_training(model, gradient_checkpointing=True)
+
+    assert len(model.embeddings.hooks) == 1
 
 
 def test_train_agentic_rl_cli_dry_run(tmp_path):
@@ -273,10 +344,11 @@ def test_token_and_privacy_helpers():
 
 
 def test_training_config_and_base_vs_adapter_report_render():
-    config = SFTTrainingConfig(trainer_backend="trl-sft", max_steps=3)
+    config = SFTTrainingConfig(trainer_backend="trl-sft", max_steps=3, warmup_ratio=0.05)
 
     assert config.trainer_backend == "trl-sft"
     assert config.max_steps == 3
+    assert config.warmup_ratio == 0.05
     report = render_base_vs_adapter_report(
         {
             "model_id": DEFAULT_TINY_MODEL_ID,
@@ -316,6 +388,7 @@ def test_training_config_and_base_vs_adapter_report_render():
             "variant_scores": {"base": 0.1, "sft_adapter": 0.2, "dpo_adapter": 0.3},
             "dpo_delta_vs_base": 0.2,
             "dpo_delta_vs_sft": 0.1,
+            "initial_policy_adapter": "workspace/rl/training_runs/qwen2_5_0_5b_lora/adapter",
             "privacy_scan_hits": [],
             "rows": [{"id": "row1", "task_type": "evidence_audit_fix"}],
             "notes": ["smoke"],
@@ -341,6 +414,7 @@ def test_training_config_and_base_vs_adapter_report_render():
             "grpo_delta_vs_base": 0.3,
             "grpo_delta_vs_sft": 0.2,
             "grpo_delta_vs_dpo": 0.1,
+            "initial_policy_adapter": "workspace/rl/training_runs/qwen2_5_0_5b_dpo_lora/adapter",
             "privacy_scan_hits": [],
             "rows": [{"id": "row1", "task_type": "rag_query_plan"}],
             "notes": ["smoke"],
@@ -409,3 +483,9 @@ def _write_jsonl(path: Path, rows):
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _read_jsonl(path: Path):
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]

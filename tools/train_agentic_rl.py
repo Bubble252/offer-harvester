@@ -25,6 +25,10 @@ from agentic_training import (  # noqa: E402
     run_local_grpo_training,
     run_local_sft_training,
 )
+from agentic_training_readiness import (  # noqa: E402
+    evaluate_formal_training_readiness,
+    write_formal_training_readiness,
+)
 
 
 def main() -> int:
@@ -58,6 +62,12 @@ def main() -> int:
     parser.add_argument("--max-prompt-length", type=int, default=384)
     parser.add_argument("--max-completion-length", type=int, default=96)
     parser.add_argument("--epochs", type=float, default=1.0)
+    parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=0.05,
+        help="Linear warmup ratio. Default 0.05.",
+    )
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -96,6 +106,14 @@ def main() -> int:
         "--allow-actual-training",
         action="store_true",
         help="Required to start local model training in --mode sft, --mode dpo, or --mode grpo.",
+    )
+    parser.add_argument(
+        "--require-formal-readiness",
+        action="store_true",
+        help=(
+            "Before actual training, require executed public rollout provenance, "
+            "source-disjoint splits, privacy checks, and per-task data thresholds."
+        ),
     )
     parser.add_argument(
         "--allow-cpu",
@@ -163,6 +181,7 @@ def main() -> int:
         grpo_beta=args.grpo_beta,
         grpo_num_generations=args.grpo_num_generations,
         grpo_temperature=args.grpo_temperature,
+        warmup_ratio=args.warmup_ratio,
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=args.grad_accum,
     )
@@ -192,7 +211,30 @@ def main() -> int:
             training_config=config,
         )
 
-    if args.mode == "sft" and args.allow_actual_training:
+    readiness_report = None
+    if args.require_formal_readiness:
+        readiness_report = evaluate_formal_training_readiness(args.dataset_dir)
+        write_formal_training_readiness(
+            readiness_report,
+            output_dir / "formal_training_readiness.json",
+        )
+        prepared = prepared.model_copy(
+            update={
+                "model_eval_report": {
+                    **prepared.model_eval_report,
+                    "formal_training_readiness": readiness_report.model_dump(),
+                }
+            }
+        )
+
+    if (
+        args.mode in {"sft", "dpo", "grpo"}
+        and args.allow_actual_training
+        and readiness_report is not None
+        and not readiness_report.ready
+    ):
+        prepared = prepared.model_copy(update={"training_status": "formal_readiness_failed"})
+    elif args.mode == "sft" and args.allow_actual_training:
         prepared = run_local_sft_training(
             prepared,
             allow_cpu=args.allow_cpu,
@@ -231,7 +273,11 @@ def main() -> int:
             sort_keys=True,
         )
     )
-    return 0 if prepared.dataset_report.valid else 1
+    return (
+        0
+        if prepared.dataset_report.valid and prepared.training_status != "formal_readiness_failed"
+        else 1
+    )
 
 
 if __name__ == "__main__":
