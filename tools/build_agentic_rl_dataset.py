@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, List
 
@@ -80,7 +81,20 @@ def main() -> int:
         "workspace": str(workspace.root),
         "output_dir": str(output_dir),
         "source_record_count": len(records),
+        "source_record_kind_counts": dict(
+            sorted(Counter(str(record.record_kind) for record in records).items())
+        ),
         "trajectory_count": len(trajectories),
+        "task_type_counts": dict(
+            sorted(Counter(trajectory.task_type for trajectory in trajectories).items())
+        ),
+        "candidate_group_count": len(
+            {
+                trajectory.candidate_group_id
+                for trajectory in trajectories
+                if trajectory.candidate_group_id
+            }
+        ),
         "reward_summary": {
             "min": min((item.total for item in rewards), default=0.0),
             "max": max((item.total for item in rewards), default=0.0),
@@ -90,6 +104,7 @@ def main() -> int:
             )
             if rewards
             else 0.0,
+            "hard_failure_count": sum(len(item.hard_failures) for item in rewards),
         },
         "files": counts,
     }
@@ -149,7 +164,12 @@ def _query_plan_pair(
             group_id,
             [evidence_ref],
             ["plan_query", "retrieve", "rerank", "audit"],
-            {"accepted": True},
+            {
+                "accepted": True,
+                "citation_correct": True,
+                "factuality_confirmed": True,
+                "authority_score": 1.0,
+            },
             audit_status="passed",
         ),
         _trajectory(
@@ -165,6 +185,9 @@ def _query_plan_pair(
                 "accepted": False,
                 "expired_policy_used": True,
                 "needs_user_confirmation": True,
+                "citation_correct": False,
+                "factuality_confirmed": False,
+                "authority_score": 0.0,
             },
             audit_status="needs_review",
         ),
@@ -198,7 +221,12 @@ def _audit_fix_pair(
             group_id,
             [evidence_ref],
             ["plan_query", "retrieve", "audit", "fix_audit"],
-            {"accepted": True},
+            {
+                "accepted": True,
+                "citation_correct": True,
+                "factuality_confirmed": True,
+                "authority_score": 1.0,
+            },
             audit_status="passed",
         ),
         _trajectory(
@@ -210,7 +238,12 @@ def _audit_fix_pair(
             group_id,
             [],
             ["fix_audit"],
-            {"accepted": False, "rejected_fact_used": True},
+            {
+                "accepted": False,
+                "rejected_fact_used": True,
+                "citation_correct": False,
+                "factuality_confirmed": False,
+            },
             audit_status="failed",
         ),
     ]
@@ -241,7 +274,12 @@ def _policy_advisor_qa_pair(
             group_id,
             [evidence_ref],
             ["retrieve", "rerank", "audit"],
-            {"accepted": True},
+            {
+                "accepted": True,
+                "citation_correct": True,
+                "factuality_confirmed": True,
+                "authority_score": 0.85,
+            },
             audit_status="passed",
         ),
         _trajectory(
@@ -253,7 +291,13 @@ def _policy_advisor_qa_pair(
             group_id,
             [],
             ["retrieve"],
-            {"accepted": False, "needs_user_confirmation": True},
+            {
+                "accepted": False,
+                "needs_user_confirmation": True,
+                "citation_correct": False,
+                "factuality_confirmed": False,
+                "authority_score": 0.0,
+            },
             audit_status="needs_review",
         ),
     ]

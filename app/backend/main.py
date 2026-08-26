@@ -57,6 +57,7 @@ from models import (
     MatchReport,
     MaterialQualityReport,
     MaterialVersion,
+    OcrExtractionReport,
     OutcomeUpdate,
     PdfReadabilityReport,
     PipelineSyncRequest,
@@ -79,6 +80,7 @@ from models import (
     UserDocumentManifest,
     now_iso,
 )
+from ocr_adapter import build_ocr_extraction_report
 from pdf_readability import inspect_pdf_bytes
 from presentation_quality import build_presentation_quality_report, save_reference_presentation
 from pydantic import BaseModel, Field
@@ -200,6 +202,13 @@ def _validate_memory_kind(kind: str) -> MemoryKind:
 
 def latest_profile() -> Optional[StudentProfile]:
     item = workspace.latest("profiles")
+    return StudentProfile(**item) if item else None
+
+
+def profile_for_id(profile_id: str) -> Optional[StudentProfile]:
+    if not profile_id:
+        return None
+    item = workspace.read("profiles", profile_id)
     return StudentProfile(**item) if item else None
 
 
@@ -1108,6 +1117,37 @@ async def check_pdf_readability(
 @app.get("/api/pdf/readability-reports")
 def list_pdf_readability_reports() -> List[PdfReadabilityReport]:
     return [PdfReadabilityReport(**item) for item in workspace.list("pdf_readability_reports")]
+
+
+@app.post("/api/ocr/precheck")
+async def run_ocr_precheck(
+    file: UploadFile = File(...),
+    expected_fields: str = Form(""),
+    material_id: str = Form(""),
+    profile_id: str = Form(""),
+    manual_text: str = Form(""),
+) -> OcrExtractionReport:
+    fields = [item.strip() for item in expected_fields.split(",") if item.strip()]
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="OCR source file is required")
+    try:
+        return build_ocr_extraction_report(
+            workspace,
+            content,
+            file.filename or "ocr_source",
+            expected_fields=fields,
+            material_id=material_id,
+            manual_text=manual_text,
+            profile=profile_for_id(profile_id) or latest_profile(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/ocr/reports")
+def list_ocr_reports() -> List[OcrExtractionReport]:
+    return [OcrExtractionReport(**item) for item in workspace.list("ocr_extraction_reports")]
 
 
 @app.get("/api/reference-presentations")

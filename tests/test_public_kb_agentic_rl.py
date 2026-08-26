@@ -49,7 +49,7 @@ def test_public_kb_real_public_samples_are_summary_only(tmp_path):
     result = seed_real_public_samples(store)
     report = store.validate()
 
-    assert result.record_count >= 10
+    assert result.record_count >= 16
     assert report.valid is True
     records = [item for item in store.records() if item.record_id.startswith("pubrec_real_")]
     chunks = [item for item in store.chunks() if item.chunk_id.startswith("pubchunk_real_")]
@@ -57,6 +57,7 @@ def test_public_kb_real_public_samples_are_summary_only(tmp_path):
     assert all(item.privacy_scope == "public" for item in store.sources())
     assert all(chunk.embedding_route == "external_public" for chunk in chunks)
     assert all(chunk.metadata.get("summary_only") is True for chunk in chunks)
+    assert any(item.valid_for_year == 2027 for item in records)
 
 
 def test_public_kb_validation_rejects_unlinked_record(tmp_path):

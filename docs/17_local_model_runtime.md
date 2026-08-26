@@ -12,7 +12,10 @@ Checked on 2026-08-25:
 - CUDA runtime shown by `nvidia-smi`: 12.8
 - Main project disk: nearly full at the time of diagnosis
 
-The immediate blocker for local models is disk space, not GPU capability. Downloading models or enabling Chroma/PaddleOCR should wait until at least 30GB is free. 80GB+ is safer.
+The immediate blocker for local models is disk space, not GPU capability. As of
+August 26, 2026, this workspace has roughly 9.6GB free. Downloading models or
+enabling Chroma/PaddleOCR should wait until at least 30GB is free. 80GB+ is
+safer.
 
 ## Default Path
 

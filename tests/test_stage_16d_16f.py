@@ -8,6 +8,7 @@ from models import (
     CustomTemplateUpdateRequest,
     SourceConnectorLiveTestResult,
 )
+from ocr_adapter import PaddleOcrAdapter, build_ocr_extraction_report
 from pdf_readability import inspect_pdf_bytes
 from source_connector_registry import merge_live_test_results, scan_source_connector_registry
 from storage import Workspace
@@ -104,3 +105,52 @@ def test_pdf_scan_without_text_layer_needs_ocr():
     assert report.readable is False
     assert report.needs_ocr is True
     assert any(issue.code == "text_layer_missing" for issue in report.issues)
+
+
+def test_ocr_precheck_manual_text_creates_candidate_profile_expansion(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    report = build_ocr_extraction_report(
+        workspace,
+        b"fake-bytes",
+        "transcript.pdf",
+        expected_fields=["name", "gpa"],
+        manual_text="姓名：匿名学生\nGPA: 3.82/4.00\n学校：某大学\n项目：多模态论文问答系统",
+    )
+
+    assert report.available is True
+    assert report.adapter_status == "manual_text"
+    assert report.candidate_count >= 3
+    assert workspace.list("ocr_extraction_reports")
+    expansion_reports = workspace.list("profile_expansion_candidates")
+    assert expansion_reports
+    assert any(item["field_name"] == "gpa" for item in expansion_reports[0]["candidates"])
+    assert any(item["field_name"] == "projects" for item in expansion_reports[0]["candidates"])
+    assert not any(item["field_name"] in {"email", "phone"} for item in report.candidate_fields)
+    assert all(item["status"] == "unconfirmed" for item in report.candidate_fields)
+    assert workspace.read_user_document_manifest()["documents"][0]["confirmed"] is False
+
+
+def test_paddle_ocr_adapter_reads_standard_result_shape(tmp_path):
+    class FakePaddleEngine:
+        def ocr(self, path, cls=True):
+            assert path.endswith("transcript.png")
+            assert cls is True
+            return [
+                [
+                    [
+                        [[0, 0], [1, 0], [1, 1], [0, 1]],
+                        ("姓名：匿名学生", 0.99),
+                    ],
+                    [
+                        [[0, 2], [1, 2], [1, 3], [0, 3]],
+                        ("GPA: 3.82/4.00", 0.98),
+                    ],
+                ]
+            ]
+
+    source = tmp_path / "transcript.png"
+    source.write_bytes(b"fixture")
+    text = PaddleOcrAdapter(FakePaddleEngine()).extract_text(source)
+
+    assert "姓名：匿名学生" in text
+    assert "GPA: 3.82/4.00" in text

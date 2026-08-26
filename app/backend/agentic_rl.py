@@ -113,6 +113,16 @@ class RewardV2:
             if trajectory.privacy_route != "private_local" or feedback.get("private_safe", True)
             else -0.4,
         }
+        if "citation_correct" in feedback:
+            terms["citation_correctness"] = 0.12 if feedback["citation_correct"] else -0.2
+        if "factuality_confirmed" in feedback:
+            terms["factuality"] = 0.1 if feedback["factuality_confirmed"] else -0.2
+        if feedback.get("evidence_conflict_open"):
+            terms["evidence_conflict_penalty"] = -0.15
+        authority_score = feedback.get("authority_score")
+        if isinstance(authority_score, (int, float)):
+            bounded_authority = max(0.0, min(1.0, float(authority_score)))
+            terms["source_authority"] = round((bounded_authority - 0.5) * 0.1, 4)
         hard_failures: List[str] = []
         reasons: List[str] = []
         if feedback.get("rejected_fact_used"):
@@ -124,6 +134,12 @@ class RewardV2:
         if feedback.get("privacy_violation"):
             hard_failures.append("privacy_violation")
             reasons.append("存在隐私路由违规")
+        if feedback.get("citation_correct") is False:
+            hard_failures.append("citation_incorrect")
+            reasons.append("引用未指向支持该结论的证据")
+        if feedback.get("factuality_confirmed") is False:
+            hard_failures.append("factuality_failed")
+            reasons.append("输出存在已确认的事实错误")
         if not trajectory.evidence_refs:
             reasons.append("缺少 EvidenceBundle 引用")
         if audit not in {"passed", "audited"}:

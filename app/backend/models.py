@@ -794,6 +794,25 @@ class PdfReadabilityReport(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
+class OcrExtractionReport(BaseModel):
+    report_id: str = Field(default_factory=lambda: new_id("ocrcheck"))
+    filename: str = ""
+    material_id: str = ""
+    source_document_id: str = ""
+    profile_id: str = ""
+    adapter_name: str = ""
+    adapter_status: Literal["available", "manual_text", "unavailable", "failed"] = "available"
+    available: bool = False
+    extracted_text: str = ""
+    text_hash: str = ""
+    expected_fields: List[str] = Field(default_factory=list)
+    candidate_count: int = 0
+    candidate_fields: List[Dict[str, Any]] = Field(default_factory=list)
+    issues: List[PdfReadabilityIssue] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
 class MaterialVersion(BaseModel):
     version_id: str = Field(default_factory=lambda: new_id("matver"))
     material_id: str

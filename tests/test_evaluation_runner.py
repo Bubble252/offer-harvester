@@ -28,6 +28,12 @@ def test_rag_memory_evaluation_runner_records_metrics(tmp_path):
     assert 0.0 <= summary["mrr"] <= 1.0
     assert summary["expired_policy_rejection_rate"] == 1.0
     assert summary["rejected_leakage_rate"] == 0.0
+    assert summary["evidence_audit_pass_rate"] >= 0.0
+    assert summary["auditor_pass_rate_on_current_bundles"] == summary["evidence_audit_pass_rate"]
+    assert summary["privacy_safety_rate"] == 1.0
+    assert summary["teacher_retrieval_metrics"]["count"] == 5
+    assert summary["policy_retrieval_metrics"]["count"] == 5
+    assert summary["student_retrieval_metrics"]["count"] == 5
     assert summary["email_signal_accuracy"] == 1.0
     assert summary["feedback_candidate_created"] is True
     assert report_path.exists()

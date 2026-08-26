@@ -66,6 +66,7 @@ class Workspace:
             "readiness_scores",
             "target_triage_reports",
             "profile_expansion_candidates",
+            "ocr_extraction_reports",
             "gap_plans",
             "memory",
             "procedural_candidates",

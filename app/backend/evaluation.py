@@ -181,10 +181,15 @@ def _run_eval(
             else 0.0,
             "expired_policy_rejection_rate": 1.0 if expired_policy["passed"] else 0.0,
             "rejected_leakage_rate": 0.0 if rejected_leakage["passed"] else 1.0,
-            "email_signal_accuracy": _rate(item["passed"] for item in email_results),
+            "privacy_safety_rate": 1.0 if not rejected_leakage["leaked"] else 0.0,
+            "evidence_audit_pass_rate": _rate(item["audit_passed"] for item in retrieval_results),
             "auditor_pass_rate_on_current_bundles": _rate(
                 item["audit_passed"] for item in retrieval_results
             ),
+            "email_signal_accuracy": _rate(item["passed"] for item in email_results),
+            "teacher_retrieval_metrics": _group_summary(teacher_results),
+            "policy_retrieval_metrics": _group_summary(policy_results),
+            "student_retrieval_metrics": _group_summary(student_results),
             "feedback_candidate_created": audit_feedback["feedback_candidate_created"],
         },
         "retrieval": retrieval_results,
@@ -496,6 +501,20 @@ def _rate(values) -> float:
 
 def _reciprocal_rank(rank: int) -> float:
     return round(1 / rank, 4) if rank and rank < 999 else 0.0
+
+
+def _group_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "count": len(items),
+        "recall_at_1": _rate(item["rank"] <= 1 for item in items),
+        "recall_at_3": _rate(item["rank"] <= 3 for item in items),
+        "recall_at_5": _rate(item["rank"] <= 5 for item in items),
+        "mrr": round(mean(_reciprocal_rank(item["rank"]) for item in items), 4) if items else 0.0,
+        "citation_correctness_at_1": _rate(
+            item["top_source_id"] == item["gold_source_id"] for item in items
+        ),
+        "audit_pass_rate": _rate(item["audit_passed"] for item in items),
+    }
 
 
 def _make_eval_retriever(

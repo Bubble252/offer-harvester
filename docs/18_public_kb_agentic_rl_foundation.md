@@ -14,10 +14,14 @@ Implemented now:
 - `AgentTrajectory`, `RewardV2`, SFT/DPO/GRPO-style JSONL export
 - deterministic QueryPlanner, EvidenceAuditFix, RewardJudge, TrajectoryBuilder and SafetyGate agent protocols
 - verified public policy/advisor sample seed metadata, stored as URL + summary + authority fields rather than full page bodies
+- 17 verified public policy/advisor metadata samples across 2026 historical regression records and a 2027 current-cycle notice
 - optional TRL `SFTTrainer` LoRA training path with HuggingFace Trainer fallback
 - optional TRL `DPOTrainer` LoRA training path from `preference_pairs.jsonl`
 - optional TRL `GRPOTrainer` LoRA training path from `grpo_rollouts.jsonl`
 - Qwen 0.5B LoRA smoke training result under ignored `workspace/`
+- grouped RAG regression metrics for teacher pages, policy pages, and private student fixtures
+- optional local PaddleOCR precheck adapter with manual-text fallback and candidate-only profile extraction
+- RewardV2 citation correctness, factuality, source-authority, and conflict terms with hard gates for failed citation/factuality
 
 Not implemented in this stage:
 
@@ -27,6 +31,7 @@ Not implemented in this stage:
 - MongoDB/Redis/Kubernetes
 - private student data upload
 - automatic policy fact creation without official source evidence
+- automatic confirmation or profile writes from OCR output
 
 ## Commands
 
@@ -51,7 +56,7 @@ python tools/sync_public_kb.py \
 Build train-ready Agentic RL data:
 
 ```bash
-python tools/build_agentic_rl_dataset.py \
+./.venv/bin/python tools/build_agentic_rl_dataset.py \
   --workspace ./workspace \
   --replace-public-kb-seed \
   --include-real-public-samples
@@ -66,8 +71,34 @@ python tools/train_agentic_rl.py
 Run offline Agentic RL evaluation:
 
 ```bash
-python tools/evaluate_agentic_rl.py
+./.venv/bin/python tools/evaluate_agentic_rl.py
 ```
+
+Run deterministic RAG and memory regression evaluation:
+
+```bash
+./.venv/bin/python tools/evaluate_rag_memory.py \
+  --workspace ./workspace.eval \
+  --storage-backend sqlite \
+  --embedding-provider hash \
+  --reranker noop
+```
+
+The RAG report records Recall@1/3/5, MRR, citation correctness@1,
+EvidenceAudit pass rate, privacy safety, rejected-field leakage, expired-policy
+rejection, and per-group metrics for teacher, policy, and student fixtures.
+
+OCR is exposed as `POST /api/ocr/precheck`. It accepts a local source file and
+optionally manually pasted OCR text. When the optional PaddleOCR dependency is
+not installed, the endpoint returns an explicit unavailable state rather than
+falling back to a remote service. Any detected profile values are stored only
+as `ProfileExpansionCandidate` records with `unconfirmed` status.
+
+The optional adapter accepts standard PaddleOCR result structures. PaddleOCR is
+not installed by default: on August 26, 2026, this workspace had roughly
+9.6 GB free, below the project's 30 GB local-model/OCR safety threshold. The
+zero-dependency path retains the local original file and accepts manually
+pasted OCR text for candidate extraction.
 
 Check optional training dependencies:
 
@@ -231,6 +262,14 @@ Generated evaluation outputs are privacy-scanned and masked before report
 storage. This matters because base models can hallucinate phone-like or
 key-like strings even when the training data itself is clean.
 
+The latest reproducible public-KB rebuild creates 342 trajectories from 60
+university entities plus 17 public policy/advisor metadata records. It exports
+171 SFT rows, 171 preference pairs, and 171 GRPO rollout groups. The rollout
+set deliberately retains 171 rejected candidates: the evaluator should observe
+hard failures for unsupported citations, false facts, expired policy use, and
+rejected facts. This is expected negative supervision, not a model-quality
+result.
+
 The first optimization scene is:
 
 ```text
@@ -255,6 +294,27 @@ The agreed order is:
 Steps 1-7 now have smoke-level coverage. The next training work should expand
 the public dataset, strengthen reward functions, and run fixed regression
 evaluation before increasing steps or model size.
+
+## Current Evaluation Baseline
+
+The deterministic `hash-local` embedding plus `noop` reranker run on the fixed
+15-case RAG/memory regression set produced:
+
+| Metric | Result |
+| --- | ---: |
+| Recall@1 / @3 / @5 | 0.9333 / 1.0000 / 1.0000 |
+| MRR | 0.9556 |
+| Citation correctness@1 | 0.9333 |
+| EvidenceAudit pass rate | 1.0000 |
+| Privacy safety | 1.0000 |
+| Expired-policy rejection | 1.0000 |
+| Rejected-profile leakage | 0.0000 |
+
+Teacher and policy groups each reached top-1 recall of 1.0. The private student
+group reached top-1 recall of 0.8, so the local hash/noop baseline remains a
+regression guard only. Any default change to an API embedding or reranker
+provider must compare these group-level figures and preserve the local-only
+route for private materials.
 
 Heavy ML packages are optional. Install them only in a training environment:
 
