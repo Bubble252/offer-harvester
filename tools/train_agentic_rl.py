@@ -16,6 +16,7 @@ from agentic_training import (  # noqa: E402
     DEFAULT_GRPO_OUTPUT_DIR_NAME,
     DEFAULT_OUTPUT_DIR_NAME,
     DEFAULT_TINY_MODEL_ID,
+    DatasetSplitConfig,
     SFTTrainingConfig,
     check_training_dependencies,
     prepare_dpo_training_run,
@@ -133,6 +134,18 @@ def main() -> int:
     )
     parser.add_argument("--max-eval-samples", type=int, default=3)
     parser.add_argument(
+        "--min-valid-sources",
+        type=int,
+        default=1,
+        help="Minimum source-record groups in validation after source-disjoint splitting.",
+    )
+    parser.add_argument(
+        "--min-test-sources",
+        type=int,
+        default=1,
+        help="Minimum source-record groups in test after source-disjoint splitting.",
+    )
+    parser.add_argument(
         "--check-deps",
         action="store_true",
         help="Only print optional ML dependency readiness.",
@@ -188,11 +201,16 @@ def main() -> int:
     config.lora.r = args.lora_r
     config.lora.lora_alpha = args.lora_alpha
     config.lora.lora_dropout = args.lora_dropout
+    split_config = DatasetSplitConfig(
+        min_valid=args.min_valid_sources,
+        min_test=args.min_test_sources,
+    )
     if args.mode == "dpo":
         prepared = prepare_dpo_training_run(
             args.dataset_dir,
             output_dir,
             model_id=args.model_id,
+            split_config=split_config,
             training_config=config,
         )
     elif args.mode == "grpo":
@@ -200,6 +218,7 @@ def main() -> int:
             args.dataset_dir,
             output_dir,
             model_id=args.model_id,
+            split_config=split_config,
             training_config=config,
         )
     else:
@@ -208,12 +227,18 @@ def main() -> int:
             output_dir,
             mode=args.mode,
             model_id=args.model_id,
+            split_config=split_config,
             training_config=config,
         )
 
     readiness_report = None
     if args.require_formal_readiness:
-        readiness_report = evaluate_formal_training_readiness(args.dataset_dir)
+        readiness_report = evaluate_formal_training_readiness(
+            args.dataset_dir,
+            min_valid_source_records=args.min_valid_sources,
+            min_test_source_records=args.min_test_sources,
+            split_config=split_config,
+        )
         write_formal_training_readiness(
             readiness_report,
             output_dir / "formal_training_readiness.json",

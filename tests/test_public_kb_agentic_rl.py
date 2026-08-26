@@ -49,7 +49,7 @@ def test_public_kb_real_public_samples_are_summary_only(tmp_path):
     result = seed_real_public_samples(store)
     report = store.validate()
 
-    assert result.record_count >= 16
+    assert result.record_count >= 55
     assert report.valid is True
     records = [item for item in store.records() if item.record_id.startswith("pubrec_real_")]
     chunks = [item for item in store.chunks() if item.chunk_id.startswith("pubchunk_real_")]
@@ -138,16 +138,26 @@ def test_agentic_rl_exporter_writes_train_ready_files(tmp_path):
             "user_feedback": {"expired_policy_used": True},
         }
     )
+    partial = good.model_copy(
+        update={
+            "trajectory_id": "trajectory_partial",
+            "output": "使用研究生院官网和发布时间过滤，后续统一处理。",
+            "evidence_refs": [],
+            "audit_status": "needs_review",
+            "user_feedback": {"preference_negative": True},
+        }
+    )
     reward = RewardV2()
-    rewards = [reward.score(good), reward.score(weak)]
-    counts = TrainReadyDatasetExporter(tmp_path).export([good, weak], rewards)
+    rewards = [reward.score(good), reward.score(partial), reward.score(weak)]
+    counts = TrainReadyDatasetExporter(tmp_path).export([good, partial, weak], rewards)
 
-    assert counts["trajectories"] == 2
+    assert counts["trajectories"] == 3
     assert counts["sft_messages"] == 1
     assert counts["preference_pairs"] == 1
     assert counts["grpo_rollouts"] == 1
     preference = json.loads((tmp_path / "preference_pairs.jsonl").read_text().splitlines()[0])
     assert preference["chosen_reward"] > preference["rejected_reward"]
+    assert preference["rejected"] == partial.output
 
 
 def test_agentic_rl_agents_build_fix_gate_and_bridge():

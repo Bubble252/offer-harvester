@@ -125,3 +125,19 @@ Reasonable next experiments:
 - Compare `HashEmbeddingProvider` against an OpenAI-compatible embedding API on public-only sources.
 - Compare `NoopReranker` / `LexicalReranker` against an API reranker or lightweight local cross-encoder.
 - Track citation correctness and auditor pass rate as the main upgrade gates.
+
+## Agentic RL Candidate Evaluation
+
+On August 26, 2026, the public RAG Query Planner and EvidenceAudit repair
+candidate was evaluated separately from this retrieval baseline. The evaluation
+used 120 generated task cases from 10 source-disjoint public metadata records.
+The completion-only SFT, conservative DPO, and conservative GRPO adapters each
+reached a task pass rate of `1.0000` with zero hard failures; the base model
+reached `0.0000` with 58 hard failures.
+
+This does not replace the retrieval metrics above or make the adapter a default
+runtime. The candidate remains restricted to public summary-metadata planning
+and audit repair, with fact writes blocked and EvidenceAudit plus user
+confirmation required. The GRPO run had zero within-group reward variance, so
+the next iteration must add reward-diverse rollouts and independent human or
+semantic evaluation before claiming reinforcement-learning benefit.

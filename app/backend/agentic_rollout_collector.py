@@ -127,7 +127,7 @@ def collect_public_agentic_rollouts(
         "scenario_count": len(SCENARIOS),
         "task_types": list(TASK_TYPES),
         "candidate_groups": len(records) * len(TASK_TYPES) * len(SCENARIOS),
-        "candidate_count_per_group": 3,
+        "candidate_count_per_group": 4,
         "trajectory_count": len(trajectories),
         "task_type_counts": dict(
             sorted(Counter(trajectory.task_type for trajectory in trajectories).items())
@@ -289,6 +289,14 @@ def _execute_group(
         candidate="needs_review",
         audit=final_audit,
     )
+    partial = _build_candidate(
+        builder,
+        gate,
+        task_type,
+        shared,
+        candidate="partial",
+        audit=final_audit,
+    )
     unsafe = _build_candidate(
         builder,
         gate,
@@ -297,7 +305,7 @@ def _execute_group(
         candidate="unsafe",
         audit=initial_audit,
     )
-    trajectories = [verified, review, unsafe]
+    trajectories = [verified, review, partial, unsafe]
     rewards = [judge.score(trajectory) for trajectory in trajectories]
     for trajectory, reward in zip(trajectories, rewards):
         trajectory.observations.append(
@@ -321,10 +329,15 @@ def _build_candidate(
 ) -> AgentTrajectory:
     record: PublicKBRecord = shared["record"]
     source: PublicKBSource = shared["source"]
-    evidence_refs = list(shared["evidence_refs"]) if candidate != "unsafe" else []
-    audit_status = "passed" if audit.passed and candidate != "unsafe" else "failed"
-    actions = ["plan_query", "retrieve", "rerank", "audit"]
-    if shared["fixes"]:
+    evidence_refs = list(shared["evidence_refs"]) if candidate not in {"partial", "unsafe"} else []
+    if candidate == "partial":
+        audit_status = "needs_review"
+    else:
+        audit_status = "passed" if audit.passed and candidate != "unsafe" else "failed"
+    actions = ["plan_query", "retrieve", "rerank"]
+    if candidate != "partial":
+        actions.append("audit")
+    if shared["fixes"] and candidate != "partial":
         actions.append("fix_audit")
     if candidate == "needs_review":
         actions.append("ask_user")
@@ -467,21 +480,64 @@ def _candidate_output(
             f"{source_line} 当前只把它作为原始页面定位线索，不把摘要扩写为具体政策事实；"
             "请在原页面确认年份、院系要求和招生状态后，再将结论写入申请建议。"
         )
+    if candidate == "partial":
+        if task_type == "rag_query_plan":
+            return (
+                f"{source_line} Query plan 先检索学校、年份和推免或导师主页，"
+                "并记录来源与适用年份；其余处理放入后续步骤。"
+            )
+        if task_type == "evidence_audit_fix":
+            return f"{source_line} 初始审计问题保留在轨迹中，先记录为待处理事项；具体结论暂不扩写。"
+        return f"{source_line} 该来源可用于定位公开政策或导师候选信息；其余细节暂不展开。"
+    header = (
+        "[PUBLIC_RAG_CONTROL]\n"
+        f"task={task_type}\n"
+        f"scenario={shared['scenario']}\n"
+        "source_scope=public_summary_metadata\n"
+        "fact_write=blocked\n"
+    )
     if task_type == "rag_query_plan":
         return (
-            f"{source_line} Query plan 先检索学校、年份、推免或导师主页，再过滤 policy/advisor_source；"
-            "保留命中 chunk、URL、hash 和适用年份。若证据只覆盖摘要或年份不匹配，转入 EvidenceAudit 并追问用户。"
+            f"{header}"
+            "任务：RAG 查询计划。\n"
+            "1. 查询：检索学校、年份、推免或导师主页，并过滤 policy/advisor_source。\n"
+            "2. 证据：保留命中 chunk、URL、hash 和适用年份。\n"
+            "3. 核验：将关键结论交给 EvidenceAudit，未核验不写入事实。"
+            f"{_verified_scenario_instruction(task_type, shared['scenario'])}"
         )
     if task_type == "evidence_audit_fix":
-        fixes = shared["fixes"]
         return (
-            f"{source_line} 初始审计问题必须保留在轨迹中；执行 {len(fixes)} 个修复动作，"
-            "优先重新检索官方页面，找不到时把具体结论降级为 needs_review，而不是补写未经证实的条件。"
+            f"{header}"
+            "任务：EvidenceAudit 修复。\n"
+            "1. 审计：保留初始问题并执行必要的修复动作。\n"
+            "2. 修复：重新检索官方原始页面并重新审计。\n"
+            "3. 降级：找不到证据时设为 needs_review，不能编造或补写具体条件。"
+            f"{_verified_scenario_instruction(task_type, shared['scenario'])}"
         )
     return (
-        f"{source_line} 可以确认的是该来源可用于定位公开政策或导师候选信息；"
-        "具体截止日期、名额、招生资格和承诺未由 summary-only 记录证明，必须以原始年度页面或用户确认补足。"
+        f"{header}"
+        "任务：政策或导师答复。\n"
+        "1. 可确认：该来源可定位公开政策或导师候选信息。\n"
+        "2. 不可确认：截止日期、名额、招生资格和录取承诺不能由摘要推出。\n"
+        "3. 下一步：以原始年度页面或用户确认补足后，再由 EvidenceAudit 审核。"
+        f"{_verified_scenario_instruction(task_type, shared['scenario'])}"
     )
+
+
+def _verified_scenario_instruction(task_type: str, scenario: str) -> str:
+    if scenario == "summary_only":
+        return (
+            "\n场景约束：当前只保存摘要，必须打开原始页面核验；不能把摘要写成具体政策或导师事实。"
+        )
+    if scenario == "authority_boundary":
+        return "\n场景约束：标明学校、学院、导师主页和转载页的 authority；低 authority 页面不能替代年度官方通知。"
+    if scenario == "audit_repair":
+        if task_type == "evidence_audit_fix":
+            return "\n场景约束：先将缺少官方细节的 claim 降级为 needs_review，再补检索原始年度页面并重新审计。"
+        return (
+            "\n场景约束：缺少官方细节的 claim 先标记 needs_review，补到原始年度页面后再恢复结论。"
+        )
+    return "\n场景约束：核验来源的适用年份和招生范围，不能据此自动写入申请状态或材料。"
 
 
 def _feedback_for_candidate(
@@ -497,6 +553,17 @@ def _feedback_for_candidate(
             "authority_score": 0.0,
             "expired_policy_used": scenario == "audit_repair",
             "private_safe": True,
+        }
+    if candidate == "partial":
+        return {
+            "accepted": False,
+            "citation_correct": True,
+            "factuality_confirmed": True,
+            "authority_score": _authority_score(source.authority_level),
+            "needs_user_confirmation": True,
+            "evidence_conflict_open": True,
+            "private_safe": True,
+            "preference_negative": True,
         }
     return {
         "accepted": candidate == "verified",

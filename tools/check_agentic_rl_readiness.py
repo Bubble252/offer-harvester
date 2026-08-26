@@ -13,6 +13,7 @@ BACKEND = ROOT / "app" / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
+from agentic_training import DatasetSplitConfig  # noqa: E402
 from agentic_training_readiness import (  # noqa: E402
     evaluate_formal_training_readiness,
     write_formal_training_readiness,
@@ -33,6 +34,18 @@ def main() -> int:
     parser.add_argument("--min-train-samples-per-task", type=int, default=50)
     parser.add_argument("--min-source-records", type=int, default=15)
     parser.add_argument("--min-rollouts-per-group", type=int, default=3)
+    parser.add_argument(
+        "--min-valid-sources",
+        type=int,
+        default=1,
+        help="Minimum source-record groups in validation after source-disjoint splitting.",
+    )
+    parser.add_argument(
+        "--min-test-sources",
+        type=int,
+        default=1,
+        help="Minimum source-record groups in test after source-disjoint splitting.",
+    )
     args = parser.parse_args()
 
     report = evaluate_formal_training_readiness(
@@ -40,6 +53,12 @@ def main() -> int:
         min_train_samples_per_task=args.min_train_samples_per_task,
         min_source_records=args.min_source_records,
         min_rollouts_per_group=args.min_rollouts_per_group,
+        min_valid_source_records=args.min_valid_sources,
+        min_test_source_records=args.min_test_sources,
+        split_config=DatasetSplitConfig(
+            min_valid=args.min_valid_sources,
+            min_test=args.min_test_sources,
+        ),
     )
     output = args.output or (args.dataset_dir / "formal_training_readiness.json")
     write_formal_training_readiness(report, output)

@@ -13,12 +13,12 @@ Implemented now:
 - SQL dump output for schema plus public KB upserts
 - `AgentTrajectory`, `RewardV2`, SFT/DPO/GRPO-style JSONL export
 - deterministic QueryPlanner, EvidenceAuditFix, RewardJudge, TrajectoryBuilder and SafetyGate agent protocols
-- verified public policy/advisor sample seed metadata, stored as URL + summary + authority fields rather than full page bodies
-- 17 verified public policy/advisor metadata samples across 2026 historical regression records and a 2027 current-cycle notice
+- 55 official-domain public policy/advisor metadata candidates, stored as URL + summary + authority fields rather than full page bodies
+- source-disjoint task-level generated evaluation with EvidenceAudit and privacy hard gates
 - optional TRL `SFTTrainer` LoRA training path with HuggingFace Trainer fallback
 - optional TRL `DPOTrainer` LoRA training path from `preference_pairs.jsonl`
 - optional TRL `GRPOTrainer` LoRA training path from `grpo_rollouts.jsonl`
-- one controlled, source-disjoint Qwen 0.5B LoRA SFT -> DPO -> GRPO run under ignored `workspace/`
+- one controlled Qwen 0.5B LoRA SFT -> DPO -> GRPO candidate run under ignored `workspace/`
 - grouped RAG regression metrics for teacher pages, policy pages, and private student fixtures
 - optional local PaddleOCR precheck adapter with manual-text fallback and candidate-only profile extraction
 - RewardV2 citation correctness, factuality, source-authority, and conflict terms with hard gates for failed citation/factuality
@@ -26,7 +26,7 @@ Implemented now:
 Not implemented in this stage:
 
 - production-quality model training
-- production GRPO training or online policy rollout
+- production deployment or online policy rollout
 - Ray/vLLM
 - MongoDB/Redis/Kubernetes
 - private student data upload
@@ -183,6 +183,23 @@ python tools/train_agentic_rl.py \
   --grad-accum 1
 ```
 
+Run the source-disjoint generated task evaluator after each stage. It evaluates
+the base model and supplied adapters with the same fixed held-out sources, then
+enforces SFT/DPO/GRPO stage gates:
+
+```bash
+workspace/.venv-train/bin/python tools/evaluate_agentic_rl_task_level.py \
+  --dataset-dir workspace.eval/agentic_rl_usability_control/rl/usability_dataset \
+  --output-dir workspace/rl/evaluations/candidate_task_level \
+  --sft-adapter workspace/rl/training_runs/<sft-run>/adapter \
+  --dpo-adapter workspace/rl/training_runs/<dpo-run>/adapter \
+  --grpo-adapter workspace/rl/training_runs/<grpo-run>/adapter \
+  --min-valid-sources 2 \
+  --min-test-sources 10 \
+  --max-cases 120 \
+  --prompt-format instruction
+```
+
 The exporter writes:
 
 - `trajectories.jsonl`
@@ -246,134 +263,86 @@ SQL dumps containing private data.
 
 ## Training Boundary
 
-The current implementation can prepare data and run small local SFT, DPO, and
-GRPO smoke trains. Positive SFT rows are filtered by acceptance/reward. Weaker
-outputs are preserved in preference and rollout files, so DPO can learn from
-chosen/rejected boundaries and GRPO can learn from generated completions scored
-against grouped rollout references instead of treating every output as a target.
+The training path is local, opt-in, and adapter-only. It uses
+`Qwen/Qwen2.5-0.5B-Instruct` with LoRA `r=8`, `alpha=16` in an isolated Python
+environment. The application does not import `torch`, load an adapter, or make
+an Agentic RL model its default runtime.
 
-The default local training target is `Qwen/Qwen2.5-0.5B-Instruct` with LoRA
-`r=8`, `alpha=16`, and adapter-only output. This is intended for an 8 GB GPU
-smoke test. Larger models, Ray, and vLLM remain optional future paths.
+Positive SFT rows require accepted, evidence-safe outputs. DPO retains weaker
+chosen/rejected pairs, and GRPO retains grouped rollout references. Generated
+answers are privacy-scanned and pass EvidenceAudit before they can receive a
+positive task-level result.
 
-The first verified smoke result used 306 trajectories and 153 SFT rows. TRL
-SFTTrainer completed 3 optimizer steps and produced a loadable adapter plus a
-base-vs-adapter smoke report. The report uses a lightweight lexical heuristic;
-it proves training and loading, not final application quality.
+## Controlled Candidate Experiment
 
-The first verified DPO smoke result used 153 preference pairs, split into
-123/15/15 train/validation/test rows. TRL DPOTrainer completed 3 optimizer
-steps and produced a loadable DPO adapter plus an SFT-vs-DPO-vs-base smoke
-report. The smoke eval used 2 rows; base, SFT adapter, and DPO adapter all
-scored 0.15 with the lightweight heuristic, so this proves the DPO loop can run
-and be compared, not that quality improved.
-
-The first verified GRPO smoke result used 153 rollout groups, split into
-123/15/15 train/validation/test rows. TRL GRPOTrainer completed 3 optimizer
-steps with `num_generations=2`, `max_completion_length=64`, and a lightweight
-reference reward derived from the best stored rollout in each group. The smoke
-eval used 2 rows; base, DPO adapter, and GRPO adapter scored 0.24, while the
-SFT adapter scored 0.2045. This proves the GRPO loop can train, save, load, and
-compare adapters, not that the adapter is ready for production.
-
-Generated evaluation outputs are privacy-scanned and masked before report
-storage. This matters because base models can hallucinate phone-like or
-key-like strings even when the training data itself is clean.
-
-The latest reproducible public-KB rebuild creates 342 trajectories from 60
-university entities plus 17 public policy/advisor metadata records. It exports
-171 SFT rows, 171 preference pairs, and 171 GRPO rollout groups. The rollout
-set deliberately retains 171 rejected candidates: the evaluator should observe
-hard failures for unsupported citations, false facts, expired policy use, and
-rejected facts. This is expected negative supervision, not a model-quality
-result.
-
-## First Controlled Training Result
-
-On August 26, 2026, the project completed its first controlled local
-SFT -> DPO -> GRPO run on a source-disjoint, public-only rollout dataset. The
-collector executed the existing deterministic agent chain:
+On August 26, 2026, the project completed a second controlled
+`SFT -> DPO -> GRPO` candidate sequence. The optimization scene is:
 
 ```text
-QueryPlanner -> Retriever -> EvidenceAudit -> EvidenceAuditFix -> RewardV2 -> SafetyGate
+QueryPlanner -> Retriever -> EvidenceAudit -> Audit Fix -> RewardV2 -> SafetyGate
 ```
 
-The source material contains metadata and summaries only. It does not store
-web-page bodies, call an LLM, or automatically promote retrieved facts into
-product state.
+All source data are public, official-domain summary metadata. The system stores
+URL, publisher, authority, year, short summary, and hash only. It does not
+store web-page bodies, private student information, API keys, or automatically
+promote facts into product state.
 
 | Item | Result |
 | --- | --- |
-| Public policy/advisor source records | 17 |
+| Public policy/advisor metadata candidates | 55 across 18 target institutions |
+| Important source caveat | Candidates are not a claim that 55 page bodies were live-verified |
 | Task types | `rag_query_plan`, `evidence_audit_fix`, `policy_advisor_qa` |
-| Scenarios per source/task | 4 |
-| Candidate groups / candidates | 204 / 612 |
-| SFT rows | 408; source-disjoint split `360/24/24` |
-| DPO pairs | 204; source-disjoint split `180/12/12` |
-| GRPO groups | 204; source-disjoint split `180/12/12` |
-| Candidate rollouts per GRPO group | 3, with reward spread |
-| Feedback-memory records from audit issues | 153 |
+| Candidate groups / trajectories | 660 / 2,640 |
+| SFT / DPO / GRPO rows | 660 / 660 / 660 |
+| Per-task source-disjoint split | train/valid/test = `160/20/40` |
+| Held-out task evaluator | 120 cases from 10 unseen source records |
+| SFT run | 360 steps; completion-only labels; loss `0.2694`; peak VRAM `1.892/2.070 GiB` allocated/reserved |
+| Conservative DPO run | 60 steps from SFT; `lr=2e-7`, `beta=0.0005`; peak VRAM `1.688/2.045 GiB` |
+| Conservative GRPO run | 30 steps from DPO; 2 generations, `lr=2e-7`, `beta=0.01`, temperature `0.4`; peak VRAM `1.506/1.777 GiB` |
 
-Formal readiness passed before training. The first run used
-`Qwen/Qwen2.5-0.5B-Instruct`, LoRA `r=8`, `alpha=16`, cached local weights,
-an RTX 4060 Laptop GPU with 8 GB VRAM, and adapter-only output:
+The final evaluator uses generated model answers rather than reference-text
+overlap. It checks protocol fields, official-source and year boundaries,
+query/audit actions, EvidenceAudit, privacy, unsupported policy detail, and
+unsupported dates or counts. The latter categories are hard failures.
 
-| Phase | Steps | Initialization | Lightweight held-out result |
-| --- | ---: | --- | --- |
-| SFT | 24 | base Qwen | `0.1937 -> 0.3465` |
-| DPO | 24 | SFT adapter | base/SFT/DPO = `0.2069 / 0.3463 / 0.3836` |
-| GRPO | 16 | DPO adapter | base/SFT/DPO/GRPO = `0.2319 / 0.3713 / 0.4169 / 0.3845` |
+| Variant | Avg task score | Pass rate | Hard failures |
+| --- | ---: | ---: | ---: |
+| Base Qwen | `0.1529` | `0.0000` | 58 |
+| Completion-only SFT | `1.0000` | `1.0000` | 0 |
+| Conservative DPO | `1.0000` | `1.0000` | 0 |
+| Conservative GRPO | `1.0000` | `1.0000` | 0 |
 
-SFT loss decreased from `4.6324` to `2.8007`. DPO completed with a clear
-chosen/rejected separation, but that pair set is intentionally easy and should
-not be treated as a general preference-quality score. GRPO completed after the
-LoRA gradient-checkpoint initialization was fixed; the first two logged
-gradient norms were `NaN`, then subsequent steps were finite. Its lightweight
-score was lower than the DPO adapter by `0.0324`, so the DPO adapter is the
-current experimental candidate and the GRPO adapter must not be selected by
-default.
+The automatic stage gates all passed:
 
-These outputs prove the controlled training sequence, adapter handoff,
-privacy gate, source-disjoint split, save/load path, and evaluation reporting.
-They do **not** prove production quality. The evaluation is a lightweight
-lexical/reference heuristic and the collector uses deterministic harness
-rollouts rather than model-generated online rollouts.
+1. SFT exceeded the base threshold.
+2. DPO met the absolute safety gate and did not regress from SFT.
+3. GRPO met the absolute safety gate and did not regress from DPO.
 
-The post-training offline evaluator intentionally keeps promotion conservative:
-on the same 612 trajectories, it reported 204 citation-incorrect candidates,
-204 factuality-failed candidates, and 51 expired-policy violations in the
-negative/needs-review population. Its recommendation was
-`hold_due_to_hard_failures`. This validates the hard-gate behavior and means
-that no adapter is promoted to the application's default model from this run.
-The next experiment must improve the source-grounded evaluator and data
-quality before increasing training scale.
+The GRPO adapter is therefore the current **explicit, controlled candidate**
+for public RAG query-planning and EvidenceAudit repair experiments. It remains
+blocked from automatic fact adoption, profile/tracker writes, email sending,
+policy assertions, and the default LLM runtime. Retriever, EvidenceAudit,
+policy-validity checks, and user confirmation remain mandatory.
 
-The first optimization scene is:
+## Limits And Next Experiment
 
-```text
-RAG Query Planner -> Evidence Retrieval -> EvidenceAudit -> Audit Fix -> RewardV2
-```
+This result is stronger than the earlier smoke tests because it uses a
+source-disjoint generated task evaluator with hard safety gates. It is still
+not production-quality evidence:
 
-This scene is intentionally public-data first because it has clearer reward
-signals and lower privacy risk than direct personal-material generation.
+- Held-out sources use the same public-metadata task protocol, so the benchmark
+  can be saturated by a model that consistently follows that protocol.
+- The 30-step GRPO run reported zero within-group reward standard deviation.
+  The adapter weights changed, but this does not establish a distinct
+  reinforcement-learning gain over DPO.
+- No live web-page body collection, human preference labels, real user
+  outcomes, or external LLM judge was used.
 
-## Training Roadmap
-
-The agreed order is:
-
-1. offline evaluation runner
-2. more real public policy/advisor samples
-3. TRL `SFTTrainer`
-4. Qwen 0.5B LoRA smoke train
-5. base vs adapter smoke report, then API/rule baselines
-6. TRL `DPOTrainer`
-7. TRL `GRPOTrainer`
-
-Steps 1-7 now have one controlled local run. The next training work should add
-more independent public sources and human-reviewed traces, strengthen reward
-functions, add a semantic/task-level evaluator, and run fixed regression
-evaluation before increasing steps or model size. The DPO adapter remains the
-baseline candidate until a later experiment beats it on those stronger gates.
+Before increasing model size, steps, or making any runtime selection, the next
+experiment must add independently authored policy/teacher page samples,
+human-reviewed chosen/rejected traces, reward-diverse model rollouts, and a
+separate semantic or human evaluation set. The earlier smoke experiments remain
+historical pipeline checks only and are superseded by this candidate report.
 
 ## Current Evaluation Baseline
 

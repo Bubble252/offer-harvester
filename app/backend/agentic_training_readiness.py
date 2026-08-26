@@ -50,6 +50,7 @@ class FormalTrainingReadinessReport(BaseModel):
     row_counts: Dict[str, int] = Field(default_factory=dict)
     train_task_counts: Dict[str, Dict[str, int]] = Field(default_factory=dict)
     source_split_counts: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+    source_split_source_counts: Dict[str, Dict[str, int]] = Field(default_factory=dict)
     source_split_overlaps: Dict[str, List[str]] = Field(default_factory=dict)
     rollout_quality: Dict[str, Any] = Field(default_factory=dict)
     trace_quality: Dict[str, Any] = Field(default_factory=dict)
@@ -64,6 +65,8 @@ def evaluate_formal_training_readiness(
     min_train_samples_per_task: int = 50,
     min_source_records: int = 15,
     min_rollouts_per_group: int = 3,
+    min_valid_source_records: int = 1,
+    min_test_source_records: int = 1,
     split_config: DatasetSplitConfig | None = None,
 ) -> FormalTrainingReadinessReport:
     """Check dataset governance before a non-smoke SFT/DPO/GRPO run."""
@@ -79,7 +82,7 @@ def evaluate_formal_training_readiness(
         grpo_rows = load_grpo_rollouts(dataset_dir)
     except FileNotFoundError as exc:
         issues.append(_issue("error", "missing_dataset_file", str(exc)))
-        return _report(dataset_dir, collection, {}, {}, {}, {}, [], {}, {}, issues)
+        return _report(dataset_dir, collection, {}, {}, {}, {}, {}, [], {}, {}, issues)
 
     if collection.get("execution_mode") != "offline_real_agent_chain":
         issues.append(
@@ -130,10 +133,15 @@ def evaluate_formal_training_readiness(
     datasets = {"sft": sft_rows, "dpo": dpo_rows, "grpo": grpo_rows}
     train_task_counts: Dict[str, Dict[str, int]] = {}
     split_counts: Dict[str, Dict[str, int]] = {}
+    split_source_counts: Dict[str, Dict[str, int]] = {}
     overlaps: Dict[str, List[str]] = {}
     for name, rows in datasets.items():
         splits = split_rows(rows, split_config)
         split_counts[name] = {split: len(items) for split, items in splits.items()}
+        split_source_counts[name] = {
+            split: len({source for row in items for source in _source_records(row)})
+            for split, items in splits.items()
+        }
         train_counts = _task_counts(splits["train"])
         train_task_counts[name] = train_counts
         for task_type in FORMAL_TASK_TYPES:
@@ -146,6 +154,24 @@ def evaluate_formal_training_readiness(
                         f"{task_type} rows; found {train_counts.get(task_type, 0)}.",
                     )
                 )
+        if split_source_counts[name].get("valid", 0) < min_valid_source_records:
+            issues.append(
+                _issue(
+                    "error",
+                    "insufficient_validation_source_coverage",
+                    f"{name} valid split needs at least {min_valid_source_records} source records; "
+                    f"found {split_source_counts[name].get('valid', 0)}.",
+                )
+            )
+        if split_source_counts[name].get("test", 0) < min_test_source_records:
+            issues.append(
+                _issue(
+                    "error",
+                    "insufficient_test_source_coverage",
+                    f"{name} test split needs at least {min_test_source_records} source records; "
+                    f"found {split_source_counts[name].get('test', 0)}.",
+                )
+            )
         overlap = _source_split_overlap(splits)
         overlaps[name] = overlap
         if overlap:
@@ -216,6 +242,7 @@ def evaluate_formal_training_readiness(
         },
         train_task_counts,
         split_counts,
+        split_source_counts,
         overlaps,
         privacy_hits,
         rollout_quality,
@@ -373,6 +400,7 @@ def _report(
     row_counts: Dict[str, int],
     train_task_counts: Dict[str, Dict[str, int]],
     split_counts: Dict[str, Dict[str, int]],
+    split_source_counts: Dict[str, Dict[str, int]],
     overlaps: Dict[str, List[str]],
     privacy_hits: List[str],
     rollout_quality: Dict[str, Any],
@@ -388,6 +416,7 @@ def _report(
         row_counts=row_counts,
         train_task_counts=train_task_counts,
         source_split_counts=split_counts,
+        source_split_source_counts=split_source_counts,
         source_split_overlaps=overlaps,
         rollout_quality=rollout_quality,
         trace_quality=trace_quality,

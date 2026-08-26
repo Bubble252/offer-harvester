@@ -990,6 +990,7 @@ def _run_hf_sft_training(
         if valid_rows
         else None,
     )
+    _reset_cuda_peak_memory(torch)
     trainer.train()
     adapter_dir = output_dir / "adapter"
     model.save_pretrained(adapter_dir)
@@ -999,6 +1000,7 @@ def _run_hf_sft_training(
         evaluate_after_training=evaluate_after_training,
         max_eval_samples=max_eval_samples,
     )
+    eval_report["runtime_metrics"] = _cuda_runtime_metrics(torch)
     result = prepared.model_copy(
         update={
             "training_started": True,
@@ -1047,9 +1049,13 @@ def _run_trl_sft_training(
         model,
         gradient_checkpointing=prepared.config.gradient_checkpointing,
     )
-    train_dataset = Dataset.from_list([{"text": format_sft_row(row)} for row in train_rows])
+    train_dataset = Dataset.from_list(
+        [{"text": format_sft_row(row, tokenizer.eos_token or "")} for row in train_rows]
+    )
     eval_dataset = (
-        Dataset.from_list([{"text": format_sft_row(row)} for row in valid_rows])
+        Dataset.from_list(
+            [{"text": format_sft_row(row, tokenizer.eos_token or "")} for row in valid_rows]
+        )
         if valid_rows
         else None
     )
@@ -1081,6 +1087,7 @@ def _run_trl_sft_training(
         peft_config=lora,
         tokenizer=tokenizer,
     )
+    _reset_cuda_peak_memory(torch)
     trainer.train()
     adapter_dir = output_dir / "adapter"
     trainer.model.save_pretrained(adapter_dir)
@@ -1090,6 +1097,7 @@ def _run_trl_sft_training(
         evaluate_after_training=evaluate_after_training,
         max_eval_samples=max_eval_samples,
     )
+    eval_report["runtime_metrics"] = _cuda_runtime_metrics(torch)
     result = prepared.model_copy(
         update={
             "training_started": True,
@@ -1181,6 +1189,7 @@ def _run_trl_dpo_training(
         peft_config=peft_config,
         tokenizer=tokenizer,
     )
+    _reset_cuda_peak_memory(torch)
     trainer.train()
     adapter_dir = output_dir / "adapter"
     trainer.model.save_pretrained(adapter_dir)
@@ -1192,6 +1201,7 @@ def _run_trl_dpo_training(
         max_eval_samples=max_eval_samples,
     )
     eval_report["initial_policy_adapter"] = str(initial_adapter) if initial_adapter else ""
+    eval_report["runtime_metrics"] = _cuda_runtime_metrics(torch)
     result = prepared.model_copy(
         update={
             "training_started": True,
@@ -1291,6 +1301,7 @@ def _run_trl_grpo_training(
         peft_config=peft_config,
         processing_class=tokenizer,
     )
+    _reset_cuda_peak_memory(torch)
     trainer.train()
     adapter_dir = output_dir / "adapter"
     trainer.model.save_pretrained(adapter_dir)
@@ -1303,6 +1314,7 @@ def _run_trl_grpo_training(
         max_eval_samples=max_eval_samples,
     )
     eval_report["initial_policy_adapter"] = str(initial_adapter) if initial_adapter else ""
+    eval_report["runtime_metrics"] = _cuda_runtime_metrics(torch)
     result = prepared.model_copy(
         update={
             "training_started": True,
@@ -1874,8 +1886,7 @@ def render_base_vs_adapter_report(report: Dict[str, Any]) -> str:
 
 
 def _generate_text(model: Any, tokenizer: Any, row: Dict[str, Any], torch_module: Any) -> str:
-    prompt = _row_prompt(row)
-    text = f"### Instruction:\n{prompt}\n\n### Response:\n"
+    text = format_instruction_prompt(_row_prompt(row))
     encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
     device = next(model.parameters()).device
     encoded = {key: value.to(device) for key, value in encoded.items()}
@@ -1911,7 +1922,7 @@ def _safe_generated_text(text: str) -> str:
 
 def format_dpo_row(row: Dict[str, Any]) -> Dict[str, str]:
     return {
-        "prompt": _row_prompt(row),
+        "prompt": format_instruction_prompt(_row_prompt(row)),
         "chosen": str(row.get("chosen", "") or ""),
         "rejected": str(row.get("rejected", "") or ""),
     }
@@ -1920,7 +1931,7 @@ def format_dpo_row(row: Dict[str, Any]) -> Dict[str, str]:
 def format_grpo_row(row: Dict[str, Any]) -> Dict[str, Any]:
     best = _best_rollout(row)
     return {
-        "prompt": _row_prompt(row),
+        "prompt": format_instruction_prompt(_row_prompt(row)),
         "reference_output": str(best.get("output", "") or ""),
         "reference_reward": _rollout_reward_total(best),
         "task_type": str(row.get("task_type", "") or ""),
@@ -2055,7 +2066,10 @@ class _SFTDataset:
         return len(self.rows)
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
-        text = format_sft_row(self.rows[index])
+        row = self.rows[index]
+        prompt_prefix = format_sft_prompt_prefix(row)
+        answer = _message_content(row.get("messages", []), "assistant")
+        text = f"{prompt_prefix}{answer}{self.tokenizer.eos_token or ''}"
         encoded = self.tokenizer(
             text,
             truncation=True,
@@ -2065,18 +2079,48 @@ class _SFTDataset:
         )
         input_ids = encoded["input_ids"][0]
         attention_mask = encoded["attention_mask"][0]
+        prefix_ids = self.tokenizer(
+            prompt_prefix,
+            truncation=True,
+            max_length=self.max_length,
+            add_special_tokens=True,
+        )["input_ids"]
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "labels": input_ids.clone(),
+            "labels": _completion_only_labels(
+                input_ids,
+                attention_mask,
+                prompt_length=min(len(prefix_ids), int(input_ids.shape[0])),
+            ),
         }
 
 
-def format_sft_row(row: Dict[str, Any]) -> str:
-    messages = row.get("messages", [])
-    prompt = _message_content(messages, "user")
-    answer = _message_content(messages, "assistant")
-    return f"### Instruction:\n{prompt}\n\n### Response:\n{answer}"
+def format_sft_row(row: Dict[str, Any], eos_token: str = "") -> str:
+    return (
+        f"{format_sft_prompt_prefix(row)}"
+        f"{_message_content(row.get('messages', []), 'assistant')}{eos_token}"
+    )
+
+
+def format_sft_prompt_prefix(row: Dict[str, Any]) -> str:
+    return format_instruction_prompt(_message_content(row.get("messages", []), "user"))
+
+
+def format_instruction_prompt(prompt: str) -> str:
+    return f"### Instruction:\n{prompt}\n\n### Response:\n"
+
+
+def _completion_only_labels(
+    input_ids: Any,
+    attention_mask: Any,
+    *,
+    prompt_length: int,
+) -> Any:
+    labels = input_ids.clone()
+    labels[:prompt_length] = -100
+    labels[attention_mask == 0] = -100
+    return labels
 
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -2106,6 +2150,25 @@ def _numeric_stats(values: List[float]) -> Dict[str, float]:
 
 def _avg(values: List[float]) -> float:
     return round(sum(values) / len(values), 4) if values else 0.0
+
+
+def _reset_cuda_peak_memory(torch_module: Any) -> None:
+    if torch_module.cuda.is_available():
+        torch_module.cuda.reset_peak_memory_stats()
+
+
+def _cuda_runtime_metrics(torch_module: Any) -> Dict[str, Any]:
+    if not torch_module.cuda.is_available():
+        return {"device": "cpu"}
+    peak_allocated = torch_module.cuda.max_memory_allocated()
+    peak_reserved = torch_module.cuda.max_memory_reserved()
+    return {
+        "device": torch_module.cuda.get_device_name(0),
+        "peak_allocated_bytes": peak_allocated,
+        "peak_allocated_gib": round(peak_allocated / (1024**3), 3),
+        "peak_reserved_bytes": peak_reserved,
+        "peak_reserved_gib": round(peak_reserved / (1024**3), 3),
+    }
 
 
 def _issue(level: Literal["error", "warning"], code: str, message: str, row_id: str = ""):

@@ -18,6 +18,11 @@ from agentic_training import (  # noqa: E402
     _prepare_lora_model_for_training,
     check_training_dependencies,
     estimate_tokens,
+    format_dpo_row,
+    format_grpo_row,
+    format_instruction_prompt,
+    format_sft_prompt_prefix,
+    format_sft_row,
     prepare_dpo_training_run,
     prepare_grpo_training_run,
     prepare_training_run,
@@ -161,6 +166,28 @@ def test_training_dependency_report_is_non_throwing():
     assert isinstance(report.ready_for_trl_grpo, bool)
     assert isinstance(report.grpo_trainer, bool)
     assert isinstance(report.trl, bool)
+
+
+def test_sft_prompt_uses_instruction_response_boundary():
+    row = _sft_row(1)
+
+    prefix = format_sft_prompt_prefix(row)
+    formatted = format_sft_row(row, "<eos>")
+
+    assert prefix.startswith("### Instruction:\n")
+    assert prefix.endswith("\n\n### Response:\n")
+    assert formatted == (
+        f"{prefix}优先检索研究生院和学院官网，记录发布时间、URL 和证据 hash。<eos>"
+    )
+
+
+def test_dpo_and_grpo_rows_use_the_same_instruction_prompt_boundary():
+    dpo = format_dpo_row(_preference_row(1))
+    grpo = format_grpo_row(_grpo_row(1))
+
+    expected_prefix = format_instruction_prompt("修复第 1 个缺少官方证据的 claim。")
+    assert dpo["prompt"] == expected_prefix
+    assert grpo["prompt"] == format_instruction_prompt("为第 1 所学校制定官方推免政策检索计划。")
 
 
 def test_prepare_lora_model_enables_input_grads_for_checkpointing():

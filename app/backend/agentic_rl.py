@@ -211,7 +211,17 @@ class TrainReadyDatasetExporter:
                     ),
                     reverse=True,
                 )
-                preference_rows.append(self._preference_row(ordered[0], ordered[-1], reward_by_id))
+                chosen = next(
+                    (item for item in ordered if item.user_feedback.get("accepted") is True),
+                    ordered[0],
+                )
+                hard_negatives = [
+                    item
+                    for item in ordered
+                    if item.user_feedback.get("preference_negative") is True
+                ]
+                rejected = hard_negatives[0] if hard_negatives else ordered[-1]
+                preference_rows.append(self._preference_row(chosen, rejected, reward_by_id))
             grpo_rows.append(
                 {
                     "id": _group_id_for(group[0]),
@@ -319,11 +329,11 @@ class TrainReadyDatasetExporter:
         trajectory: AgentTrajectory,
         reward: Optional[RewardV2Breakdown],
     ) -> bool:
-        if trajectory.user_feedback.get("accepted") is True:
-            return True
-        if reward is not None:
-            return reward.total >= 0.25 and not reward.hard_failures
-        return trajectory.audit_status in {"passed", "audited"}
+        # SFT needs one unambiguous target behavior. Review-only, partial, and
+        # unsafe trajectories remain useful as DPO/GRPO negatives, but they
+        # must not dilute the accepted execution path.
+        del reward
+        return trajectory.user_feedback.get("accepted") is True
 
     @staticmethod
     def _group_by_prompt(trajectories: List[AgentTrajectory]) -> Dict[str, List[AgentTrajectory]]:
