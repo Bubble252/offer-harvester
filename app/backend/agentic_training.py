@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 DEFAULT_TINY_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 DEFAULT_OUTPUT_DIR_NAME = "qwen2_5_0_5b_lora"
 DEFAULT_DPO_OUTPUT_DIR_NAME = "qwen2_5_0_5b_dpo_lora"
+DEFAULT_GRPO_OUTPUT_DIR_NAME = "qwen2_5_0_5b_grpo_lora"
 
 
 class TrainingDatasetIssue(BaseModel):
@@ -57,17 +58,21 @@ class LoRAConfigSpec(BaseModel):
 
 
 class SFTTrainingConfig(BaseModel):
-    schema_version: str = "agentic-rl-sft-training.v1"
+    schema_version: str = "agentic-rl-local-training.v1"
     model_id: str = DEFAULT_TINY_MODEL_ID
     method: Literal["lora"] = "lora"
-    trainer_backend: Literal["auto", "trl-sft", "trl-dpo", "hf-trainer"] = "auto"
+    trainer_backend: Literal["auto", "trl-sft", "trl-dpo", "trl-grpo", "hf-trainer"] = "auto"
     max_seq_length: int = 1024
     max_prompt_length: int = 384
+    max_completion_length: int = 96
     learning_rate: float = 2e-4
     num_train_epochs: float = 1.0
     max_steps: int = -1
     dpo_beta: float = 0.1
     dpo_loss_type: str = "sigmoid"
+    grpo_beta: float = 0.04
+    grpo_num_generations: int = 2
+    grpo_temperature: float = 0.7
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 8
     fp16_if_cuda: bool = True
@@ -98,6 +103,7 @@ class TrainingDependencyReport(BaseModel):
     accelerate: bool = False
     datasets: bool = False
     trl: bool = False
+    grpo_trainer: bool = False
 
     @property
     def ready_for_sft(self) -> bool:
@@ -111,9 +117,13 @@ class TrainingDependencyReport(BaseModel):
     def ready_for_trl_dpo(self) -> bool:
         return self.ready_for_trl_sft
 
+    @property
+    def ready_for_trl_grpo(self) -> bool:
+        return self.ready_for_trl_sft and self.grpo_trainer
+
 
 class PreparedTrainingRun(BaseModel):
-    mode: Literal["dry-run", "sft", "dpo"]
+    mode: Literal["dry-run", "sft", "dpo", "grpo"]
     output_dir: str
     config: SFTTrainingConfig
     dataset_report: TrainingDatasetReport
@@ -218,6 +228,59 @@ def prepare_dpo_training_run(
     )
 
 
+def prepare_grpo_training_run(
+    dataset_dir: Path,
+    output_dir: Path,
+    *,
+    model_id: str = DEFAULT_TINY_MODEL_ID,
+    split_config: Optional[DatasetSplitConfig] = None,
+    training_config: Optional[SFTTrainingConfig] = None,
+) -> PreparedTrainingRun:
+    rows = load_grpo_rollouts(dataset_dir)
+    split_config = split_config or DatasetSplitConfig()
+    config = training_config or SFTTrainingConfig(
+        model_id=model_id,
+        trainer_backend="trl-grpo",
+        learning_rate=1e-6,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    unique_rows, duplicate_count = dedupe_grpo_rows(rows)
+    splits = split_rows(unique_rows, split_config)
+    split_files = write_splits(output_dir, splits)
+    report = build_grpo_dataset_report(
+        dataset_dir / "grpo_rollouts.jsonl", rows, unique_rows, splits
+    )
+    report.duplicate_rows = duplicate_count
+    config_path = output_dir / "training_config.json"
+    config_path.write_text(_json(config.model_dump()) + "\n", encoding="utf-8")
+    manifest = {
+        "schema_version": "agentic-rl-grpo-training-run.v1",
+        "mode": "grpo",
+        "created_at": now_iso(),
+        "config_file": str(config_path),
+        "split_files": split_files,
+        "dataset_report": report.model_dump(),
+        "default_model_reason": "0.5B Qwen is the conservative 8GB-GPU GRPO smoke-test target.",
+        "training_boundary": (
+            "TRL GRPOTrainer generates fresh completions; stored rollouts provide reward "
+            "references and regression context rather than direct supervised targets."
+        ),
+    }
+    (output_dir / "training_manifest.json").write_text(_json(manifest) + "\n", encoding="utf-8")
+    (output_dir / "report.md").write_text(render_training_report(config, report), encoding="utf-8")
+    dependencies = check_training_dependencies()
+    return PreparedTrainingRun(
+        mode="grpo",
+        output_dir=str(output_dir),
+        config=config,
+        dataset_report=report,
+        dependencies=dependencies,
+        split_files=split_files,
+        training_status="ready" if report.valid else "invalid_dataset",
+    )
+
+
 def load_sft_messages(dataset_dir: Path) -> List[Dict[str, Any]]:
     path = dataset_dir / "sft_messages.jsonl"
     if not path.exists():
@@ -233,6 +296,17 @@ def load_preference_pairs(dataset_dir: Path) -> List[Dict[str, Any]]:
     path = dataset_dir / "preference_pairs.jsonl"
     if not path.exists():
         raise FileNotFoundError(f"Missing DPO preference dataset: {path}")
+    rows: List[Dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def load_grpo_rollouts(dataset_dir: Path) -> List[Dict[str, Any]]:
+    path = dataset_dir / "grpo_rollouts.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"Missing GRPO rollout dataset: {path}")
     rows: List[Dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
@@ -272,6 +346,29 @@ def dedupe_preference_rows(rows: Iterable[Dict[str, Any]]) -> Tuple[List[Dict[st
     return unique, duplicate_count
 
 
+def dedupe_grpo_rows(rows: Iterable[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+    seen = set()
+    unique: List[Dict[str, Any]] = []
+    duplicate_count = 0
+    for row in rows:
+        rollout_outputs = [
+            rollout.get("output", "")
+            for rollout in row.get("rollouts", [])
+            if isinstance(rollout, dict)
+        ]
+        digest = hashlib.sha256(
+            _json([row.get("prompt", ""), row.get("task_type", ""), rollout_outputs]).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        if digest in seen:
+            duplicate_count += 1
+            continue
+        seen.add(digest)
+        unique.append(row)
+    return unique, duplicate_count
+
+
 def split_rows(
     rows: List[Dict[str, Any]],
     split_config: DatasetSplitConfig,
@@ -279,9 +376,7 @@ def split_rows(
     ordered = sorted(
         rows,
         key=lambda row: hashlib.sha256(
-            f"{split_config.seed}:{row.get('id', '')}:{_json(row.get('messages', []))}".encode(
-                "utf-8"
-            )
+            f"{split_config.seed}:{_json(_split_fingerprint(row))}".encode("utf-8")
         ).hexdigest(),
     )
     total = len(ordered)
@@ -298,6 +393,24 @@ def split_rows(
         "valid": ordered[train_count : train_count + valid_count],
         "test": ordered[train_count + valid_count :],
     }
+
+
+def _split_fingerprint(row: Dict[str, Any]) -> List[Any]:
+    rollouts = row.get("rollouts", [])
+    rollout_outputs = []
+    if isinstance(rollouts, list):
+        rollout_outputs = [
+            rollout.get("output", "") for rollout in rollouts if isinstance(rollout, dict)
+        ]
+    return [
+        row.get("id", ""),
+        row.get("task_type", ""),
+        row.get("messages", []),
+        row.get("prompt", ""),
+        row.get("chosen", ""),
+        row.get("rejected", ""),
+        rollout_outputs,
+    ]
 
 
 def write_splits(output_dir: Path, splits: Dict[str, List[Dict[str, Any]]]) -> Dict[str, str]:
@@ -456,7 +569,117 @@ def build_preference_dataset_report(
     )
 
 
+def build_grpo_dataset_report(
+    source_file: Path,
+    original_rows: List[Dict[str, Any]],
+    unique_rows: List[Dict[str, Any]],
+    splits: Dict[str, List[Dict[str, Any]]],
+) -> TrainingDatasetReport:
+    issues: List[TrainingDatasetIssue] = []
+    privacy_hits: List[str] = []
+    token_counts: List[int] = []
+    reward_spreads: List[float] = []
+    task_type_counts: Dict[str, int] = {}
+    for row in unique_rows:
+        row_id = str(row.get("id", row.get("prompt", "")) or "")
+        prompt = str(row.get("prompt", "") or "")
+        rollouts = row.get("rollouts", [])
+        if not prompt or not isinstance(rollouts, list) or len(rollouts) < 2:
+            issues.append(
+                _issue(
+                    "error",
+                    "invalid_grpo_rollout_group",
+                    "GRPO row must contain a prompt and at least two rollout candidates.",
+                    row_id,
+                )
+            )
+            continue
+        outputs = []
+        rewards = []
+        for rollout in rollouts:
+            if not isinstance(rollout, dict):
+                issues.append(
+                    _issue(
+                        "error",
+                        "invalid_rollout",
+                        "Each rollout must be an object with output and reward.",
+                        row_id,
+                    )
+                )
+                continue
+            output = str(rollout.get("output", "") or "")
+            outputs.append(output)
+            reward = _rollout_reward_total(rollout)
+            rewards.append(reward)
+            if not output:
+                issues.append(
+                    _issue("error", "empty_rollout_output", "Rollout output is required.", row_id)
+                )
+        if rewards:
+            reward_spread = max(rewards) - min(rewards)
+            reward_spreads.append(reward_spread)
+            if reward_spread <= 0:
+                issues.append(
+                    _issue(
+                        "warning",
+                        "zero_reward_spread",
+                        "GRPO group has no reward spread; it is weak for group-relative training.",
+                        row_id,
+                    )
+                )
+            if max(rewards) <= 0:
+                issues.append(
+                    _issue(
+                        "warning",
+                        "no_positive_rollout",
+                        "GRPO group has no positive reward rollout.",
+                        row_id,
+                    )
+                )
+        combined = "\n".join([prompt, *outputs])
+        token_counts.append(estimate_tokens(combined))
+        privacy_hits.extend(scan_privacy(combined, row_id=row_id))
+        task_type = str(row.get("task_type", "unknown") or "unknown")
+        task_type_counts[task_type] = task_type_counts.get(task_type, 0) + 1
+    if privacy_hits:
+        issues.append(
+            _issue(
+                "error",
+                "privacy_scan_hit",
+                "GRPO rollout dataset contains unmasked email, phone, API key, or connection string pattern.",
+            )
+        )
+    if len(unique_rows) < 50:
+        issues.append(
+            _issue(
+                "warning",
+                "small_dataset",
+                "Fewer than 50 unique GRPO groups; use only for smoke tests.",
+            )
+        )
+    return TrainingDatasetReport(
+        valid=not any(issue.level == "error" for issue in issues),
+        source_file=str(source_file),
+        total_rows=len(original_rows),
+        usable_rows=len(unique_rows),
+        split_counts={name: len(rows) for name, rows in splits.items()},
+        approx_token_stats=_numeric_stats(token_counts),
+        reward_stats=_numeric_stats(reward_spreads),
+        task_type_counts=task_type_counts,
+        privacy_scan_hits=privacy_hits,
+        issues=issues,
+    )
+
+
 def check_training_dependencies() -> TrainingDependencyReport:
+    grpo_trainer = False
+    if importlib.util.find_spec("trl") is not None:
+        try:
+            from trl import GRPOConfig, GRPOTrainer  # noqa: F401
+
+            grpo_trainer = True
+        except Exception:
+            grpo_trainer = False
     return TrainingDependencyReport(
         torch=importlib.util.find_spec("torch") is not None,
         transformers=importlib.util.find_spec("transformers") is not None,
@@ -464,6 +687,7 @@ def check_training_dependencies() -> TrainingDependencyReport:
         accelerate=importlib.util.find_spec("accelerate") is not None,
         datasets=importlib.util.find_spec("datasets") is not None,
         trl=importlib.util.find_spec("trl") is not None,
+        grpo_trainer=grpo_trainer,
     )
 
 
@@ -572,6 +796,36 @@ def run_local_dpo_training(
     return _run_trl_dpo_training(
         prepared,
         sft_adapter_dir=sft_adapter_dir,
+        evaluate_after_training=evaluate_after_training,
+        max_eval_samples=max_eval_samples,
+    )
+
+
+def run_local_grpo_training(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path] = None,
+    dpo_adapter_dir: Optional[Path] = None,
+    allow_cpu: bool = False,
+    evaluate_after_training: bool = True,
+    max_eval_samples: int = 3,
+) -> PreparedTrainingRun:
+    """Run a minimal TRL GRPOTrainer LoRA smoke optimization."""
+
+    if not prepared.dataset_report.valid:
+        return prepared.model_copy(update={"training_status": "invalid_dataset"})
+    if not prepared.dependencies.ready_for_trl_grpo:
+        return prepared.model_copy(update={"training_status": "missing_grpo_dependencies"})
+
+    import torch
+
+    if not torch.cuda.is_available() and not allow_cpu:
+        return prepared.model_copy(update={"training_status": "cuda_unavailable"})
+
+    return _run_trl_grpo_training(
+        prepared,
+        sft_adapter_dir=sft_adapter_dir,
+        dpo_adapter_dir=dpo_adapter_dir,
         evaluate_after_training=evaluate_after_training,
         max_eval_samples=max_eval_samples,
     )
@@ -839,6 +1093,101 @@ def _run_trl_dpo_training(
     return result
 
 
+def _run_trl_grpo_training(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path],
+    dpo_adapter_dir: Optional[Path],
+    evaluate_after_training: bool,
+    max_eval_samples: int,
+) -> PreparedTrainingRun:
+    import torch
+    from datasets import Dataset
+    from peft import LoraConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from trl import GRPOConfig, GRPOTrainer
+
+    output_dir = Path(prepared.output_dir)
+    train_rows = _read_jsonl(Path(prepared.split_files["train"]))
+    valid_rows = _read_jsonl(Path(prepared.split_files["valid"]))
+    tokenizer = AutoTokenizer.from_pretrained(prepared.config.model_id, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(
+        prepared.config.model_id,
+        device_map="auto" if torch.cuda.is_available() else None,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        trust_remote_code=True,
+    )
+    lora = LoraConfig(
+        task_type="CAUSAL_LM",
+        r=prepared.config.lora.r,
+        lora_alpha=prepared.config.lora.lora_alpha,
+        lora_dropout=prepared.config.lora.lora_dropout,
+        target_modules=prepared.config.lora.target_modules,
+        bias="none",
+    )
+    train_dataset = Dataset.from_list([format_grpo_row(row) for row in train_rows])
+    eval_dataset = (
+        Dataset.from_list([format_grpo_row(row) for row in valid_rows]) if valid_rows else None
+    )
+    config_kwargs = {
+        "output_dir": str(output_dir / "trainer"),
+        "overwrite_output_dir": True,
+        "num_train_epochs": prepared.config.num_train_epochs,
+        "max_steps": prepared.config.max_steps,
+        "per_device_train_batch_size": prepared.config.per_device_train_batch_size,
+        "per_device_eval_batch_size": prepared.config.per_device_train_batch_size,
+        "gradient_accumulation_steps": prepared.config.gradient_accumulation_steps,
+        "learning_rate": prepared.config.learning_rate,
+        "fp16": bool(prepared.config.fp16_if_cuda and torch.cuda.is_available()),
+        "logging_steps": 1,
+        "save_strategy": "epoch",
+        "save_total_limit": 1,
+        "report_to": [],
+        "remove_unused_columns": False,
+        "max_prompt_length": prepared.config.max_prompt_length,
+        "max_completion_length": prepared.config.max_completion_length,
+        "num_generations": prepared.config.grpo_num_generations,
+        "temperature": prepared.config.grpo_temperature,
+        "beta": prepared.config.grpo_beta,
+        "use_vllm": False,
+    }
+    training_args = _build_sft_config(GRPOConfig, config_kwargs)
+    reward_func = _make_grpo_reward_func()
+    trainer = _build_grpo_trainer(
+        GRPOTrainer,
+        model=model,
+        reward_funcs=reward_func,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        peft_config=lora,
+        processing_class=tokenizer,
+    )
+    trainer.train()
+    adapter_dir = output_dir / "adapter"
+    trainer.model.save_pretrained(adapter_dir)
+    tokenizer.save_pretrained(adapter_dir)
+    eval_report = _safe_evaluate_base_sft_dpo_grpo(
+        prepared,
+        sft_adapter_dir=sft_adapter_dir,
+        dpo_adapter_dir=dpo_adapter_dir,
+        evaluate_after_training=evaluate_after_training,
+        max_eval_samples=max_eval_samples,
+    )
+    result = prepared.model_copy(
+        update={
+            "training_started": True,
+            "training_status": "completed",
+            "trainer_backend_used": "trl-grpo",
+            "model_eval_report": eval_report,
+        }
+    )
+    write_training_result(result)
+    return result
+
+
 def _build_sft_config(config_type: Any, kwargs: Dict[str, Any]) -> Any:
     parameters = set(inspect.signature(config_type.__init__).parameters)
     adapted = dict(kwargs)
@@ -868,6 +1217,11 @@ def _build_dpo_trainer(trainer_type: Any, **kwargs: Any) -> Any:
     elif "tokenizer" in parameters:
         adapted["tokenizer"] = tokenizer
     return trainer_type(**{key: value for key, value in adapted.items() if key in parameters})
+
+
+def _build_grpo_trainer(trainer_type: Any, **kwargs: Any) -> Any:
+    parameters = set(inspect.signature(trainer_type.__init__).parameters)
+    return trainer_type(**{key: value for key, value in kwargs.items() if key in parameters})
 
 
 def evaluate_base_vs_adapter(
@@ -1048,6 +1402,110 @@ def evaluate_base_sft_dpo(
     return report
 
 
+def evaluate_base_sft_dpo_grpo(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path] = None,
+    dpo_adapter_dir: Optional[Path] = None,
+    max_eval_samples: int = 3,
+) -> Dict[str, Any]:
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    output_dir = Path(prepared.output_dir)
+    grpo_adapter_dir = output_dir / "adapter"
+    test_rows = _read_jsonl(Path(prepared.split_files["test"]))[:max_eval_samples]
+    if not grpo_adapter_dir.exists() or not test_rows:
+        return {}
+    tokenizer = AutoTokenizer.from_pretrained(prepared.config.model_id, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model_kwargs = {
+        "device_map": "auto" if torch.cuda.is_available() else None,
+        "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+        "trust_remote_code": True,
+    }
+    variant_adapters: List[Tuple[str, Optional[Path]]] = [
+        ("base", None),
+    ]
+    if sft_adapter_dir and sft_adapter_dir.exists():
+        variant_adapters.append(("sft_adapter", sft_adapter_dir))
+    if dpo_adapter_dir and dpo_adapter_dir.exists():
+        variant_adapters.append(("dpo_adapter", dpo_adapter_dir))
+    variant_adapters.append(("grpo_adapter", grpo_adapter_dir))
+
+    variant_outputs: Dict[str, List[str]] = {}
+    for name, adapter_dir in variant_adapters:
+        model = AutoModelForCausalLM.from_pretrained(prepared.config.model_id, **model_kwargs)
+        if adapter_dir is not None:
+            model = PeftModel.from_pretrained(model, adapter_dir)
+        variant_outputs[name] = [_generate_text(model, tokenizer, row, torch) for row in test_rows]
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    privacy_hits: List[str] = []
+    rows = []
+    for index, row in enumerate(test_rows):
+        expected = _row_expected(row)
+        row_payload: Dict[str, Any] = {
+            "id": row.get("id", hashlib.sha256(_row_prompt(row).encode("utf-8")).hexdigest()[:12]),
+            "task_type": row.get("task_type", ""),
+            "expected_reward": _rollout_reward_total(_best_rollout(row)),
+            "expected_excerpt": expected[:240],
+        }
+        for variant, outputs in variant_outputs.items():
+            generated = outputs[index]
+            privacy_hits.extend(scan_privacy(generated, row_id=f"{row_payload['id']}:{variant}"))
+            masked = _safe_generated_text(generated)
+            row_payload[f"{variant}_score"] = _grpo_reference_reward(
+                masked,
+                expected,
+                task_type=str(row.get("task_type", "")),
+            )
+            row_payload[f"{variant}_output"] = masked
+        rows.append(row_payload)
+    variant_scores = {}
+    for variant in variant_outputs:
+        variant_scores[variant] = _avg([row[f"{variant}_score"] for row in rows])
+    report = {
+        "schema_version": "agentic-rl-sft-dpo-grpo-eval.v1",
+        "model_id": prepared.config.model_id,
+        "sft_adapter_dir": str(sft_adapter_dir) if sft_adapter_dir else "",
+        "dpo_adapter_dir": str(dpo_adapter_dir) if dpo_adapter_dir else "",
+        "grpo_adapter_dir": str(grpo_adapter_dir),
+        "sample_count": len(rows),
+        "variant_scores": variant_scores,
+        "grpo_delta_vs_base": round(
+            variant_scores.get("grpo_adapter", 0.0) - variant_scores.get("base", 0.0), 4
+        ),
+        "grpo_delta_vs_sft": round(
+            variant_scores.get("grpo_adapter", 0.0) - variant_scores.get("sft_adapter", 0.0), 4
+        )
+        if "sft_adapter" in variant_scores
+        else None,
+        "grpo_delta_vs_dpo": round(
+            variant_scores.get("grpo_adapter", 0.0) - variant_scores.get("dpo_adapter", 0.0), 4
+        )
+        if "dpo_adapter" in variant_scores
+        else None,
+        "privacy_scan_hits": privacy_hits,
+        "rows": rows,
+        "notes": [
+            "Smoke report uses a lightweight reference reward; it proves GRPO adapter load/generation, not final task quality."
+        ],
+    }
+    (output_dir / "sft_dpo_grpo_eval.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "sft_dpo_grpo_eval.md").write_text(
+        render_sft_dpo_grpo_report(report), encoding="utf-8"
+    )
+    return report
+
+
 def render_sft_dpo_report(report: Dict[str, Any]) -> str:
     lines = [
         "# SFT vs DPO Smoke Evaluation",
@@ -1073,6 +1531,43 @@ def render_sft_dpo_report(report: Dict[str, Any]) -> str:
                 f"- base_score: `{row.get('base_score', 0)}`",
                 f"- sft_score: `{row.get('sft_adapter_score', 'n/a')}`",
                 f"- dpo_score: `{row.get('dpo_adapter_score', 0)}`",
+                f"- expected_excerpt: {row.get('expected_excerpt', '')}",
+                "",
+            ]
+        )
+    lines.extend(["## Notes", ""])
+    lines.extend(f"- {note}" for note in report.get("notes", []))
+    return "\n".join(lines) + "\n"
+
+
+def render_sft_dpo_grpo_report(report: Dict[str, Any]) -> str:
+    lines = [
+        "# Base vs SFT vs DPO vs GRPO Smoke Evaluation",
+        "",
+        f"- model: `{report.get('model_id', '')}`",
+        f"- sft_adapter: `{report.get('sft_adapter_dir', '')}`",
+        f"- dpo_adapter: `{report.get('dpo_adapter_dir', '')}`",
+        f"- grpo_adapter: `{report.get('grpo_adapter_dir', '')}`",
+        f"- samples: `{report.get('sample_count', 0)}`",
+        f"- variant_scores: `{report.get('variant_scores', {})}`",
+        f"- grpo_delta_vs_base: `{report.get('grpo_delta_vs_base', 0)}`",
+        f"- grpo_delta_vs_sft: `{report.get('grpo_delta_vs_sft', None)}`",
+        f"- grpo_delta_vs_dpo: `{report.get('grpo_delta_vs_dpo', None)}`",
+        f"- privacy_scan_hits: `{len(report.get('privacy_scan_hits', []))}`",
+        "",
+        "## Samples",
+        "",
+    ]
+    for row in report.get("rows", []):
+        lines.extend(
+            [
+                f"### {row.get('id', '')}",
+                "",
+                f"- task_type: `{row.get('task_type', '')}`",
+                f"- base_score: `{row.get('base_score', 0)}`",
+                f"- sft_score: `{row.get('sft_adapter_score', 'n/a')}`",
+                f"- dpo_score: `{row.get('dpo_adapter_score', 'n/a')}`",
+                f"- grpo_score: `{row.get('grpo_adapter_score', 0)}`",
                 f"- expected_excerpt: {row.get('expected_excerpt', '')}",
                 "",
             ]
@@ -1125,6 +1620,32 @@ def _safe_evaluate_base_sft_dpo(
         }
 
 
+def _safe_evaluate_base_sft_dpo_grpo(
+    prepared: PreparedTrainingRun,
+    *,
+    sft_adapter_dir: Optional[Path],
+    dpo_adapter_dir: Optional[Path],
+    evaluate_after_training: bool,
+    max_eval_samples: int,
+) -> Dict[str, Any]:
+    if not evaluate_after_training:
+        return {}
+    try:
+        return evaluate_base_sft_dpo_grpo(
+            prepared,
+            sft_adapter_dir=sft_adapter_dir,
+            dpo_adapter_dir=dpo_adapter_dir,
+            max_eval_samples=max_eval_samples,
+        )
+    except Exception as exc:  # pragma: no cover - hardware/model failures are environment-specific
+        return {
+            "schema_version": "agentic-rl-sft-dpo-grpo-eval.v1",
+            "error": type(exc).__name__,
+            "message": str(exc),
+            "notes": ["GRPO adapter training completed, but smoke generation evaluation failed."],
+        }
+
+
 def write_training_result(prepared: PreparedTrainingRun) -> Dict[str, str]:
     output_dir = Path(prepared.output_dir)
     adapter_dir = output_dir / "adapter"
@@ -1174,6 +1695,9 @@ def render_training_result_markdown(payload: Dict[str, Any]) -> str:
         f"- variant_scores: `{eval_report.get('variant_scores', {})}`",
         f"- dpo_delta_vs_base: `{eval_report.get('dpo_delta_vs_base', None)}`",
         f"- dpo_delta_vs_sft: `{eval_report.get('dpo_delta_vs_sft', None)}`",
+        f"- grpo_delta_vs_base: `{eval_report.get('grpo_delta_vs_base', None)}`",
+        f"- grpo_delta_vs_sft: `{eval_report.get('grpo_delta_vs_sft', None)}`",
+        f"- grpo_delta_vs_dpo: `{eval_report.get('grpo_delta_vs_dpo', None)}`",
         f"- eval_privacy_scan_hits: `{len(eval_report.get('privacy_scan_hits', []))}`",
         "",
         "## Notes",
@@ -1264,6 +1788,17 @@ def format_dpo_row(row: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def format_grpo_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    best = _best_rollout(row)
+    return {
+        "prompt": _row_prompt(row),
+        "reference_output": str(best.get("output", "") or ""),
+        "reference_reward": _rollout_reward_total(best),
+        "task_type": str(row.get("task_type", "") or ""),
+        "negative_terms": _negative_terms_for_rollouts(row.get("rollouts", [])),
+    }
+
+
 def _row_prompt(row: Dict[str, Any]) -> str:
     if "prompt" in row:
         return str(row.get("prompt", "") or "")
@@ -1273,7 +1808,109 @@ def _row_prompt(row: Dict[str, Any]) -> str:
 def _row_expected(row: Dict[str, Any]) -> str:
     if "chosen" in row:
         return str(row.get("chosen", "") or "")
+    if "rollouts" in row:
+        return str(_best_rollout(row).get("output", "") or "")
     return _message_content(row.get("messages", []), "assistant")
+
+
+def _best_rollout(row: Dict[str, Any]) -> Dict[str, Any]:
+    rollouts = [rollout for rollout in row.get("rollouts", []) if isinstance(rollout, dict)]
+    if not rollouts:
+        return {}
+    return max(rollouts, key=_rollout_reward_total)
+
+
+def _rollout_reward_total(rollout: Dict[str, Any]) -> float:
+    reward = rollout.get("reward", {}) if isinstance(rollout, dict) else {}
+    if isinstance(reward, dict) and isinstance(reward.get("total"), (int, float)):
+        return float(reward["total"])
+    if isinstance(rollout.get("reward"), (int, float)):
+        return float(rollout["reward"])
+    return 0.0
+
+
+def _negative_terms_for_rollouts(rollouts: Any) -> List[str]:
+    negative_terms = []
+    for rollout in rollouts if isinstance(rollouts, list) else []:
+        if not isinstance(rollout, dict) or _rollout_reward_total(rollout) >= 0:
+            continue
+        text = str(rollout.get("output", "") or "")
+        for term in ["经验帖", "根据经验", "补齐结论", "更完整", "直接搜索"]:
+            if term in text and term not in negative_terms:
+                negative_terms.append(term)
+    return negative_terms
+
+
+def _make_grpo_reward_func():
+    def reward_func(
+        prompts: Optional[List[Any]] = None,
+        completions: Optional[List[Any]] = None,
+        reference_output: Optional[List[str]] = None,
+        task_type: Optional[List[str]] = None,
+        negative_terms: Optional[List[List[str]]] = None,
+        **kwargs: Any,
+    ) -> List[float]:
+        prompt_values = prompts or kwargs.get("prompt") or []
+        completion_values = completions or kwargs.get("completion") or []
+        reference_values = reference_output or kwargs.get("reference_output") or []
+        task_values = task_type or kwargs.get("task_type") or []
+        negative_values = negative_terms or kwargs.get("negative_terms") or []
+        rewards = []
+        for index, completion in enumerate(completion_values):
+            generated = _completion_to_text(completion)
+            reference = str(_cyclic_get(reference_values, index, ""))
+            task = str(_cyclic_get(task_values, index, ""))
+            negatives = _cyclic_get(negative_values, index, [])
+            reward = _grpo_reference_reward(generated, reference, task_type=task)
+            if any(str(term) and str(term) in generated for term in negatives):
+                reward -= 0.25
+            if not reference and index < len(prompt_values):
+                reward += 0.05 if str(prompt_values[index])[:20] in generated else 0.0
+            rewards.append(round(max(-1.0, min(1.0, reward)), 4))
+        return rewards
+
+    return reward_func
+
+
+def _cyclic_get(values: Any, index: int, default: Any) -> Any:
+    if not isinstance(values, list) or not values:
+        return default
+    return values[index % len(values)]
+
+
+def _completion_to_text(completion: Any) -> str:
+    if isinstance(completion, str):
+        return completion
+    if isinstance(completion, list):
+        parts = []
+        for item in completion:
+            if isinstance(item, dict):
+                parts.append(str(item.get("content", "") or ""))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    if isinstance(completion, dict):
+        return str(completion.get("content", "") or completion.get("text", "") or completion)
+    return str(completion)
+
+
+def _grpo_reference_reward(generated: str, reference: str, *, task_type: str = "") -> float:
+    masked = _safe_generated_text(generated)
+    score = _heuristic_generation_score(masked, reference)
+    if "官方" in masked and ("URL" in masked or "hash" in masked):
+        score += 0.15
+    if "EvidenceAudit" in masked or "needs_review" in masked:
+        score += 0.1
+    if task_type == "rag_query_plan" and "检索" in masked:
+        score += 0.05
+    if task_type == "evidence_audit_fix" and ("修复" in masked or "claim" in masked):
+        score += 0.05
+    for bad_term in ["经验帖", "根据经验", "编造", "直接补齐", "看起来更完整"]:
+        if bad_term in masked:
+            score -= 0.2
+    if scan_privacy(generated):
+        score = -1.0
+    return round(max(-1.0, min(1.0, score)), 4)
 
 
 class _SFTDataset:

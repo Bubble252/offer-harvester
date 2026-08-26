@@ -23,7 +23,7 @@ train = [
     "pydantic>=2,<3",
     "torch>=2.5,<2.6",
     "transformers>=4.46,<4.47",
-    "trl>=0.12,<0.13",
+    "trl>=0.15,<0.16",
 ]
 
 [tool.pytest.ini_options]

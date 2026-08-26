@@ -16,12 +16,13 @@ Implemented now:
 - verified public policy/advisor sample seed metadata, stored as URL + summary + authority fields rather than full page bodies
 - optional TRL `SFTTrainer` LoRA training path with HuggingFace Trainer fallback
 - optional TRL `DPOTrainer` LoRA training path from `preference_pairs.jsonl`
+- optional TRL `GRPOTrainer` LoRA training path from `grpo_rollouts.jsonl`
 - Qwen 0.5B LoRA smoke training result under ignored `workspace/`
 
 Not implemented in this stage:
 
 - production-quality model training
-- GRPO training
+- production GRPO training or online policy rollout
 - Ray/vLLM
 - MongoDB/Redis/Kubernetes
 - private student data upload
@@ -109,6 +110,30 @@ python tools/train_agentic_rl.py \
   --grad-accum 2
 ```
 
+Prepare a default GRPO dry run from rollout groups:
+
+```bash
+python tools/train_agentic_rl.py --mode grpo
+```
+
+Start local GRPO only after installing the optional ML stack and explicitly
+allowing training:
+
+```bash
+python tools/train_agentic_rl.py \
+  --mode grpo \
+  --allow-actual-training \
+  --trainer-backend trl-grpo \
+  --max-steps 3 \
+  --max-prompt-length 384 \
+  --max-completion-length 64 \
+  --grpo-num-generations 2 \
+  --grpo-temperature 0.7 \
+  --learning-rate 1e-6 \
+  --batch-size 2 \
+  --grad-accum 1
+```
+
 The exporter writes:
 
 - `trajectories.jsonl`
@@ -145,6 +170,15 @@ The real DPO smoke run additionally writes:
 - `training_result.json`
 - `training_result.md`
 
+The real GRPO smoke run additionally writes:
+
+- `adapter/adapter_model.safetensors`
+- `trainer/checkpoint-*/trainer_state.json`
+- `sft_dpo_grpo_eval.json`
+- `sft_dpo_grpo_eval.md`
+- `training_result.json`
+- `training_result.md`
+
 The offline evaluator writes:
 
 - `agentic_rl_evaluation.json`
@@ -163,15 +197,15 @@ SQL dumps containing private data.
 
 ## Training Boundary
 
-The current implementation can prepare data and run small local SFT and DPO
-smoke trains. Positive SFT rows are filtered by acceptance/reward. Weaker
+The current implementation can prepare data and run small local SFT, DPO, and
+GRPO smoke trains. Positive SFT rows are filtered by acceptance/reward. Weaker
 outputs are preserved in preference and rollout files, so DPO can learn from
-chosen/rejected boundaries and future GRPO experiments can learn from grouped
-rollouts instead of treating every output as a target.
+chosen/rejected boundaries and GRPO can learn from generated completions scored
+against grouped rollout references instead of treating every output as a target.
 
 The default local training target is `Qwen/Qwen2.5-0.5B-Instruct` with LoRA
 `r=8`, `alpha=16`, and adapter-only output. This is intended for an 8 GB GPU
-smoke test. Larger models, GRPO, Ray, and vLLM remain optional future paths.
+smoke test. Larger models, Ray, and vLLM remain optional future paths.
 
 The first verified smoke result used 306 trajectories and 153 SFT rows. TRL
 SFTTrainer completed 3 optimizer steps and produced a loadable adapter plus a
@@ -184,6 +218,14 @@ steps and produced a loadable DPO adapter plus an SFT-vs-DPO-vs-base smoke
 report. The smoke eval used 2 rows; base, SFT adapter, and DPO adapter all
 scored 0.15 with the lightweight heuristic, so this proves the DPO loop can run
 and be compared, not that quality improved.
+
+The first verified GRPO smoke result used 153 rollout groups, split into
+123/15/15 train/validation/test rows. TRL GRPOTrainer completed 3 optimizer
+steps with `num_generations=2`, `max_completion_length=64`, and a lightweight
+reference reward derived from the best stored rollout in each group. The smoke
+eval used 2 rows; base, DPO adapter, and GRPO adapter scored 0.24, while the
+SFT adapter scored 0.2045. This proves the GRPO loop can train, save, load, and
+compare adapters, not that the adapter is ready for production.
 
 Generated evaluation outputs are privacy-scanned and masked before report
 storage. This matters because base models can hallucinate phone-like or
@@ -210,6 +252,10 @@ The agreed order is:
 6. TRL `DPOTrainer`
 7. TRL `GRPOTrainer`
 
+Steps 1-7 now have smoke-level coverage. The next training work should expand
+the public dataset, strengthen reward functions, and run fixed regression
+evaluation before increasing steps or model size.
+
 Heavy ML packages are optional. Install them only in a training environment:
 
 ```bash
@@ -221,11 +267,12 @@ workspace/.venv-train/bin/python -m pip install \
   'peft>=0.13,<0.14' \
   'accelerate>=0.34' \
   'datasets>=2.21' \
-  'trl>=0.12,<0.13' \
+  'trl>=0.15,<0.16' \
   'pydantic>=2,<3'
 ```
 
-These pins matter because newer TRL/Transformers/PEFT combinations can require
-distributed tensor APIs that are not available in the local CUDA stack.
+These pins matter because `trl>=0.15` is needed for GRPOTrainer while newer
+TRL/Transformers/PEFT combinations can require distributed tensor APIs that are
+not available in the local CUDA stack.
 
 The default app install still avoids torch, TRL, and model downloads.
