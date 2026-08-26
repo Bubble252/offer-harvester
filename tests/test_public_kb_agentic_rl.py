@@ -24,6 +24,7 @@ from public_kb import (  # noqa: E402
     PublicKBRecord,
     PublicKBSource,
     PublicKBStore,
+    seed_real_public_samples,
     seed_target_universities,
 )
 from storage import Workspace  # noqa: E402
@@ -40,6 +41,22 @@ def test_public_kb_seed_validate_and_search(tmp_path):
     assert report.record_count == result.record_count
     assert store.search("北京 邮电")[0].name == "北京邮电大学"
     assert store.load_manifest().scope == "public_only"
+
+
+def test_public_kb_real_public_samples_are_summary_only(tmp_path):
+    store = PublicKBStore(Workspace(str(tmp_path)))
+    seed_target_universities(store, replace=True)
+    result = seed_real_public_samples(store)
+    report = store.validate()
+
+    assert result.record_count >= 10
+    assert report.valid is True
+    records = [item for item in store.records() if item.record_id.startswith("pubrec_real_")]
+    chunks = [item for item in store.chunks() if item.chunk_id.startswith("pubchunk_real_")]
+    assert {item.record_kind for item in records} >= {"policy", "advisor"}
+    assert all(item.privacy_scope == "public" for item in store.sources())
+    assert all(chunk.embedding_route == "external_public" for chunk in chunks)
+    assert all(chunk.metadata.get("summary_only") is True for chunk in chunks)
 
 
 def test_public_kb_validation_rejects_unlinked_record(tmp_path):
@@ -154,3 +171,19 @@ def test_agentic_rl_agents_build_fix_gate_and_bridge():
     assert safety["allowed"] is True
     assert sample.anonymized is True
     assert sample.prompt == "修复缺少官方证据的政策 claim"
+
+
+def test_build_public_kb_trajectories_adds_trainable_task_types(tmp_path):
+    from tools.build_agentic_rl_dataset import build_public_kb_trajectories  # noqa: E402
+
+    store = PublicKBStore(Workspace(str(tmp_path)))
+    seed_target_universities(store, replace=True)
+    seed_real_public_samples(store)
+    records = store.records()[:3]
+
+    trajectories = build_public_kb_trajectories(records)
+
+    assert len(trajectories) >= 12
+    assert {item.task_type for item in trajectories} >= {"rag_query_plan", "evidence_audit_fix"}
+    assert any(item.user_feedback.get("accepted") is True for item in trajectories)
+    assert any(item.audit_status in {"failed", "needs_review"} for item in trajectories)

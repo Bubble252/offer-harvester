@@ -13,11 +13,15 @@ Implemented now:
 - SQL dump output for schema plus public KB upserts
 - `AgentTrajectory`, `RewardV2`, SFT/DPO/GRPO-style JSONL export
 - deterministic QueryPlanner, EvidenceAuditFix, RewardJudge, TrajectoryBuilder and SafetyGate agent protocols
+- verified public policy/advisor sample seed metadata, stored as URL + summary + authority fields rather than full page bodies
+- optional TRL `SFTTrainer` LoRA training path with HuggingFace Trainer fallback
+- Qwen 0.5B LoRA smoke training result under ignored `workspace/`
 
 Not implemented in this stage:
 
-- real model training
-- torch/TRL/Ray/vLLM
+- production-quality model training
+- DPO/GRPO training
+- Ray/vLLM
 - MongoDB/Redis/Kubernetes
 - private student data upload
 - automatic policy fact creation without official source evidence
@@ -47,7 +51,8 @@ Build train-ready Agentic RL data:
 ```bash
 python tools/build_agentic_rl_dataset.py \
   --workspace ./workspace \
-  --replace-public-kb-seed
+  --replace-public-kb-seed \
+  --include-real-public-samples
 ```
 
 Prepare a default Qwen 0.5B LoRA dry run:
@@ -74,7 +79,12 @@ allowing training:
 ```bash
 python tools/train_agentic_rl.py \
   --mode sft \
-  --allow-actual-training
+  --allow-actual-training \
+  --trainer-backend trl-sft \
+  --max-steps 3 \
+  --max-seq-length 512 \
+  --batch-size 1 \
+  --grad-accum 2
 ```
 
 The exporter writes:
@@ -95,6 +105,15 @@ The training dry run writes:
 - `training_manifest.json`
 - `report.md`
 
+The real SFT smoke run additionally writes:
+
+- `adapter/adapter_model.safetensors`
+- `trainer/checkpoint-*/trainer_state.json`
+- `base_vs_adapter_eval.json`
+- `base_vs_adapter_eval.md`
+- `training_result.json`
+- `training_result.md`
+
 The offline evaluator writes:
 
 - `agentic_rl_evaluation.json`
@@ -113,15 +132,24 @@ SQL dumps containing private data.
 
 ## Training Boundary
 
-The current implementation prepares data for later training but does not train
-weights. Positive SFT rows are filtered by acceptance/reward. Weaker outputs are
+The current implementation can prepare data and run a small local SFT smoke
+train. Positive SFT rows are filtered by acceptance/reward. Weaker outputs are
 preserved in preference and rollout files, so future DPO/GRPO experiments can
 learn from contrastive outcomes instead of treating every output as a target.
 
 The default local training target is `Qwen/Qwen2.5-0.5B-Instruct` with LoRA
 `r=8`, `alpha=16`, and adapter-only output. This is intended for an 8 GB GPU
-smoke test. Larger models, DPO, GRPO, Ray, vLLM, and TRL remain optional future
+smoke test. Larger models, DPO, GRPO, Ray, and vLLM remain optional future
 paths.
+
+The first verified smoke result used 306 trajectories and 153 SFT rows. TRL
+SFTTrainer completed 3 optimizer steps and produced a loadable adapter plus a
+base-vs-adapter smoke report. The report uses a lightweight lexical heuristic;
+it proves training and loading, not final application quality.
+
+Generated evaluation outputs are privacy-scanned and masked before report
+storage. This matters because base models can hallucinate phone-like or
+key-like strings even when the training data itself is clean.
 
 The first optimization scene is:
 
@@ -140,14 +168,17 @@ The agreed order is:
 2. more real public policy/advisor samples
 3. TRL `SFTTrainer`
 4. Qwen 0.5B LoRA smoke train
-5. base vs adapter vs API baseline report
+5. base vs adapter smoke report, then API/rule baselines
 6. TRL `DPOTrainer`
 7. TRL `GRPOTrainer`
 
 Heavy ML packages are optional. Install them only in a training environment:
 
 ```bash
-python -m pip install '.[train]'
+python3.10 -m venv workspace/.venv-train
+workspace/.venv-train/bin/python -m pip install -U pip
+workspace/.venv-train/bin/python -m pip install \
+  torch transformers peft accelerate datasets trl 'pydantic>=2,<3'
 ```
 
 The default app install still avoids torch, TRL, and model downloads.

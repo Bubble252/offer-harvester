@@ -12,9 +12,12 @@ sys.path.insert(0, str(ROOT / "app" / "backend"))
 from agentic_training import (  # noqa: E402
     DEFAULT_TINY_MODEL_ID,
     DatasetSplitConfig,
+    SFTTrainingConfig,
     check_training_dependencies,
     estimate_tokens,
     prepare_training_run,
+    render_base_vs_adapter_report,
+    render_training_result_markdown,
     scan_privacy,
 )
 
@@ -59,6 +62,8 @@ def test_training_dependency_report_is_non_throwing():
     report = check_training_dependencies()
 
     assert isinstance(report.ready_for_sft, bool)
+    assert isinstance(report.ready_for_trl_sft, bool)
+    assert isinstance(report.trl, bool)
 
 
 def test_train_agentic_rl_cli_dry_run(tmp_path):
@@ -103,6 +108,10 @@ def test_train_agentic_rl_cli_sft_requires_explicit_training_flag(tmp_path):
             str(tmp_path / "run"),
             "--mode",
             "sft",
+            "--trainer-backend",
+            "trl-sft",
+            "--max-steps",
+            "1",
         ],
         check=True,
         capture_output=True,
@@ -112,11 +121,50 @@ def test_train_agentic_rl_cli_sft_requires_explicit_training_flag(tmp_path):
 
     assert payload["training_started"] is False
     assert payload["training_status"] == "requires_allow_actual_training"
+    assert payload["config"]["trainer_backend"] == "trl-sft"
+    assert payload["config"]["max_steps"] == 1
 
 
 def test_token_and_privacy_helpers():
     assert estimate_tokens("北京邮电大学 policy query") > 1
     assert scan_privacy("postgresql://user:pass@example.com/db")
+    assert scan_privacy("联系方式 +8613520978645")
+
+
+def test_training_config_and_base_vs_adapter_report_render():
+    config = SFTTrainingConfig(trainer_backend="trl-sft", max_steps=3)
+
+    assert config.trainer_backend == "trl-sft"
+    assert config.max_steps == 3
+    report = render_base_vs_adapter_report(
+        {
+            "model_id": DEFAULT_TINY_MODEL_ID,
+            "adapter_dir": "workspace/rl/training_runs/qwen2_5_0_5b_lora/adapter",
+            "sample_count": 1,
+            "base_avg_score": 0.1,
+            "adapter_avg_score": 0.2,
+            "delta": 0.1,
+            "rows": [{"id": "row1", "task_type": "rag_query_plan"}],
+            "notes": ["smoke"],
+        }
+    )
+
+    assert "Base vs Adapter" in report
+    assert "qwen2_5_0_5b_lora" in report
+
+    result_report = render_training_result_markdown(
+        {
+            "training_status": "completed",
+            "trainer_backend_used": "trl-sft",
+            "model_id": DEFAULT_TINY_MODEL_ID,
+            "adapter_dir": "workspace/rl/training_runs/qwen2_5_0_5b_lora/adapter",
+            "checkpoint_dirs": ["checkpoint-3"],
+            "model_eval_report": {"sample_count": 1, "delta": 0.1},
+        }
+    )
+
+    assert "Agentic RL Training Result" in result_report
+    assert "completed" in result_report
 
 
 def _sft_row(index: int):

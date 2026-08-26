@@ -50,6 +50,12 @@ def main() -> int:
     )
     parser.add_argument("--max-seq-length", type=int, default=1024)
     parser.add_argument("--epochs", type=float, default=1.0)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=-1,
+        help="Override total optimizer steps for smoke training. -1 means epoch-based.",
+    )
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=8)
@@ -67,6 +73,18 @@ def main() -> int:
         help="Allow CPU training if CUDA is unavailable. This is usually slow.",
     )
     parser.add_argument(
+        "--trainer-backend",
+        choices=["auto", "trl-sft", "hf-trainer"],
+        default="auto",
+        help="Prefer TRL SFTTrainer when available; fallback to HuggingFace Trainer in auto mode.",
+    )
+    parser.add_argument(
+        "--skip-eval-after-training",
+        action="store_true",
+        help="Skip base vs adapter smoke generation after SFT.",
+    )
+    parser.add_argument("--max-eval-samples", type=int, default=3)
+    parser.add_argument(
         "--check-deps",
         action="store_true",
         help="Only print optional ML dependency readiness.",
@@ -79,9 +97,11 @@ def main() -> int:
 
     config = SFTTrainingConfig(
         model_id=args.model_id,
+        trainer_backend=args.trainer_backend,
         max_seq_length=args.max_seq_length,
         learning_rate=args.learning_rate,
         num_train_epochs=args.epochs,
+        max_steps=args.max_steps,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
     )
@@ -97,7 +117,12 @@ def main() -> int:
     )
 
     if args.mode == "sft" and args.allow_actual_training:
-        prepared = run_local_sft_training(prepared, allow_cpu=args.allow_cpu)
+        prepared = run_local_sft_training(
+            prepared,
+            allow_cpu=args.allow_cpu,
+            evaluate_after_training=not args.skip_eval_after_training,
+            max_eval_samples=args.max_eval_samples,
+        )
     elif args.mode == "sft":
         prepared = prepared.model_copy(update={"training_status": "requires_allow_actual_training"})
 

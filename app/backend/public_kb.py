@@ -8,6 +8,7 @@ truth.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Type
@@ -401,6 +402,132 @@ PUBLIC_KB_TARGET_UNIVERSITIES: List[Dict[str, Any]] = [
 ]
 
 
+PUBLIC_KB_REAL_PUBLIC_SAMPLES: List[Dict[str, Any]] = [
+    {
+        "sample_id": "pku_2026_recommendation_policy",
+        "record_kind": "policy",
+        "university_id": "pku",
+        "name": "北京大学2026年接收推荐免试研究生办法（校本部）",
+        "url": "https://admission.pku.edu.cn/zsxx/sszs/tjms/index.htm",
+        "publisher": "北京大学研究生招生网",
+        "authority_level": "graduate_school_official",
+        "published_at": "2025-09-01",
+        "valid_for_year": 2026,
+        "summary": "北京大学研究生招生网推荐免试栏目列出校本部2026年接收推荐免试研究生办法，具体政策仍需进入原文或附件核验。",
+    },
+    {
+        "sample_id": "nju_2026_recommendation_policy",
+        "record_kind": "policy",
+        "university_id": "nju",
+        "name": "南京大学2026年接收推荐免试研究生工作办法",
+        "url": "https://yzb.nju.edu.cn/07/0a/c47863a788234/page.htm",
+        "publisher": "南京大学研究生招生网",
+        "authority_level": "graduate_school_official",
+        "published_at": "2025-09-10",
+        "valid_for_year": 2026,
+        "summary": "南京大学研究生招生网发布2026年接收推荐免试研究生工作办法，包含申请材料清单附件和推免工作安排入口。",
+    },
+    {
+        "sample_id": "ustc_2026_recommendation_policy",
+        "record_kind": "policy",
+        "university_id": "ustc",
+        "name": "中国科学技术大学2026年推免生接收办法",
+        "url": "https://yz.ustc.edu.cn/article/2793/176?num=-1",
+        "publisher": "中国科学技术大学研究生招生在线",
+        "authority_level": "graduate_school_official",
+        "published_at": "2025-09-01",
+        "valid_for_year": 2026,
+        "summary": "中国科学技术大学研究生招生在线发布2026年推免生接收办法，列明申请条件、材料和接收程序等信息。",
+    },
+    {
+        "sample_id": "fudan_2026_recommendation_policy",
+        "record_kind": "policy",
+        "university_id": "fudan",
+        "name": "复旦大学2026年招收优秀应届本科毕业生免试攻读研究生章程",
+        "url": "https://gsao.fudan.edu.cn/ssyjszszcwzszymlwfslqbf/list1.htm",
+        "publisher": "复旦大学研究生招生网",
+        "authority_level": "graduate_school_official",
+        "published_at": "2025-09-15",
+        "valid_for_year": 2026,
+        "summary": "复旦大学研究生招生网招生章程目录列出2026年招收优秀应届本科毕业生免试攻读研究生章程。",
+    },
+    {
+        "sample_id": "zju_2026_recommendation_policy",
+        "record_kind": "policy",
+        "university_id": "zju",
+        "name": "浙江大学2026年招收推荐免试研究生办法",
+        "url": "https://yz.chsi.com.cn/kyzx/yxzc/202509/20250909/2293407748.html",
+        "publisher": "中国研究生招生信息网转载浙江大学",
+        "authority_level": "admissions_platform",
+        "published_at": "2025-09-09",
+        "valid_for_year": 2026,
+        "summary": "中国研究生招生信息网转载浙江大学2026年招收推荐免试研究生办法；正式采信时仍应回到浙江大学研究生招生网原始页面核验。",
+    },
+    {
+        "sample_id": "bupt_2026_recommendation_policy",
+        "record_kind": "policy",
+        "university_id": "bupt",
+        "name": "北京邮电大学2026年接收优秀应届本科毕业生免试攻读研究生工作办法",
+        "url": "https://zsc.bupt.edu.cn/info/1016/1212.htm",
+        "publisher": "北京邮电大学招生网",
+        "authority_level": "graduate_school_official",
+        "published_at": "2025-09-09",
+        "valid_for_year": 2026,
+        "summary": "北京邮电大学招生网发布2026年接收优秀应届本科毕业生免试攻读研究生工作办法，包含报考条件、报考流程、考核和录取等信息。",
+    },
+    {
+        "sample_id": "thu_cs_faculty_directory",
+        "record_kind": "advisor",
+        "university_id": "tsinghua",
+        "name": "清华大学计算机系在职教师目录",
+        "url": "https://www.cs.tsinghua.edu.cn/csen/Faculty/Full_time_Faculty.htm",
+        "publisher": "清华大学计算机科学与技术系",
+        "authority_level": "college_official",
+        "summary": "清华大学计算机科学与技术系在职教师目录，可作为导师身份消歧和官方任职信息来源。",
+    },
+    {
+        "sample_id": "tsail_people",
+        "record_kind": "advisor",
+        "university_id": "tsinghua",
+        "name": "TSAIL 课题组 People 页面",
+        "url": "https://ml.cs.tsinghua.edu.cn/people.html",
+        "publisher": "清华大学 TSAIL",
+        "authority_level": "advisor_official",
+        "summary": "TSAIL People 页面列出课题组 faculty、postdoc 和研究方向，可用于导师组和实验室生态候选事实。",
+    },
+    {
+        "sample_id": "jianfei_chen_homepage",
+        "record_kind": "advisor",
+        "university_id": "tsinghua",
+        "name": "Jianfei Chen 官方个人主页",
+        "url": "https://ml.cs.tsinghua.edu.cn/~jianfei/index.html",
+        "publisher": "清华大学 TSAIL",
+        "authority_level": "advisor_official",
+        "summary": "Jianfei Chen 个人主页说明其任职、研究兴趣和机器学习相关方向，适合进入导师画像候选证据。",
+    },
+    {
+        "sample_id": "jun_zhu_homepage",
+        "record_kind": "advisor",
+        "university_id": "tsinghua",
+        "name": "Jun Zhu 官方个人主页",
+        "url": "https://ml.cs.tsinghua.edu.cn/~jun/index.shtml",
+        "publisher": "清华大学 TSAIL",
+        "authority_level": "advisor_official",
+        "summary": "Jun Zhu 个人主页说明其任职、TSAIL 角色和统计机器学习、贝叶斯方法、强化学习等研究方向。",
+    },
+    {
+        "sample_id": "yuxiao_dong_homepage",
+        "record_kind": "advisor",
+        "university_id": "tsinghua",
+        "name": "Yuxiao Dong 官方个人主页",
+        "url": "https://keg.cs.tsinghua.edu.cn/yuxiao/",
+        "publisher": "清华大学 KEG",
+        "authority_level": "advisor_official",
+        "summary": "Yuxiao Dong 个人主页说明其任职和大模型、数据挖掘、图机器学习、社交网络等研究方向。",
+    },
+]
+
+
 class PublicKBValidationIssue(BaseModel):
     record_id: str = ""
     source_id: str = ""
@@ -702,6 +829,113 @@ def seed_target_universities(store: PublicKBStore, *, replace: bool = False) -> 
         university_count=len(records),
         target_groups=manifest.target_groups,
     )
+
+
+def seed_real_public_samples(store: PublicKBStore, *, replace: bool = False) -> PublicKBSeedResult:
+    """Seed verified public policy and advisor sample metadata.
+
+    The seeded chunks summarize where to verify facts.  They deliberately avoid
+    storing full web-page bodies, emails, or private student information.
+    """
+
+    sources: List[PublicKBSource] = []
+    records: List[PublicKBRecord] = []
+    chunks: List[PublicKBChunk] = []
+    for item in PUBLIC_KB_REAL_PUBLIC_SAMPLES:
+        sample_id = str(item["sample_id"])
+        summary = str(item["summary"])
+        source_id = f"pubsrc_real_{sample_id}"
+        record_id = f"pubrec_real_{sample_id}"
+        digest = _content_hash([str(item["name"]), str(item["url"]), summary])
+        source = PublicKBSource(
+            source_id=source_id,
+            source_kind="public_web",
+            title=str(item["name"]),
+            url=str(item["url"]),
+            publisher=str(item["publisher"]),
+            authority_level=item.get("authority_level", "unknown"),
+            published_at=str(item.get("published_at", "")),
+            valid_for_year=item.get("valid_for_year"),
+            content_hash=digest,
+            robots_status="not_checked_manual_seed",
+            tos_status="not_checked_manual_seed",
+            privacy_scope="public",
+            audit_status="passed",
+            metadata={
+                "manual_seed": True,
+                "sample_id": sample_id,
+                "body_stored": False,
+                "requires_live_connector_check": True,
+            },
+        )
+        record = PublicKBRecord(
+            record_id=record_id,
+            record_kind=item["record_kind"],
+            university_id=str(item.get("university_id", "")),
+            name=str(item["name"]),
+            summary=summary,
+            structured_facts={
+                "source_url": str(item["url"]),
+                "publisher": str(item["publisher"]),
+                "body_stored": False,
+                "fact_detail_status": "summary_only_needs_original_page_check",
+            },
+            source_refs=[source_id],
+            valid_for_year=item.get("valid_for_year"),
+            status="active",
+            audit_status="passed",
+        )
+        chunk = PublicKBChunk(
+            chunk_id=f"pubchunk_real_{sample_id}_summary",
+            record_id=record_id,
+            source_id=source_id,
+            title=str(item["name"]),
+            text=summary,
+            url=str(item["url"]),
+            content_hash=digest,
+            valid_for_year=item.get("valid_for_year"),
+            authority_level=item.get("authority_level", "unknown"),
+            audit_status="passed",
+            embedding_route="external_public",
+            metadata={
+                "sample_id": sample_id,
+                "record_kind": str(item["record_kind"]),
+                "summary_only": True,
+            },
+        )
+        sources.append(source)
+        records.append(record)
+        chunks.append(chunk)
+
+    if replace:
+        store.replace_sources(sources)
+        store.replace_records(records)
+        store.replace_chunks(chunks)
+    else:
+        store.replace_sources(
+            [item for item in store.sources() if not item.source_id.startswith("pubsrc_real_")]
+            + sources
+        )
+        store.replace_records(
+            [item for item in store.records() if not item.record_id.startswith("pubrec_real_")]
+            + records
+        )
+        store.replace_chunks(
+            [item for item in store.chunks() if not item.chunk_id.startswith("pubchunk_real_")]
+            + chunks
+        )
+    return PublicKBSeedResult(
+        source_count=len(sources),
+        record_count=len(records),
+        chunk_count=len(chunks),
+        university_count=0,
+        target_groups=["verified_public_policy_samples", "verified_public_advisor_samples"],
+    )
+
+
+def _content_hash(parts: Iterable[str]) -> str:
+    payload = "\n".join(parts)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _write_jsonl(path: Path, models: Iterable[BaseModel]) -> None:
