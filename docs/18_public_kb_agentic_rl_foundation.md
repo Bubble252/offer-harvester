@@ -50,6 +50,27 @@ python tools/build_agentic_rl_dataset.py \
   --replace-public-kb-seed
 ```
 
+Prepare a default Qwen 0.5B LoRA dry run:
+
+```bash
+python tools/train_agentic_rl.py
+```
+
+Check optional training dependencies:
+
+```bash
+python tools/train_agentic_rl.py --check-deps
+```
+
+Start local SFT only after installing the optional ML stack and explicitly
+allowing training:
+
+```bash
+python tools/train_agentic_rl.py \
+  --mode sft \
+  --allow-actual-training
+```
+
 The exporter writes:
 
 - `trajectories.jsonl`
@@ -58,6 +79,15 @@ The exporter writes:
 - `grpo_rollouts.jsonl`
 - `dataset_manifest.json`
 - `dataset_report.json`
+
+The training dry run writes:
+
+- `train.jsonl`
+- `valid.jsonl`
+- `test.jsonl`
+- `training_config.json`
+- `training_manifest.json`
+- `report.md`
 
 ## Cloud Boundary
 
@@ -76,6 +106,11 @@ The current implementation prepares data for later training but does not train
 weights. Positive SFT rows are filtered by acceptance/reward. Weaker outputs are
 preserved in preference and rollout files, so future DPO/GRPO experiments can
 learn from contrastive outcomes instead of treating every output as a target.
+
+The default local training target is `Qwen/Qwen2.5-0.5B-Instruct` with LoRA
+`r=8`, `alpha=16`, and adapter-only output. This is intended for an 8 GB GPU
+smoke test. Larger models, DPO, GRPO, Ray, vLLM, and TRL remain optional future
+paths.
 
 The first optimization scene is:
 
