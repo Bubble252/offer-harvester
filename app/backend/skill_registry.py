@@ -55,3 +55,38 @@ def _validate_item(item: Dict[str, Any]) -> None:
     skill_dir = PROJECT_ROOT / str(item["path"])
     if not (skill_dir / "SKILL.md").exists():
         raise ValueError(f"Skill catalog entry has no SKILL.md: {item['skill_id']}")
+    if item["category"] != "product":
+        return
+    product_fields = {
+        "display_name",
+        "display_name_zh",
+        "short_description",
+        "short_description_zh",
+        "input_summary",
+        "input_summary_zh",
+        "output_summary",
+        "output_summary_zh",
+        "ui_entry",
+        "dsh_tool",
+        "documentation",
+        "maturity",
+        "standalone_status",
+    }
+    missing_product_fields = sorted(
+        field for field in product_fields if not str(item.get(field, "")).strip()
+    )
+    if missing_product_fields:
+        raise ValueError(
+            f"Product Skill catalog entry missing: {', '.join(missing_product_fields)}"
+        )
+    if item["maturity"] != "incubating":
+        raise ValueError(
+            "Product Skill maturity must remain incubating until it is independently released"
+        )
+    if item["standalone_status"] != "requires_offer_harvester_control_plane":
+        raise ValueError(
+            "Product Skill standalone status must declare the control-plane dependency"
+        )
+    documentation = PROJECT_ROOT / str(item["documentation"])
+    if not documentation.exists():
+        raise ValueError(f"Product Skill catalog documentation is missing: {item['documentation']}")

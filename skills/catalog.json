@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0",
-  "catalog_version": "0.1.0",
+  "schema_version": "1.1",
+  "catalog_version": "0.2.0-rc.1",
   "skills": [
     {
       "skill_id": "evidence-claim-audit",
@@ -48,7 +48,20 @@
       "write_permissions": ["candidate_execution"],
       "source_policy": "profile_target_advisor_evidence",
       "private_data_policy": "controlled_adapter_only",
-      "status_truth_source": "material_workflow"
+      "status_truth_source": "material_workflow",
+      "display_name": "Contact Email Coach",
+      "display_name_zh": "套磁信教练",
+      "short_description": "Draft and audit evidence-grounded advisor contact email candidates.",
+      "short_description_zh": "生成并审查有证据依据的导师套磁邮件候选稿。",
+      "input_summary": "One existing target with profile and advisor evidence, plus an optional draft mode.",
+      "input_summary_zh": "一个已有申请目标及其学生画像、导师证据，可选草稿模式。",
+      "output_summary": "A candidate email, review findings, evidence audit, quality report, and risk tags.",
+      "output_summary_zh": "候选邮件、审查发现、证据审计、质量报告和风险标签。",
+      "ui_entry": "skill_lab:contact-email-coach",
+      "dsh_tool": "offer_harvester_draft_contact_email",
+      "documentation": "docs/guides/skills/contact-email-coach.md",
+      "maturity": "incubating",
+      "standalone_status": "requires_offer_harvester_control_plane"
     },
     {
       "skill_id": "advisor-due-diligence",
@@ -60,7 +73,20 @@
       "write_permissions": ["candidate_execution"],
       "source_policy": "saved_advisor_sources_and_risk_candidates",
       "private_data_policy": "controlled_adapter_only",
-      "status_truth_source": "advisor_profile_and_evidence"
+      "status_truth_source": "advisor_profile_and_evidence",
+      "display_name": "Advisor Due Diligence",
+      "display_name_zh": "导师尽调",
+      "short_description": "Review advisor identity, public evidence, coverage gaps, and risk signals.",
+      "short_description_zh": "审查导师身份、公开证据、覆盖缺口和风险信号。",
+      "input_summary": "One existing advisor, optional target, saved public sources, and optional user notes.",
+      "input_summary_zh": "一个已有导师、可选申请目标、已保存公开来源和可选用户备注。",
+      "output_summary": "An evidence-grounded advisor report, unknowns, review questions, and risk signals.",
+      "output_summary_zh": "基于证据的导师报告、未知项、复核问题和风险信号。",
+      "ui_entry": "skill_lab:advisor-due-diligence",
+      "dsh_tool": "offer_harvester_advisor_due_diligence",
+      "documentation": "docs/guides/skills/advisor-due-diligence.md",
+      "maturity": "incubating",
+      "standalone_status": "requires_offer_harvester_control_plane"
     },
     {
       "skill_id": "recommendation-letter-helper",
@@ -72,7 +98,20 @@
       "write_permissions": ["candidate_execution"],
       "source_policy": "confirmed_or_flagged_profile_evidence",
       "private_data_policy": "controlled_adapter_only",
-      "status_truth_source": "profile_confirmation_and_evidence"
+      "status_truth_source": "profile_confirmation_and_evidence",
+      "display_name": "Recommendation Letter Helper",
+      "display_name_zh": "推荐信助手",
+      "short_description": "Prepare recommendation requests, evidence packets, and reference-only draft candidates.",
+      "short_description_zh": "准备推荐信请求、证据素材包和仅供参考的推荐信候选稿。",
+      "input_summary": "Recommender context, optional target, and confirmed or flagged student evidence.",
+      "input_summary_zh": "推荐人信息、可选申请目标和已确认或待复核的学生证据。",
+      "output_summary": "A request message, factual evidence packet, and reference-only draft with review findings.",
+      "output_summary_zh": "请求邮件、事实素材包和带审查结果的仅供参考草稿。",
+      "ui_entry": "skill_lab:recommendation-letter-helper",
+      "dsh_tool": "offer_harvester_recommendation_letter_helper",
+      "documentation": "docs/guides/skills/recommendation-letter-helper.md",
+      "maturity": "incubating",
+      "standalone_status": "requires_offer_harvester_control_plane"
     }
   ]
 }

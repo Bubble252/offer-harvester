@@ -27,7 +27,23 @@ Local-first, evidence-governed workspace for recommendation-based graduate appli
 - Builds an editable 16:9 PPTX through the local fallback adapter.
 - Supports lightweight RAG over student documents, advisor sources, generated materials, and policy knowledge.
 - Identifies pasted email signals such as replies, interviews, material requests, rejections, offers, and waitlists, then writes them only after user confirmation.
-- Provides a Skill Lab for three reviewable, no-send product Skills: contact email coaching, advisor due diligence, and recommendation packets.
+- Provides a Skill Lab for three reviewable, no-send product Skills.
+
+## Product Skills
+
+These are **incubating Product Skills**, not separately installable packages. They run through
+the Offer Harvester control plane so that evidence, confirmation, privacy, and no-send rules
+remain enforced.
+
+| Skill | Use it for | Input | Output | Entry |
+| --- | --- | --- | --- | --- |
+| [Contact Email Coach](docs/guides/skills/contact-email-coach.md) | Drafting or revising advisor contact emails | Target, profile, advisor evidence, mode | Candidate email, review, evidence audit, quality findings | Skill Lab or optional DSH tool |
+| [Advisor Due Diligence](docs/guides/skills/advisor-due-diligence.md) | Reviewing an advisor before outreach | Advisor, public sources, optional target and notes | Evidence coverage, unknowns, review questions, risk signals | Skill Lab or optional DSH tool |
+| [Recommendation Letter Helper](docs/guides/skills/recommendation-letter-helper.md) | Preparing a recommender request and factual packet | Recommender context, target, profile evidence | Request candidate, evidence packet, reference-only draft | Skill Lab or optional DSH tool |
+
+Every Product Skill is `candidate-only` and `no-send`: it cannot send email, submit an
+application, overwrite confirmed profile data, change tracker state, or promote memory.
+See the [Skills Guide](docs/guides/skills.md) for portable Skill reuse and host boundaries.
 
 ## Quickstart
 

@@ -27,7 +27,22 @@ Offer Harvester 是一个本地优先、以证据治理为核心的保研 / 硕�
 - 使用本地兜底 adapter 生成可编辑 16:9 PPTX。
 - 对学生资料、导师来源、生成材料和政策知识做轻量 RAG 检索。
 - 从粘贴邮件文本中识别导师回复、面试、补材料、拒信、offer、waitlist 等候选信号，并且只在用户确认后写入 tracker。
-- 提供 Skill Lab，包含套磁信教练、导师尽调、推荐信素材包三个可审阅且 no-send 的产品化 Skill。
+- 提供 Skill Lab，包含三个可审阅且 no-send 的产品化 Skill。
+
+## 产品化 Skill
+
+以下是处于**主仓孵化阶段**的 Product Skill，并非可以单独安装的独立软件包。它们通过
+Offer Harvester 控制面运行，从而继续执行证据、字段确认、隐私和 no-send 规则。
+
+| Skill | 适用任务 | 输入 | 输出 | 当前入口 |
+| --- | --- | --- | --- | --- |
+| [套磁信教练](docs/guides/skills/contact-email-coach.zh-CN.md) | 新写或修改导师套磁邮件 | 申请目标、学生画像、导师证据、模式 | 候选邮件、审查、证据审计、质量发现 | Skill Lab 或可选 DSH 工具 |
+| [导师尽调](docs/guides/skills/advisor-due-diligence.zh-CN.md) | 联系前审查导师 | 导师、公开来源、可选目标和备注 | 证据覆盖、未知项、复核问题、风险信号 | Skill Lab 或可选 DSH 工具 |
+| [推荐信助手](docs/guides/skills/recommendation-letter-helper.zh-CN.md) | 准备推荐请求和推荐信素材包 | 推荐人信息、目标、学生证据 | 请求候选稿、事实素材包、仅供参考草稿 | Skill Lab 或可选 DSH 工具 |
+
+所有 Product Skill 都是 `candidate-only` 和 `no-send`：不能发送邮件、提交申请、覆盖
+confirmed profile、修改 tracker 或提升 memory。关于 Portable Skill 复用和宿主边界，见
+[Skills 指南](docs/guides/skills.zh-CN.md)。
 
 ## 快速开始
 

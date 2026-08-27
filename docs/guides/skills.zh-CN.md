@@ -15,6 +15,20 @@ Offer Harvester 使用 Skill 把稳定的任务协议做成可复用能力，但
 
 在应用侧栏打开 **Skill Lab** 即可运行产品化 Skill。每次执行都会输出 candidate、可见 evidence refs、risk tags，以及可追踪的 AgentRun / WorkflowEvent。
 
+## 当前可用的产品化 Skill
+
+产品化 Skill 目前处于**主仓孵化阶段**：已有任务化 UI 和受控 adapter，但仍依赖 Offer
+Harvester 控制面，并不是可独立安装的软件包。
+
+| Product Skill | 用户指南 | Skill Lab | 可选 DSH 工具 |
+| --- | --- | --- | --- |
+| 套磁信教练 | [指南](skills/contact-email-coach.zh-CN.md) | `contact-email-coach` | `offer_harvester_draft_contact_email` |
+| 导师尽调 | [指南](skills/advisor-due-diligence.zh-CN.md) | `advisor-due-diligence` | `offer_harvester_advisor_due_diligence` |
+| 推荐信助手 | [指南](skills/recommendation-letter-helper.zh-CN.md) | `recommendation-letter-helper` | `offer_harvester_recommendation_letter_helper` |
+
+每份指南都链接到完全虚构的示例。示例只解释输入/输出结构，不是可直接调用的 HTTP payload，
+也不包含真实学生、导师、学校、邮箱或申请结果。
+
 ## 安全模型
 
 - `confirmed`、`unconfirmed`、`needs_review`、`rejected` 字段继续使用既有含义。
@@ -33,6 +47,8 @@ Offer Harvester 使用 Skill 把稳定的任务协议做成可复用能力，但
 - `source_policy`
 - `private_data_policy`
 - `status_truth_source`
+- Product 条目还会声明中英文展示文案、输入/输出摘要、UI 和 DSH 入口、文档、`maturity`
+  与 standalone 状态。
 
 Portable Skill 刻意不读取 workspace。产品化 Skill 只能经受控 FastAPI adapter 使用数据，从而保留原有证据和确认门槛。
 

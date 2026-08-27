@@ -1,0 +1,18 @@
+{
+  "example_kind": "synthetic_product_skill_input",
+  "synthetic": true,
+  "skill_id": "contact-email-coach",
+  "target_id": "target_synthetic_ai_lab",
+  "mode": "advisor_alignment",
+  "resolved_context": {
+    "student_alias": "Synthetic Student",
+    "advisor_alias": "Example Advisor",
+    "institution_alias": "Synthetic University",
+    "profile_evidence_refs": ["profile_synthetic_001"],
+    "advisor_evidence_refs": ["advisor_source_synthetic_001"],
+    "field_statuses": {
+      "projects": "confirmed",
+      "skills": "unconfirmed"
+    }
+  }
+}

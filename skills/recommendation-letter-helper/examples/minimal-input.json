@@ -1,0 +1,18 @@
+{
+  "example_kind": "synthetic_product_skill_input",
+  "synthetic": true,
+  "skill_id": "recommendation-letter-helper",
+  "target_id": "target_synthetic_ai_lab",
+  "mode": "request_and_packet",
+  "recommender_name": "Example Recommender",
+  "relationship": "Synthetic project mentor",
+  "resolved_context": {
+    "student_alias": "Synthetic Student",
+    "institution_alias": "Synthetic University",
+    "profile_evidence_refs": ["profile_synthetic_001"],
+    "field_statuses": {
+      "projects": "confirmed",
+      "awards": "needs_review"
+    }
+  }
+}

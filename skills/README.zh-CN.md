@@ -16,9 +16,9 @@
 | `evidence-claim-audit` | Portable | supported / unsupported / stale / needs-confirmation 审计结论 | 不写入事实 |
 | `source-connector-authoring` | Portable | 公开来源 connector manifest 候选 | 不绕过 robots/ToS |
 | `profile-field-normalization` | Portable | 规范化 profile 字段候选 | 不自动确认字段 |
-| `contact-email-coach` | 产品化 | 审核后的套磁邮件候选 | 不发送邮件 |
-| `advisor-due-diligence` | 产品化 | 有证据的导师尽调报告 | 口碑内容仅是风险信号 |
-| `recommendation-letter-helper` | 产品化 | 推荐信请求与素材包候选 | 不冒充、不提交 |
+| [`contact-email-coach`](../docs/guides/skills/contact-email-coach.zh-CN.md) | 产品化、孵化中 | 审核后的套磁邮件候选 | 仅通过 Skill Lab；不发送邮件 |
+| [`advisor-due-diligence`](../docs/guides/skills/advisor-due-diligence.zh-CN.md) | 产品化、孵化中 | 有证据的导师尽调报告 | 仅通过 Skill Lab；口碑内容仅是风险信号 |
+| [`recommendation-letter-helper`](../docs/guides/skills/recommendation-letter-helper.zh-CN.md) | 产品化、孵化中 | 推荐信请求与素材包候选 | 仅通过 Skill Lab；不冒充、不提交 |
 
 ## 与主应用的关系
 

@@ -15,6 +15,9 @@ This is the supported public documentation hub. The local execution plan and ear
 - [Contribution Guide](operations/contributing.md): development commands, commit rules, and pull requests.
 - [Release Guide](operations/release.md): pre-release checklist, tag process, and rollback.
 - [Skills Guide](guides/skills.md): portable Skills, product Skills, and the Skill Lab.
+- [Contact Email Coach](guides/skills/contact-email-coach.md): contact-email candidate workflow.
+- [Advisor Due Diligence](guides/skills/advisor-due-diligence.md): source-grounded advisor review.
+- [Recommendation Letter Helper](guides/skills/recommendation-letter-helper.md): request and evidence-packet workflow.
 - [DeepSeek Harness Guide](guides/deepseek-harness.md): optional external-agent adapter.
 
 ## Product References

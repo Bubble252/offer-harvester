@@ -15,6 +15,9 @@
 - [贡献指南](operations/contributing.zh-CN.md)：开发命令、commit 规范和 PR 流程。
 - [发布指南](operations/release.zh-CN.md)：预发布检查、tag 流程和回滚方式。
 - [Skills 指南](guides/skills.zh-CN.md)：Portable Skill、产品化 Skill 和 Skill Lab。
+- [套磁信教练](guides/skills/contact-email-coach.zh-CN.md)：套磁邮件候选工作流。
+- [导师尽调](guides/skills/advisor-due-diligence.zh-CN.md)：基于来源的导师审查。
+- [推荐信助手](guides/skills/recommendation-letter-helper.zh-CN.md)：请求与事实素材包工作流。
 - [DeepSeek Harness 指南](guides/deepseek-harness.zh-CN.md)：可选的外部 Agent 适配器。
 
 ## 产品参考

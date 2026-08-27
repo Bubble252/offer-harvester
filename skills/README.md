@@ -16,9 +16,9 @@ The canonical machine-readable index is [`catalog.json`](catalog.json). A catalo
 | `evidence-claim-audit` | Portable | supported / unsupported / stale / confirmation-needed findings | never writes facts |
 | `source-connector-authoring` | Portable | public-source connector manifest candidate | no robots/ToS bypass |
 | `profile-field-normalization` | Portable | normalized profile field candidates | never confirms fields |
-| `contact-email-coach` | Product | reviewed contact-email candidate | never sends email |
-| `advisor-due-diligence` | Product | evidence-grounded advisor review | community content is only a risk signal |
-| `recommendation-letter-helper` | Product | request and recommender packet candidate | never impersonates or submits |
+| [`contact-email-coach`](../docs/guides/skills/contact-email-coach.md) | Product, incubating | reviewed contact-email candidate | Skill Lab only; never sends email |
+| [`advisor-due-diligence`](../docs/guides/skills/advisor-due-diligence.md) | Product, incubating | evidence-grounded advisor review | Skill Lab only; community content is only a risk signal |
+| [`recommendation-letter-helper`](../docs/guides/skills/recommendation-letter-helper.md) | Product, incubating | request and recommender packet candidate | Skill Lab only; never impersonates or submits |
 
 ## How They Relate To The Application
 

@@ -1,0 +1,15 @@
+{
+  "example_kind": "synthetic_product_skill_input",
+  "synthetic": true,
+  "skill_id": "advisor-due-diligence",
+  "advisor_id": "advisor_synthetic_retrieval",
+  "target_id": "target_synthetic_ai_lab",
+  "resolved_context": {
+    "advisor_alias": "Example Advisor",
+    "institution_alias": "Synthetic University",
+    "official_source_refs": ["advisor_source_synthetic_001"],
+    "publication_source_refs": ["paper_source_synthetic_001"],
+    "community_signal_refs": [],
+    "identity_confirmed": true
+  }
+}

@@ -53,6 +53,18 @@ PUBLIC_DOC_PAIRS = [
     ),
     ("docs/operations/release.md", "docs/operations/release.zh-CN.md"),
     ("docs/guides/skills.md", "docs/guides/skills.zh-CN.md"),
+    (
+        "docs/guides/skills/contact-email-coach.md",
+        "docs/guides/skills/contact-email-coach.zh-CN.md",
+    ),
+    (
+        "docs/guides/skills/advisor-due-diligence.md",
+        "docs/guides/skills/advisor-due-diligence.zh-CN.md",
+    ),
+    (
+        "docs/guides/skills/recommendation-letter-helper.md",
+        "docs/guides/skills/recommendation-letter-helper.zh-CN.md",
+    ),
     ("docs/guides/deepseek-harness.md", "docs/guides/deepseek-harness.zh-CN.md"),
     (
         "integrations/deepseek_harness/README.md",

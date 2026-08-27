@@ -15,6 +15,21 @@ Offer Harvester uses Skills to make stable task protocols reusable without movin
 
 Open **Skill Lab** in the application sidebar to run a product Skill. Each run produces a candidate, visible evidence references, risk tags, and a traceable AgentRun / WorkflowEvent record.
 
+## Product Skills Available Now
+
+Product Skills are **incubating**: they have task-oriented UI and controlled adapters, but they
+still require the Offer Harvester control plane. They are not standalone installable packages.
+
+| Product Skill | User guide | Skill Lab | Optional DSH tool |
+| --- | --- | --- | --- |
+| Contact Email Coach | [Guide](skills/contact-email-coach.md) | `contact-email-coach` | `offer_harvester_draft_contact_email` |
+| Advisor Due Diligence | [Guide](skills/advisor-due-diligence.md) | `advisor-due-diligence` | `offer_harvester_advisor_due_diligence` |
+| Recommendation Letter Helper | [Guide](skills/recommendation-letter-helper.md) | `recommendation-letter-helper` | `offer_harvester_recommendation_letter_helper` |
+
+Each guide links to a fully synthetic example. The examples explain input and output shape only;
+they are not direct HTTP payloads and contain no real applicant, advisor, school, email, or
+application outcome.
+
 ## Safety Model
 
 - `confirmed`, `unconfirmed`, `needs_review`, and `rejected` profile fields retain their existing meaning.
@@ -33,6 +48,8 @@ Open **Skill Lab** in the application sidebar to run a product Skill. Each run p
 - `source_policy`
 - `private_data_policy`
 - `status_truth_source`
+- Product entries additionally declare bilingual display text, input/output summaries, UI and DSH
+  entry points, documentation, `maturity`, and standalone status.
 
 Portable Skills are intentionally workspace-free. Product Skills may use data only through a controlled FastAPI adapter. This keeps the output useful while preserving the existing evidence and confirmation gates.
 
