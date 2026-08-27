@@ -1,0 +1,4 @@
+interface:
+  display_name: "Profile Field Normalization"
+  short_description: "Normalize profile evidence without losing confirmation state."
+  default_prompt: "Use $profile-field-normalization to normalize graduate application profile fields."

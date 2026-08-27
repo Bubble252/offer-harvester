@@ -1,9 +1,9 @@
-# Grad Apply Workflow
+# Offer Harvester
 
 English | [简体中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="app/frontend/assets/logo.png" alt="Grad Apply Workflow logo" width="180" />
+  <img src="app/frontend/assets/logo.png" alt="Offer Harvester logo" width="180" />
 </p>
 
 <p align="center">
@@ -27,6 +27,7 @@ The project is currently an MVP. It does not predict admission probability, does
 - Builds an editable 16:9 PPTX through the local fallback adapter.
 - Supports lightweight RAG over student documents, advisor sources, generated materials, and policy knowledge.
 - Identifies pasted email signals such as replies, interviews, material requests, rejections, offers, and waitlists, then writes them only after user confirmation.
+- Provides a Skill Lab for three reviewable, no-send product Skills: contact email coaching, advisor due diligence, and recommendation packets.
 
 ## Quickstart
 
@@ -70,6 +71,9 @@ Student profile
 
 ## Documentation
 
+- [Documentation Hub](docs/README.md)
+- [Skills Guide](docs/guides/skills.md)
+- [DeepSeek Harness Guide](docs/guides/deepseek-harness.md)
 - [Demo Walkthrough](docs/11_demo_walkthrough.md)
 - [Open Source Readiness](docs/10_open_source_readiness.md)
 - [Release README Polish Reference](docs/14_release_readme_polish_reference.md)
@@ -106,6 +110,7 @@ Optional or future capabilities are intentionally behind adapter boundaries:
 - PPTAgent runtime for future reference-template learning and advanced slide editing.
 - Vision / OCR providers for future scanned documents or visual PPT checks.
 - Gmail / QQ OAuth and Notion / Feishu sync for future real external integrations.
+- DeepSeek Harness is an optional external-agent adapter; it calls controlled candidate-only APIs and is not required to run the app.
 - MongoDB, Redis, Chroma, reranker, PaddleOCR, or K8s only after local-first limits are reached.
 
 The default code path does not depend on `torch`, ViT model weights, `oaib`, external PPTAgent source trees, or a cloud database.

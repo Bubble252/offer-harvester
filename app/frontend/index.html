@@ -23,6 +23,7 @@
           <button class="nav-item" data-view="advisors">导师资料</button>
           <button class="nav-item" data-view="targets">申请目标</button>
           <button class="nav-item" data-view="materials">材料中心</button>
+          <button class="nav-item" data-view="skills">Skill Lab</button>
           <button class="nav-item" data-view="report">进度报告</button>
         </nav>
         <div class="sidebar-note">
@@ -487,6 +488,65 @@
               <button id="generateReportBtn">生成报告</button>
             </div>
             <pre id="reportView" class="document-view">尚未生成报告</pre>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="skills">
+          <section class="surface">
+            <div class="section-heading">
+              <div>
+                <h2>Skill Lab</h2>
+                <p>所有结果均为候选内容，不会自动发送邮件、提交申请或覆盖可信资料。</p>
+              </div>
+              <button id="refreshSkillsBtn" class="secondary-button">刷新 Skill</button>
+            </div>
+            <div class="skill-lab-layout">
+              <div class="skill-catalog" id="skillCatalog"></div>
+              <div class="skill-workbench">
+                <label for="skillSelect">选择 Skill</label>
+                <select id="skillSelect"></select>
+
+                <div class="skill-form" data-skill-form="contact-email-coach">
+                  <label for="skillContactTarget">申请目标</label>
+                  <select id="skillContactTarget"></select>
+                  <label for="skillContactMode">工作模式</label>
+                  <select id="skillContactMode">
+                    <option value="new">新写</option>
+                    <option value="rewrite">改写</option>
+                    <option value="advisor_alignment">按导师方向强化</option>
+                    <option value="reduce_exaggeration">降低夸大</option>
+                    <option value="follow_up">生成 follow-up</option>
+                  </select>
+                </div>
+
+                <div class="skill-form hidden" data-skill-form="advisor-due-diligence">
+                  <label for="skillAdvisor">导师</label>
+                  <select id="skillAdvisor"></select>
+                  <label for="skillAdvisorTarget">关联申请目标（可选）</label>
+                  <select id="skillAdvisorTarget"></select>
+                </div>
+
+                <div class="skill-form hidden" data-skill-form="recommendation-letter-helper">
+                  <label for="skillRecommendationTarget">申请目标（可选）</label>
+                  <select id="skillRecommendationTarget"></select>
+                  <div class="editor-grid">
+                    <div>
+                      <label for="skillRecommenderName">推荐人</label>
+                      <input id="skillRecommenderName" placeholder="例如：课程教师" />
+                    </div>
+                    <div>
+                      <label for="skillRecommenderRelationship">关系</label>
+                      <input id="skillRecommenderRelationship" placeholder="例如：科研指导教师" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="button-row skill-actions">
+                  <button id="runSkillBtn">生成候选结果</button>
+                </div>
+                <div id="skillResultView" class="skill-result empty-state">选择 Skill 并填写必要信息后运行。</div>
+              </div>
+            </div>
           </section>
         </section>
       </main>

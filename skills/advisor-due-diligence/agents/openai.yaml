@@ -1,0 +1,4 @@
+interface:
+  display_name: "Advisor Due Diligence"
+  short_description: "Review advisor evidence, gaps, and risk signals."
+  default_prompt: "Use $advisor-due-diligence to prepare an evidence-grounded advisor review."

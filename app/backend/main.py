@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from agents import AdvisorExtractionAgent, MatchAnalysisAgent, run_contact_email_workflow
 from agents.evidence_audit_agent import EvidenceAuditAgent
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -82,6 +82,7 @@ from models import (
 )
 from ocr_adapter import build_ocr_extraction_report
 from pdf_readability import inspect_pdf_bytes
+from plugin_auth import documented_plugin_scopes, require_plugin_scope
 from presentation_quality import build_presentation_quality_report, save_reference_presentation
 from pydantic import BaseModel, Field
 from quality import audit_material
@@ -101,6 +102,13 @@ from services import (
     make_interview_questions,
     make_ppt_outline,
 )
+from skill_execution import (
+    MaterialAuditRequest,
+    SkillExecutionRequest,
+    execute_material_audit,
+    execute_product_skill,
+)
+from skill_registry import get_skill_catalog_item, list_skill_catalog
 from source_connector_registry import (
     merge_live_test_results,
     run_source_connector_live_test,
@@ -256,6 +264,48 @@ def application_for_target(target: Target) -> ApplicationRecord:
 def latest_match(target_id: str):
     matches = [item for item in workspace.list("matches") if item["target_id"] == target_id]
     return MatchReport(**matches[-1]) if matches else None
+
+
+def resolve_skill_context(payload: SkillExecutionRequest):
+    target = get_target_or_404(payload.target_id) if payload.target_id else None
+    advisor = get_advisor_or_404(payload.advisor_id) if payload.advisor_id else None
+    if target and target.advisor_id:
+        target_advisor = advisor_for_target(target)
+        if advisor and target_advisor and advisor.advisor_id != target_advisor.advisor_id:
+            raise HTTPException(status_code=400, detail="advisor_id does not belong to target_id")
+        advisor = advisor or target_advisor
+    return latest_profile(), target, advisor, latest_match(target.target_id) if target else None
+
+
+def execute_skill_or_400(skill_id: str, payload: SkillExecutionRequest):
+    try:
+        profile, target, advisor, match = resolve_skill_context(payload)
+        return execute_product_skill(
+            skill_id,
+            payload,
+            workspace=workspace,
+            profile=profile,
+            target=target,
+            advisor=advisor,
+            match=match,
+            retriever=rag_retriever,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown skill: {skill_id}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def execute_material_audit_or_400(payload: MaterialAuditRequest):
+    try:
+        return execute_material_audit(
+            payload,
+            workspace=workspace,
+            profile=latest_profile(),
+            retriever=rag_retriever,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def materials_for_target(target_id: str, material_ids: Optional[list[str]] = None):
@@ -759,6 +809,71 @@ def list_agent_run_events(run_id: str):
     if not run:
         raise HTTPException(status_code=404, detail="Agent run not found")
     return [event for event in workspace.list("workflow_events") if event.get("run_id") == run_id]
+
+
+@app.get("/api/skills")
+def list_skills(category: str = ""):
+    try:
+        return {"skills": list_skill_catalog(category=category)}
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/skills/{skill_id}")
+def get_skill(skill_id: str):
+    try:
+        return get_skill_catalog_item(skill_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/skill-executions")
+def list_skill_executions(skill_id: str = ""):
+    items = workspace.list("skill_executions")
+    if skill_id:
+        items = [item for item in items if item.get("skill_id") == skill_id]
+    return items
+
+
+@app.post("/api/skills/{skill_id}/run")
+def run_skill(skill_id: str, payload: SkillExecutionRequest):
+    return execute_skill_or_400(skill_id, payload)
+
+
+@app.get("/api/plugin/status")
+def plugin_status():
+    return {
+        "plugin_auth_mode": os.environ.get("OFFER_HARVESTER_PLUGIN_AUTH_MODE", "local"),
+        "configured_scopes": list(documented_plugin_scopes()),
+        "remote_private_data_enabled": os.environ.get(
+            "OFFER_HARVESTER_PLUGIN_ALLOW_REMOTE_PRIVATE", ""
+        )
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"},
+        "no_send": True,
+    }
+
+
+@app.post("/api/plugin/skills/{skill_id}/run")
+def run_plugin_skill(skill_id: str, payload: SkillExecutionRequest, request: Request):
+    try:
+        item = get_skill_catalog_item(skill_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
+    required_scope = (
+        "advisor:report" if item.get("skill_id") == "advisor-due-diligence" else "skill:run"
+    )
+    require_plugin_scope(request, required_scope)
+    return execute_skill_or_400(skill_id, payload)
+
+
+@app.post("/api/plugin/materials/audit")
+def audit_plugin_material(payload: MaterialAuditRequest, request: Request):
+    require_plugin_scope(request, "material:audit")
+    return execute_material_audit_or_400(payload)
 
 
 @app.get("/api/generated/{material_id}")

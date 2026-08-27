@@ -1,0 +1,10 @@
+- name: './src/plugin.ts'
+  config:
+    apiBaseUrl: 'http://127.0.0.1:8000'
+    privacyMode: 'metadata_only'
+    requestTimeoutMs: 20000
+    enabledTools:
+      - draft_contact_email
+      - advisor_due_diligence
+      - recommendation_letter_helper
+      - audit_material

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recommendation Letter Helper"
+  short_description: "Prepare evidence-grounded recommendation letter materials."
+  default_prompt: "Use $recommendation-letter-helper to prepare a recommendation request and evidence packet."

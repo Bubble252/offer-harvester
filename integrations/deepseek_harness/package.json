@@ -1,0 +1,16 @@
+{
+  "name": "@offer-harvester/deepseek-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Controlled DeepSeek Harness tools for Offer Harvester.",
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/http-client.mjs && node --check tests/http-client.test.mjs",
+    "test": "node --test tests/http-client.test.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": ">=0.1.1-rc.2",
+    "@deepseek-ai/schemastery": ">=0.1.1-rc.2"
+  }
+}

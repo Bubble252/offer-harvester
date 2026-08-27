@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "catalog_version": "0.1.0",
+  "skills": [
+    {
+      "skill_id": "evidence-claim-audit",
+      "category": "portable",
+      "status": "implemented",
+      "version": "0.1.0",
+      "path": "skills/evidence-claim-audit",
+      "no_send": true,
+      "write_permissions": [],
+      "source_policy": "supplied_evidence_only",
+      "private_data_policy": "no_workspace_access",
+      "status_truth_source": "offer_harvester_control_plane"
+    },
+    {
+      "skill_id": "source-connector-authoring",
+      "category": "portable",
+      "status": "implemented",
+      "version": "0.1.0",
+      "path": "skills/source-connector-authoring",
+      "no_send": true,
+      "write_permissions": [],
+      "source_policy": "public_or_authorized_only",
+      "private_data_policy": "no_workspace_access",
+      "status_truth_source": "connector_registry"
+    },
+    {
+      "skill_id": "profile-field-normalization",
+      "category": "portable",
+      "status": "implemented",
+      "version": "0.1.0",
+      "path": "skills/profile-field-normalization",
+      "no_send": true,
+      "write_permissions": [],
+      "source_policy": "provided_profile_evidence_only",
+      "private_data_policy": "candidate_only",
+      "status_truth_source": "profile_confirmation_control_plane"
+    },
+    {
+      "skill_id": "contact-email-coach",
+      "category": "product",
+      "status": "implemented",
+      "version": "0.1.0",
+      "path": "skills/contact-email-coach",
+      "no_send": true,
+      "write_permissions": ["candidate_execution"],
+      "source_policy": "profile_target_advisor_evidence",
+      "private_data_policy": "controlled_adapter_only",
+      "status_truth_source": "material_workflow"
+    },
+    {
+      "skill_id": "advisor-due-diligence",
+      "category": "product",
+      "status": "implemented",
+      "version": "0.1.0",
+      "path": "skills/advisor-due-diligence",
+      "no_send": true,
+      "write_permissions": ["candidate_execution"],
+      "source_policy": "saved_advisor_sources_and_risk_candidates",
+      "private_data_policy": "controlled_adapter_only",
+      "status_truth_source": "advisor_profile_and_evidence"
+    },
+    {
+      "skill_id": "recommendation-letter-helper",
+      "category": "product",
+      "status": "implemented",
+      "version": "0.1.0",
+      "path": "skills/recommendation-letter-helper",
+      "no_send": true,
+      "write_permissions": ["candidate_execution"],
+      "source_policy": "confirmed_or_flagged_profile_evidence",
+      "private_data_policy": "controlled_adapter_only",
+      "status_truth_source": "profile_confirmation_and_evidence"
+    }
+  ]
+}

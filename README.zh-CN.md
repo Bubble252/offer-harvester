@@ -1,9 +1,9 @@
-# Grad Apply Workflow
+# Offer Harvester
 
 [English](README.md) | 简体中文
 
 <p align="center">
-  <img src="app/frontend/assets/logo.png" alt="Grad Apply Workflow logo" width="180" />
+  <img src="app/frontend/assets/logo.png" alt="Offer Harvester logo" width="180" />
 </p>
 
 <p align="center">
@@ -27,6 +27,7 @@ Grad Apply Workflow 是一个本地优先的保研 / 硕博申请 Web 工作台�
 - 使用本地兜底 adapter 生成可编辑 16:9 PPTX。
 - 对学生资料、导师来源、生成材料和政策知识做轻量 RAG 检索。
 - 从粘贴邮件文本中识别导师回复、面试、补材料、拒信、offer、waitlist 等候选信号，并且只在用户确认后写入 tracker。
+- 提供 Skill Lab，包含套磁信教练、导师尽调、推荐信素材包三个可审阅且 no-send 的产品化 Skill。
 
 ## 快速开始
 
@@ -70,6 +71,9 @@ WORKSPACE_DIR=/path/to/offer-harvester/workspace.demo uvicorn main:app --host 12
 
 ## 文档入口
 
+- [文档中心](docs/README.zh-CN.md)
+- [Skills 指南](docs/guides/skills.zh-CN.md)
+- [DeepSeek Harness 指南](docs/guides/deepseek-harness.zh-CN.md)
 - [Demo Walkthrough](docs/11_demo_walkthrough.md)
 - [Open Source Readiness](docs/10_open_source_readiness.md)
 - [Release README Polish Reference](docs/14_release_readme_polish_reference.md)
@@ -106,6 +110,7 @@ MVP 不依赖外部 LLM 或重模型依赖即可运行。
 - PPTAgent runtime，用于未来参考模板学习和高级单页编辑。
 - Vision / OCR provider，用于未来扫描件或 PPT 视觉检查。
 - Gmail / QQ OAuth、Notion / 飞书同步，用于未来真实外部集成。
+- DeepSeek Harness 是可选的外部 Agent adapter，只调用受控 candidate API，不是运行主应用的必需依赖。
 - MongoDB、Redis、Chroma、reranker、PaddleOCR、K8s 等基础设施，只在本地文件方案达到限制后评估。
 
 默认代码路径不依赖 `torch`、ViT 权重、`oaib`、外部 PPTAgent 源码树或云数据库。

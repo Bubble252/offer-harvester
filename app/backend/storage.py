@@ -76,6 +76,7 @@ class Workspace:
             "source_connectors",
             "source_connector_live_tests",
             "pdf_readability_reports",
+            "skill_executions",
             "sync_runs",
             "knowledge_base",
             "rag_index",

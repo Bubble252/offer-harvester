@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evidence Claim Audit"
+  short_description: "Audit application claims against supplied evidence."
+  default_prompt: "Use $evidence-claim-audit to classify application claims against evidence."

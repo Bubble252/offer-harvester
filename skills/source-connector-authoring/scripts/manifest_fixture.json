@@ -1,0 +1,13 @@
+{
+  "connector_id": "demo-public-policy",
+  "name": "Demo Public Policy Source",
+  "version": "0.1.0",
+  "url_patterns": ["https://example.edu/admission/*"],
+  "field_mapping": {"deadline": "deadline"},
+  "access_method": "public_http",
+  "robots_checked_at": "2026-08-27",
+  "tos_checked_at": "2026-08-27",
+  "rate_limit_per_minute": 6,
+  "refresh_interval_days": 7,
+  "fallback": "manual_url_or_text"
+}

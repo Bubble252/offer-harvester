@@ -22,6 +22,9 @@ const state = {
   referencePresentations: [],
   presentationPrechecks: [],
   presentationQualityReports: [],
+  skillCatalog: [],
+  skillExecutions: [],
+  latestSkillResult: null,
   selectedMaterial: null,
 };
 
@@ -31,6 +34,7 @@ const titles = {
   advisors: "导师资料",
   targets: "申请目标",
   materials: "材料中心",
+  skills: "Skill Lab",
   report: "进度报告",
 };
 
@@ -918,6 +922,162 @@ function renderAll() {
   renderTargetReadiness();
   renderLifecycle();
   renderStrategy();
+  renderSkills();
+}
+
+const skillLabels = {
+  "contact-email-coach": "套磁信教练",
+  "advisor-due-diligence": "导师尽调",
+  "recommendation-letter-helper": "推荐信助手",
+  "evidence-claim-audit": "证据声明审计",
+  "source-connector-authoring": "来源连接器编写",
+  "profile-field-normalization": "画像字段规范化",
+};
+
+function skillOptionList(includeBlank = false) {
+  const options = includeBlank ? ["<option value=''>不关联申请目标</option>"] : [];
+  options.push(
+    ...state.targets.map(
+      (target) => `<option value="${escapeHtml(target.target_id)}">${escapeHtml(target.name)}</option>`
+    )
+  );
+  return options.join("");
+}
+
+function renderSkills() {
+  const productSkills = state.skillCatalog.filter((skill) => skill.category === "product");
+  const selectedId =
+    $("skillSelect").value ||
+    (productSkills[0] && productSkills[0].skill_id) ||
+    "contact-email-coach";
+  $("skillSelect").innerHTML = productSkills.length
+    ? productSkills
+        .map(
+          (skill) =>
+            `<option value="${escapeHtml(skill.skill_id)}" ${skill.skill_id === selectedId ? "selected" : ""}>${escapeHtml(skillLabels[skill.skill_id] || skill.skill_id)}</option>`
+        )
+        .join("")
+    : "<option value=''>暂无可执行 Skill</option>";
+  $("skillCatalog").innerHTML = state.skillCatalog.length
+    ? state.skillCatalog
+        .map(
+          (skill) => `<div class="skill-catalog-item ${skill.skill_id === selectedId ? "selected" : ""}">
+            <strong>${escapeHtml(skillLabels[skill.skill_id] || skill.skill_id)}</strong>
+            <span>${escapeHtml(skill.category)} · v${escapeHtml(skill.version)}</span>
+            <small>${skill.no_send ? "候选结果 · 不自动发送" : "需复核权限"}</small>
+          </div>`
+        )
+        .join("")
+    : "<div class='empty-state'>尚未加载 Skill catalog。</div>";
+  $("skillContactTarget").innerHTML = skillOptionList(false);
+  $("skillAdvisorTarget").innerHTML = skillOptionList(true);
+  $("skillRecommendationTarget").innerHTML = skillOptionList(true);
+  $("skillAdvisor").innerHTML = [
+    "<option value=''>请选择导师</option>",
+    ...state.advisors.map(
+      (advisor) =>
+        `<option value="${escapeHtml(advisor.advisor_id)}">${escapeHtml(advisor.name_zh || advisor.name_en || advisor.advisor_id)}</option>`
+    ),
+  ].join("");
+  document.querySelectorAll("[data-skill-form]").forEach((node) => {
+    node.classList.toggle("hidden", node.dataset.skillForm !== selectedId);
+  });
+  if (state.latestSkillResult) renderSkillResult(state.latestSkillResult);
+}
+
+function renderSkillResult(result) {
+  const container = $("skillResultView");
+  if (!result) {
+    container.className = "skill-result empty-state";
+    container.textContent = "选择 Skill 并填写必要信息后运行。";
+    return;
+  }
+  const output = result.output || {};
+  const material = output.material;
+  const preview = material
+    ? material.content
+    : output.summary || JSON.stringify(output, null, 2);
+  const refs = (result.truth_source_refs || []).map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("");
+  const tags = (result.risk_tags || []).map((item) => `<span class="tag risk">${escapeHtml(item)}</span>`).join("");
+  const blocked = (result.blocked_reasons || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  container.className = "skill-result";
+  container.innerHTML = `
+    <div class="skill-result-head">
+      <div>
+        <strong>${escapeHtml(skillLabels[result.skill_id] || result.skill_id)}</strong>
+        <span class="candidate-badge">${escapeHtml(result.candidate_status || result.status)}</span>
+      </div>
+      <div class="button-row compact-actions">
+        <button class="secondary" data-copy-skill-result>复制</button>
+        <button class="secondary" data-download-skill-result>下载</button>
+      </div>
+    </div>
+    <p class="item-meta">候选结果，不会自动发送、提交或覆盖可信资料。</p>
+    ${blocked ? `<ul class="skill-blocked">${blocked}</ul>` : ""}
+    <div class="tag-row">${refs || "<span class='item-meta'>暂无证据引用</span>"}${tags}</div>
+    <pre class="document-view skill-preview">${escapeHtml(preview)}</pre>
+  `;
+}
+
+function selectedSkillPayload() {
+  const skillId = $("skillSelect").value;
+  if (skillId === "contact-email-coach") {
+    return {
+      target_id: $("skillContactTarget").value,
+      mode: $("skillContactMode").value,
+    };
+  }
+  if (skillId === "advisor-due-diligence") {
+    return {
+      advisor_id: $("skillAdvisor").value,
+      target_id: $("skillAdvisorTarget").value,
+    };
+  }
+  return {
+    target_id: $("skillRecommendationTarget").value,
+    mode: "request_and_packet",
+    recommender_name: $("skillRecommenderName").value.trim(),
+    relationship: $("skillRecommenderRelationship").value.trim(),
+  };
+}
+
+async function runSelectedSkill() {
+  const skillId = $("skillSelect").value;
+  if (!skillId) return toast("暂无可执行 Skill");
+  try {
+    const result = await api(`/api/skills/${encodeURIComponent(skillId)}/run`, {
+      method: "POST",
+      body: JSON.stringify(selectedSkillPayload()),
+    });
+    state.latestSkillResult = result;
+    state.skillExecutions = [result, ...state.skillExecutions.filter((item) => item.execution_id !== result.execution_id)];
+    renderSkillResult(result);
+    toast(result.status === "blocked" ? "Skill 缺少必要资料" : "候选结果已生成");
+  } catch (error) {
+    toast(`Skill 运行失败：${error.message}`);
+  }
+}
+
+async function copySkillResult() {
+  const material = state.latestSkillResult && state.latestSkillResult.output && state.latestSkillResult.output.material;
+  const text = material ? material.content : JSON.stringify(state.latestSkillResult?.output || {}, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("候选结果已复制");
+  } catch {
+    toast("复制失败，请手动选择文本");
+  }
+}
+
+function downloadSkillResult() {
+  const material = state.latestSkillResult && state.latestSkillResult.output && state.latestSkillResult.output.material;
+  const text = material ? material.content : JSON.stringify(state.latestSkillResult?.output || {}, null, 2);
+  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${state.latestSkillResult?.skill_id || "skill-result"}-candidate.md`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 async function refresh() {
@@ -942,6 +1102,8 @@ async function refresh() {
       state.referencePresentations,
       state.presentationPrechecks,
       state.presentationQualityReports,
+      state.skillCatalog,
+      state.skillExecutions,
     ] = await Promise.all([
       api("/api/advisors"),
       api("/api/advisor-sources"),
@@ -957,6 +1119,8 @@ async function refresh() {
       api("/api/reference-presentations"),
       api("/api/presentation-prechecks"),
       api("/api/presentation-quality-reports"),
+      api("/api/skills").then((payload) => payload.skills || []),
+      api("/api/skill-executions"),
     ]);
     const triageReports = await api("/api/target-triage");
     const expansionReports = await api("/api/profile-expansion");
@@ -1595,6 +1759,12 @@ $("customTemplateFile").addEventListener("change", async () => {
 $("pdfReadabilityBtn").addEventListener("click", checkPdfReadability);
 $("saveAdvisorEditBtn").addEventListener("click", saveAdvisorEdit);
 $("cancelAdvisorEditBtn").addEventListener("click", hideAdvisorEditor);
+$("refreshSkillsBtn").addEventListener("click", refresh);
+$("skillSelect").addEventListener("change", () => {
+  state.latestSkillResult = null;
+  renderSkills();
+});
+$("runSkillBtn").addEventListener("click", runSelectedSkill);
 
 $("advisorList").addEventListener("click", (event) => {
   const sourceId = event.target.dataset.sourceId;
@@ -1638,6 +1808,10 @@ $("strategyView").addEventListener("click", (event) => {
 $("generatedList").addEventListener("click", (event) => {
   const materialId = event.target.dataset.materialId;
   if (materialId) showMaterial(materialId);
+});
+$("skillResultView").addEventListener("click", (event) => {
+  if (event.target.dataset.copySkillResult !== undefined) copySkillResult();
+  if (event.target.dataset.downloadSkillResult !== undefined) downloadSkillResult();
 });
 
 refresh();

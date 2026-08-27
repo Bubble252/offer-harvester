@@ -1,0 +1,4 @@
+interface:
+  display_name: "Contact Email Coach"
+  short_description: "Draft and audit evidence-grounded contact emails."
+  default_prompt: "Use $contact-email-coach to prepare an auditable contact email draft."

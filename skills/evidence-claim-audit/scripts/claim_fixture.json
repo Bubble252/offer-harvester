@@ -1,0 +1,10 @@
+{
+  "claims": [
+    {
+      "text": "The applicant completed a retrieval project.",
+      "claim_type": "student_project",
+      "source_refs": ["doc_demo#project_1"],
+      "status": "needs_confirmation"
+    }
+  ]
+}
