@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "skill_id": "recommendation-letter-helper",
+  "package_name": "offer-harvester-skill-recommendation-letter-helper",
+  "version": "0.1.0",
+  "maturity": "standalone-ready-incubating",
+  "display_name": "Recommendation Letter Helper",
+  "display_name_zh": "推荐信助手",
+  "entrypoints": {
+    "skill_lab": "skill_lab:recommendation-letter-helper",
+    "dsh_tool": "offer_harvester_recommendation_letter_helper",
+    "control_plane_endpoint": "/api/skills/recommendation-letter-helper/run"
+  },
+  "paths": {
+    "skill": "SKILL.md",
+    "agent_metadata": "agents/openai.yaml",
+    "contract": "references/contract.md",
+    "input_schema": "schemas/input.schema.json",
+    "output_schema": "schemas/output.schema.json",
+    "fixtures": "fixtures"
+  },
+  "host_dependencies": [
+    "Offer Harvester FastAPI control plane",
+    "StudentProfile confirmation map",
+    "MaterialReviewAgent",
+    "EvidenceAuditAgent",
+    "workspace candidate_execution writer"
+  ],
+  "state_writes": ["candidate_execution", "agent_run", "workflow_event"],
+  "forbidden_capabilities": [
+    "impersonate_recommender",
+    "send_recommendation_request",
+    "submit_recommendation_letter",
+    "overwrite_confirmed_profile",
+    "promote_memory"
+  ],
+  "privacy_boundary": "May use private student evidence only through the Offer Harvester control plane and must preserve field confirmation status.",
+  "standalone_readiness": {
+    "ready_to_extract": true,
+    "requires_adapter_stub": true,
+    "release_blockers": [
+      "independent repository",
+      "standalone runner package",
+      "host compatibility CI"
+    ]
+  }
+}

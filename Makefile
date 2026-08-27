@@ -3,7 +3,7 @@ HOST ?= 127.0.0.1
 PORT ?= 8000
 WORKSPACE_DIR ?= workspace
 
-.PHONY: help install run seed-demo run-demo demo verify test lint format docs security openapi public-boundary
+.PHONY: help install run seed-demo run-demo demo verify test lint format docs security openapi public-boundary skills-check
 
 help:
 	@printf '%s\n' \
@@ -39,6 +39,9 @@ format:
 docs:
 	$(PYTHON) tools/lint_docs.py
 
+skills-check:
+	$(PYTHON) tools/check_product_skill_standalone_ready.py
+
 security:
 	$(PYTHON) tools/security_guards.py
 	$(PYTHON) tools/public_boundary_check.py
@@ -46,7 +49,7 @@ security:
 openapi:
 	$(PYTHON) tools/check_openapi_contract.py
 
-verify: lint format test docs security openapi
+verify: lint format test docs skills-check security openapi
 	node --check app/frontend/app.js
 	$(PYTHON) -m compileall -q app integrations tests
 	npm --prefix integrations/deepseek_harness test

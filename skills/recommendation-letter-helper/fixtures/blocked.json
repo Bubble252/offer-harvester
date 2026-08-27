@@ -1,0 +1,20 @@
+{
+  "fixture_kind": "synthetic_product_skill_contract",
+  "synthetic": true,
+  "skill_id": "recommendation-letter-helper",
+  "case_id": "recommendation-blocked",
+  "input": {
+    "recommender_name": "",
+    "relationship": ""
+  },
+  "expected_output": {
+    "skill_id": "recommendation-letter-helper",
+    "candidate_status": "blocked",
+    "requires_user_confirmation": true,
+    "no_send": true,
+    "risk_tags": [],
+    "truth_source_refs": [],
+    "blocked_reasons": ["A student profile is required"],
+    "output": {}
+  }
+}

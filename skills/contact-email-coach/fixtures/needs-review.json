@@ -1,0 +1,26 @@
+{
+  "fixture_kind": "synthetic_product_skill_contract",
+  "synthetic": true,
+  "skill_id": "contact-email-coach",
+  "case_id": "contact-needs-review",
+  "input": {
+    "target_id": "target_synthetic_contact_002",
+    "mode": "reduce_exaggeration",
+    "notes": "The draft contains an unconfirmed award claim."
+  },
+  "expected_output": {
+    "skill_id": "contact-email-coach",
+    "candidate_status": "needs_review",
+    "requires_user_confirmation": true,
+    "no_send": true,
+    "risk_tags": ["evidence_required"],
+    "truth_source_refs": ["profile_synthetic_002"],
+    "output": {
+      "mode": "reduce_exaggeration",
+      "material": { "material_type": "contact_email" },
+      "review": { "passed": false },
+      "evidence_audit": { "passed": false },
+      "quality": { "passed": false }
+    }
+  }
+}

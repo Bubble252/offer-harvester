@@ -19,6 +19,8 @@ Offer Harvester 使用 Skill 把稳定的任务协议做成可复用能力，但
 
 产品化 Skill 目前处于**主仓孵化阶段**：已有任务化 UI 和受控 adapter，但仍依赖 Offer
 Harvester 控制面，并不是可独立安装的软件包。
+关于拆仓契约、包结构和校验命令，见
+[产品化 Skill 独立建库准备度](skills/standalone-readiness.zh-CN.md)。
 
 | Product Skill | 用户指南 | Skill Lab | 可选 DSH 工具 |
 | --- | --- | --- | --- |
@@ -48,7 +50,7 @@ Harvester 控制面，并不是可独立安装的软件包。
 - `private_data_policy`
 - `status_truth_source`
 - Product 条目还会声明中英文展示文案、输入/输出摘要、UI 和 DSH 入口、文档、`maturity`
-  与 standalone 状态。
+  与 standalone 状态，并指向 `manifest`。
 
 Portable Skill 刻意不读取 workspace。产品化 Skill 只能经受控 FastAPI adapter 使用数据，从而保留原有证据和确认门槛。
 

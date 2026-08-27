@@ -1,0 +1,19 @@
+{
+  "fixture_kind": "synthetic_product_skill_contract",
+  "synthetic": true,
+  "skill_id": "advisor-due-diligence",
+  "case_id": "advisor-blocked",
+  "input": {
+    "advisor_id": ""
+  },
+  "expected_output": {
+    "skill_id": "advisor-due-diligence",
+    "candidate_status": "blocked",
+    "requires_user_confirmation": true,
+    "no_send": true,
+    "risk_tags": [],
+    "truth_source_refs": [],
+    "blocked_reasons": ["advisor_id is required"],
+    "output": {}
+  }
+}

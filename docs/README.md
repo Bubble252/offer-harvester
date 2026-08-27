@@ -18,6 +18,7 @@ This is the supported public documentation hub. The local execution plan and ear
 - [Contact Email Coach](guides/skills/contact-email-coach.md): contact-email candidate workflow.
 - [Advisor Due Diligence](guides/skills/advisor-due-diligence.md): source-grounded advisor review.
 - [Recommendation Letter Helper](guides/skills/recommendation-letter-helper.md): request and evidence-packet workflow.
+- [Product Skill Standalone Readiness](guides/skills/standalone-readiness.md): package shape, extraction checklist, and validation command for future standalone repositories.
 - [DeepSeek Harness Guide](guides/deepseek-harness.md): optional external-agent adapter.
 
 ## Product References

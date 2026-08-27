@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contact Email Coach Output",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["skill_id", "candidate_status", "requires_user_confirmation", "no_send", "risk_tags", "output"],
+  "properties": {
+    "skill_id": { "const": "contact-email-coach" },
+    "candidate_status": { "type": "string", "enum": ["candidate", "needs_review", "blocked"] },
+    "requires_user_confirmation": { "const": true },
+    "no_send": { "const": true },
+    "risk_tags": { "type": "array", "items": { "type": "string" } },
+    "truth_source_refs": { "type": "array", "items": { "type": "string" } },
+    "output": {
+      "type": "object",
+      "required": ["mode", "material", "review", "evidence_audit", "quality"]
+    }
+  }
+}

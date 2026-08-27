@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contact Email Coach Input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target_id"],
+  "properties": {
+    "target_id": { "type": "string", "minLength": 1 },
+    "advisor_id": { "type": "string" },
+    "mode": {
+      "type": "string",
+      "enum": ["new", "rewrite", "advisor_alignment", "reduce_exaggeration", "follow_up"]
+    },
+    "notes": { "type": "string" }
+  }
+}

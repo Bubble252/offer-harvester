@@ -1,0 +1,28 @@
+{
+  "fixture_kind": "synthetic_product_skill_contract",
+  "synthetic": true,
+  "skill_id": "recommendation-letter-helper",
+  "case_id": "recommendation-happy-path",
+  "input": {
+    "target_id": "target_synthetic_rec_001",
+    "recommender_name": "Synthetic Recommender",
+    "relationship": "course instructor",
+    "mode": "request_and_packet"
+  },
+  "expected_output": {
+    "skill_id": "recommendation-letter-helper",
+    "candidate_status": "candidate",
+    "requires_user_confirmation": true,
+    "no_send": true,
+    "risk_tags": [],
+    "truth_source_refs": ["profile_synthetic_rec_001"],
+    "output": {
+      "mode": "request_and_packet",
+      "material": { "material_type": "recommendation_packet" },
+      "review": { "passed": true },
+      "evidence_audit": { "passed": true },
+      "quality": { "passed": true },
+      "reference_only_notice": "The recommender must review, rewrite, approve, and submit any letter."
+    }
+  }
+}

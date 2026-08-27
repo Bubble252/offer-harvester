@@ -42,7 +42,8 @@ Offer Harvester 控制面运行，从而继续执行证据、字段确认、隐�
 
 所有 Product Skill 都是 `candidate-only` 和 `no-send`：不能发送邮件、提交申请、覆盖
 confirmed profile、修改 tracker 或提升 memory。关于 Portable Skill 复用和宿主边界，见
-[Skills 指南](docs/guides/skills.zh-CN.md)。
+[Skills 指南](docs/guides/skills.zh-CN.md) 与
+[独立建库准备度清单](docs/guides/skills/standalone-readiness.zh-CN.md)。
 
 ## 快速开始
 

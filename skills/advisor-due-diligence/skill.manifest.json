@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "skill_id": "advisor-due-diligence",
+  "package_name": "offer-harvester-skill-advisor-due-diligence",
+  "version": "0.1.0",
+  "maturity": "standalone-ready-incubating",
+  "display_name": "Advisor Due Diligence",
+  "display_name_zh": "导师尽调",
+  "entrypoints": {
+    "skill_lab": "skill_lab:advisor-due-diligence",
+    "dsh_tool": "offer_harvester_advisor_due_diligence",
+    "control_plane_endpoint": "/api/skills/advisor-due-diligence/run"
+  },
+  "paths": {
+    "skill": "SKILL.md",
+    "agent_metadata": "agents/openai.yaml",
+    "contract": "references/contract.md",
+    "input_schema": "schemas/input.schema.json",
+    "output_schema": "schemas/output.schema.json",
+    "fixtures": "fixtures"
+  },
+  "host_dependencies": [
+    "Offer Harvester FastAPI control plane",
+    "AdvisorProfile store",
+    "advisor source registry",
+    "KnowledgeBaseRetriever optional adapter",
+    "workspace candidate_execution writer"
+  ],
+  "state_writes": ["candidate_execution", "agent_run", "workflow_event"],
+  "forbidden_capabilities": [
+    "contact_advisor",
+    "claim_community_rumor_as_fact",
+    "write_tracker_state",
+    "overwrite_confirmed_advisor_profile",
+    "promote_memory"
+  ],
+  "privacy_boundary": "May combine public advisor evidence with private target/profile context only through the Offer Harvester control plane.",
+  "standalone_readiness": {
+    "ready_to_extract": true,
+    "requires_adapter_stub": true,
+    "release_blockers": [
+      "independent repository",
+      "standalone runner package",
+      "host compatibility CI"
+    ]
+  }
+}

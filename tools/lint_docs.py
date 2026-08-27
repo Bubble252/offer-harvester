@@ -65,6 +65,10 @@ PUBLIC_DOC_PAIRS = [
         "docs/guides/skills/recommendation-letter-helper.md",
         "docs/guides/skills/recommendation-letter-helper.zh-CN.md",
     ),
+    (
+        "docs/guides/skills/standalone-readiness.md",
+        "docs/guides/skills/standalone-readiness.zh-CN.md",
+    ),
     ("docs/guides/deepseek-harness.md", "docs/guides/deepseek-harness.zh-CN.md"),
     (
         "integrations/deepseek_harness/README.md",

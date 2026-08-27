@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Recommendation Letter Helper Input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recommender_name", "relationship"],
+  "properties": {
+    "target_id": { "type": "string" },
+    "mode": { "type": "string" },
+    "recommender_name": { "type": "string", "minLength": 1 },
+    "relationship": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" }
+  }
+}

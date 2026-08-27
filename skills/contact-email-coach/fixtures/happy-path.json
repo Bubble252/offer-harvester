@@ -1,0 +1,26 @@
+{
+  "fixture_kind": "synthetic_product_skill_contract",
+  "synthetic": true,
+  "skill_id": "contact-email-coach",
+  "case_id": "contact-happy-path",
+  "input": {
+    "target_id": "target_synthetic_contact_001",
+    "mode": "new",
+    "notes": "Use concise academic tone."
+  },
+  "expected_output": {
+    "skill_id": "contact-email-coach",
+    "candidate_status": "candidate",
+    "requires_user_confirmation": true,
+    "no_send": true,
+    "risk_tags": [],
+    "truth_source_refs": ["profile_synthetic_001", "advisor_source_synthetic_001"],
+    "output": {
+      "mode": "new",
+      "material": { "material_type": "contact_email" },
+      "review": { "passed": true },
+      "evidence_audit": { "passed": true },
+      "quality": { "passed": true }
+    }
+  }
+}

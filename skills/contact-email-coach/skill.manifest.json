@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "skill_id": "contact-email-coach",
+  "package_name": "offer-harvester-skill-contact-email-coach",
+  "version": "0.1.0",
+  "maturity": "standalone-ready-incubating",
+  "display_name": "Contact Email Coach",
+  "display_name_zh": "套磁信教练",
+  "entrypoints": {
+    "skill_lab": "skill_lab:contact-email-coach",
+    "dsh_tool": "offer_harvester_draft_contact_email",
+    "control_plane_endpoint": "/api/skills/contact-email-coach/run"
+  },
+  "paths": {
+    "skill": "SKILL.md",
+    "agent_metadata": "agents/openai.yaml",
+    "contract": "references/contract.md",
+    "input_schema": "schemas/input.schema.json",
+    "output_schema": "schemas/output.schema.json",
+    "fixtures": "fixtures"
+  },
+  "host_dependencies": [
+    "Offer Harvester FastAPI control plane",
+    "MaterialDraftAgent",
+    "MaterialReviewAgent",
+    "EvidenceAuditAgent",
+    "workspace candidate_execution writer"
+  ],
+  "state_writes": ["candidate_execution", "agent_run", "workflow_event"],
+  "forbidden_capabilities": [
+    "send_email",
+    "submit_application",
+    "overwrite_confirmed_profile",
+    "write_tracker_state",
+    "promote_memory"
+  ],
+  "privacy_boundary": "May use private profile and advisor evidence only through the Offer Harvester control plane.",
+  "standalone_readiness": {
+    "ready_to_extract": true,
+    "requires_adapter_stub": true,
+    "release_blockers": [
+      "independent repository",
+      "standalone runner package",
+      "host compatibility CI"
+    ]
+  }
+}

@@ -18,6 +18,7 @@
 - [套磁信教练](guides/skills/contact-email-coach.zh-CN.md)：套磁邮件候选工作流。
 - [导师尽调](guides/skills/advisor-due-diligence.zh-CN.md)：基于来源的导师审查。
 - [推荐信助手](guides/skills/recommendation-letter-helper.zh-CN.md)：请求与事实素材包工作流。
+- [产品化 Skill 独立建库准备度](guides/skills/standalone-readiness.zh-CN.md)：未来独立仓所需的包结构、拆仓清单和校验命令。
 - [DeepSeek Harness 指南](guides/deepseek-harness.zh-CN.md)：可选的外部 Agent 适配器。
 
 ## 产品参考

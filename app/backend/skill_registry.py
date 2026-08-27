@@ -68,6 +68,7 @@ def _validate_item(item: Dict[str, Any]) -> None:
         "output_summary_zh",
         "ui_entry",
         "dsh_tool",
+        "manifest",
         "documentation",
         "maturity",
         "standalone_status",
@@ -90,3 +91,6 @@ def _validate_item(item: Dict[str, Any]) -> None:
     documentation = PROJECT_ROOT / str(item["documentation"])
     if not documentation.exists():
         raise ValueError(f"Product Skill catalog documentation is missing: {item['documentation']}")
+    manifest = PROJECT_ROOT / str(item["manifest"])
+    if not manifest.exists():
+        raise ValueError(f"Product Skill catalog manifest is missing: {item['manifest']}")

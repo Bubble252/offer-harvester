@@ -32,6 +32,8 @@ Skill protocol
 ```
 
 Only the control plane can access the workspace. It retains evidence and confirmation rules. `no_send` applies to every current catalog item.
+The Product Skills also include standalone-ready manifests, schemas, and synthetic fixtures.
+They remain incubating until a separate repository, runner, and host compatibility CI exist.
 
 ## Validation
 
@@ -50,6 +52,7 @@ Run the product adapter tests from the repository root:
 
 ```bash
 ./.venv/bin/pytest -q tests/test_skills_dsh.py
+make PYTHON=./.venv/bin/python skills-check
 ```
 
 ## Future Hosts

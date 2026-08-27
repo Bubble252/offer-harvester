@@ -59,6 +59,7 @@
       "output_summary_zh": "候选邮件、审查发现、证据审计、质量报告和风险标签。",
       "ui_entry": "skill_lab:contact-email-coach",
       "dsh_tool": "offer_harvester_draft_contact_email",
+      "manifest": "skills/contact-email-coach/skill.manifest.json",
       "documentation": "docs/guides/skills/contact-email-coach.md",
       "maturity": "incubating",
       "standalone_status": "requires_offer_harvester_control_plane"
@@ -84,6 +85,7 @@
       "output_summary_zh": "基于证据的导师报告、未知项、复核问题和风险信号。",
       "ui_entry": "skill_lab:advisor-due-diligence",
       "dsh_tool": "offer_harvester_advisor_due_diligence",
+      "manifest": "skills/advisor-due-diligence/skill.manifest.json",
       "documentation": "docs/guides/skills/advisor-due-diligence.md",
       "maturity": "incubating",
       "standalone_status": "requires_offer_harvester_control_plane"
@@ -109,6 +111,7 @@
       "output_summary_zh": "请求邮件、事实素材包和带审查结果的仅供参考草稿。",
       "ui_entry": "skill_lab:recommendation-letter-helper",
       "dsh_tool": "offer_harvester_recommendation_letter_helper",
+      "manifest": "skills/recommendation-letter-helper/skill.manifest.json",
       "documentation": "docs/guides/skills/recommendation-letter-helper.md",
       "maturity": "incubating",
       "standalone_status": "requires_offer_harvester_control_plane"

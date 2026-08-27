@@ -43,7 +43,8 @@ remain enforced.
 
 Every Product Skill is `candidate-only` and `no-send`: it cannot send email, submit an
 application, overwrite confirmed profile data, change tracker state, or promote memory.
-See the [Skills Guide](docs/guides/skills.md) for portable Skill reuse and host boundaries.
+See the [Skills Guide](docs/guides/skills.md) for portable Skill reuse, host boundaries, and
+the [standalone-readiness checklist](docs/guides/skills/standalone-readiness.md).
 
 ## Quickstart
 

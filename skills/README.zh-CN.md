@@ -32,6 +32,8 @@ Skill 协议
 ```
 
 只有控制面可以访问 workspace，并继续执行证据和确认状态规则。当前 catalog 中的所有 Skill 均为 `no_send`。
+Product Skill 还包含 standalone-ready manifest、schema 和 synthetic fixtures。
+在独立仓、独立 runner 和宿主兼容 CI 完成前，它们仍属于主仓孵化能力。
 
 ## 校验
 
@@ -50,6 +52,7 @@ python skills/profile-field-normalization/scripts/validate_fields.py \
 
 ```bash
 ./.venv/bin/pytest -q tests/test_skills_dsh.py
+make PYTHON=./.venv/bin/python skills-check
 ```
 
 ## 后续宿主

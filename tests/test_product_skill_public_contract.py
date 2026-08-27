@@ -47,6 +47,7 @@ def test_product_skill_catalog_has_public_discovery_contract():
         assert item["ui_entry"] == f"skill_lab:{skill_id}"
         assert item["dsh_tool"] == expected["dsh_tool"]
         assert item["documentation"] == expected["documentation"]
+        assert item["manifest"] == f"skills/{skill_id}/skill.manifest.json"
 
         for field in (
             "display_name",
@@ -62,6 +63,7 @@ def test_product_skill_catalog_has_public_discovery_contract():
 
         documentation = ROOT / item["documentation"]
         assert documentation.exists()
+        assert (ROOT / item["manifest"]).exists()
         assert chinese_pair(documentation).exists()
         assert f'data-skill-form="{skill_id}"' in frontend
         assert item["dsh_tool"] in dsh_plugin

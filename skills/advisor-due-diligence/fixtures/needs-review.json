@@ -1,0 +1,26 @@
+{
+  "fixture_kind": "synthetic_product_skill_contract",
+  "synthetic": true,
+  "skill_id": "advisor-due-diligence",
+  "case_id": "advisor-needs-review",
+  "input": {
+    "advisor_id": "advisor_synthetic_due_002",
+    "notes": "Identity and recruiting status are unclear."
+  },
+  "expected_output": {
+    "skill_id": "advisor-due-diligence",
+    "candidate_status": "needs_review",
+    "requires_user_confirmation": true,
+    "no_send": true,
+    "risk_tags": ["evidence_gap"],
+    "truth_source_refs": [],
+    "blocked_reasons": ["导师画像缺少可追溯来源。"],
+    "output": {
+      "advisor_id": "advisor_synthetic_due_002",
+      "identity_confirmed": false,
+      "gaps": ["导师画像缺少可追溯来源。"],
+      "review_questions": ["请补充学校主页、实验室主页或招生通知来源。"],
+      "risk_signal_policy": "Community content is a reviewable risk signal, not a confirmed fact."
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "fixture_kind": "synthetic_product_skill_contract",
+  "synthetic": true,
+  "skill_id": "contact-email-coach",
+  "case_id": "contact-blocked",
+  "input": {
+    "target_id": "",
+    "mode": "new"
+  },
+  "expected_output": {
+    "skill_id": "contact-email-coach",
+    "candidate_status": "blocked",
+    "requires_user_confirmation": true,
+    "no_send": true,
+    "risk_tags": [],
+    "truth_source_refs": [],
+    "blocked_reasons": ["target_id is required"],
+    "output": {}
+  }
+}

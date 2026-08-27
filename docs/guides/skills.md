@@ -19,6 +19,8 @@ Open **Skill Lab** in the application sidebar to run a product Skill. Each run p
 
 Product Skills are **incubating**: they have task-oriented UI and controlled adapters, but they
 still require the Offer Harvester control plane. They are not standalone installable packages.
+See [Product Skill Standalone Readiness](skills/standalone-readiness.md) for the extraction
+contract, package shape, and validation command.
 
 | Product Skill | User guide | Skill Lab | Optional DSH tool |
 | --- | --- | --- | --- |
@@ -49,7 +51,7 @@ application outcome.
 - `private_data_policy`
 - `status_truth_source`
 - Product entries additionally declare bilingual display text, input/output summaries, UI and DSH
-  entry points, documentation, `maturity`, and standalone status.
+  entry points, documentation, `manifest`, `maturity`, and standalone status.
 
 Portable Skills are intentionally workspace-free. Product Skills may use data only through a controlled FastAPI adapter. This keeps the output useful while preserving the existing evidence and confirmation gates.
 
