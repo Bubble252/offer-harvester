@@ -1,0 +1,11 @@
+{
+  "fields": [
+    {
+      "field_name": "projects",
+      "value": "Synthetic retrieval demo",
+      "source_refs": ["doc_demo#project_1"],
+      "status": "unconfirmed",
+      "source_type": "local_upload"
+    }
+  ]
+}

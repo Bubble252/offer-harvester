@@ -1,0 +1,9 @@
+source_kind: teacher_page
+title: 某大学教师主页样本 C
+source_url: https://example.edu/faculty/c
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+公开主页摘要：研究方向包括机器学习系统、分布式训练和高效推理。
+招生信息摘要：适合有工程实现经验、能够快速阅读论文和复现实验的学生。

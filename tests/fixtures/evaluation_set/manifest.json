@@ -1,0 +1,241 @@
+{
+  "set_id": "evaluation_set_2026_q3",
+  "generated_at": "2026-08-23T00:00:00+08:00",
+  "description": "Fixed anonymous regression fixtures for teacher pages, policy pages, email signals, and student profiles.",
+  "rules": {
+    "public_sources_only": true,
+    "no_real_student_data": true,
+    "no_email_oauth": true,
+    "no_full_page_copies": true
+  },
+  "items": {
+    "teacher_pages": [
+      {
+        "item_id": "teacher_01",
+        "path": "teacher_pages/teacher_01.txt",
+        "source_kind": "teacher_page",
+        "title": "清华大学智能产业研究院刘菁菁公开主页短摘要",
+        "source_url": "https://air.tsinghua.edu.cn/info/1046/1201.htm",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "teacher_02",
+        "path": "teacher_pages/teacher_02.txt",
+        "source_kind": "teacher_page",
+        "title": "某大学教师主页样本 B",
+        "source_url": "https://example.edu/faculty/b",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "teacher_03",
+        "path": "teacher_pages/teacher_03.txt",
+        "source_kind": "teacher_page",
+        "title": "某大学教师主页样本 C",
+        "source_url": "https://example.edu/faculty/c",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "teacher_04",
+        "path": "teacher_pages/teacher_04.txt",
+        "source_kind": "teacher_page",
+        "title": "某大学教师主页样本 D",
+        "source_url": "https://example.edu/faculty/d",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "teacher_05",
+        "path": "teacher_pages/teacher_05.txt",
+        "source_kind": "teacher_page",
+        "title": "某大学教师主页样本 E",
+        "source_url": "https://example.edu/faculty/e",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      }
+    ],
+    "policy_pages": [
+      {
+        "item_id": "policy_01",
+        "path": "policy_pages/policy_01.txt",
+        "source_kind": "policy",
+        "title": "2026 推免通知样本 A",
+        "source_url": "https://example.edu/admissions/2026-a",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "policy_02",
+        "path": "policy_pages/policy_02.txt",
+        "source_kind": "policy",
+        "title": "2026 推免通知样本 B",
+        "source_url": "https://example.edu/admissions/2026-b",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "policy_03",
+        "path": "policy_pages/policy_03.txt",
+        "source_kind": "policy",
+        "title": "2026 推免通知样本 C",
+        "source_url": "https://example.edu/admissions/2026-c",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "policy_04",
+        "path": "policy_pages/policy_04.txt",
+        "source_kind": "policy",
+        "title": "2026 推免通知样本 D",
+        "source_url": "https://example.edu/admissions/2026-d",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      },
+      {
+        "item_id": "policy_05",
+        "path": "policy_pages/policy_05.txt",
+        "source_kind": "policy",
+        "title": "2026 推免通知样本 E",
+        "source_url": "https://example.edu/admissions/2026-e",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": true
+      }
+    ],
+    "email_signals": [
+      {
+        "item_id": "email_01",
+        "path": "email_signals/email_01.txt",
+        "source_kind": "email_signal",
+        "title": "面试通知样本 A",
+        "source_url": "mailbox://fixture/email_01",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "email_02",
+        "path": "email_signals/email_02.txt",
+        "source_kind": "email_signal",
+        "title": "补材料样本 B",
+        "source_url": "mailbox://fixture/email_02",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "email_03",
+        "path": "email_signals/email_03.txt",
+        "source_kind": "email_signal",
+        "title": "导师回复样本 C",
+        "source_url": "mailbox://fixture/email_03",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "email_04",
+        "path": "email_signals/email_04.txt",
+        "source_kind": "email_signal",
+        "title": "拟录取样本 D",
+        "source_url": "mailbox://fixture/email_04",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "email_05",
+        "path": "email_signals/email_05.txt",
+        "source_kind": "email_signal",
+        "title": "拒信样本 E",
+        "source_url": "mailbox://fixture/email_05",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      }
+    ],
+    "student_profiles": [
+      {
+        "item_id": "student_01",
+        "path": "student_profiles/student_01.json",
+        "source_kind": "student_profile",
+        "title": "匿名学生样本 1",
+        "source_url": "local://fixture/student_01",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "student_02",
+        "path": "student_profiles/student_02.json",
+        "source_kind": "student_profile",
+        "title": "匿名学生样本 2",
+        "source_url": "local://fixture/student_02",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "student_03",
+        "path": "student_profiles/student_03.json",
+        "source_kind": "student_profile",
+        "title": "匿名学生样本 3",
+        "source_url": "local://fixture/student_03",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "student_04",
+        "path": "student_profiles/student_04.json",
+        "source_kind": "student_profile",
+        "title": "匿名学生样本 4",
+        "source_url": "local://fixture/student_04",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      },
+      {
+        "item_id": "student_05",
+        "path": "student_profiles/student_05.json",
+        "source_kind": "student_profile",
+        "title": "匿名学生样本 5",
+        "source_url": "local://fixture/student_05",
+        "fetched_at": "2026-08-23T00:00:00+08:00",
+        "valid_for_year": 2026,
+        "trusted": true,
+        "confirmed": false
+      }
+    ]
+  }
+}

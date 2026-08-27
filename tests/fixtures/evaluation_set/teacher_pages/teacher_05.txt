@@ -1,0 +1,9 @@
+source_kind: teacher_page
+title: 某大学教师主页样本 E
+source_url: https://example.edu/faculty/e
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+公开主页摘要：研究方向包括数据挖掘、图学习和教育智能。
+招生信息摘要：希望申请者材料具体、克制，并且能主动给出匹配证据。

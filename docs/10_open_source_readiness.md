@@ -19,6 +19,7 @@
 ```text
 grad-apply-workflow/
 ├── README.md
+├── README.zh-CN.md
 ├── LICENSE
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
@@ -57,6 +58,16 @@ grad-apply-workflow/
 ### README.md
 
 README 需要优先讲用户场景，而不是先讲模型。
+
+语言规则：
+
+- `README.md` 使用英文主版，便于 GitHub 外部用户和 release 页面阅读
+- `README.zh-CN.md` 使用完整中文主版，面向实际保研 / 硕博申请用户
+- 两个 README 的能力边界必须一致，不能英文版承诺未实现能力，中文版只写内部计划
+- README 顶部必须互相链接
+- `CHANGELOG.md` 默认英文为主，便于 GitHub Release 复用
+- `SECURITY.md` 如涉及隐私和邮箱边界，应至少包含清晰英文说明；中文说明可放在 `README.zh-CN.md` 和 demo 文档
+- 内部规划文档不强制双语，避免维护成本过高
 
 建议结构：
 
@@ -360,6 +371,31 @@ workspace.example/
 - 不使用真实成绩单、真实身份证明、真实联系方式
 - 如果使用真实公开导师页面作为示例，必须只保留短摘要和来源链接，不复制大段正文
 
+## 固定回归集
+
+除了 `workspace.example/` 之外，建议再保留一套专门给测试用的固定回归集：
+
+```text
+tests/fixtures/evaluation_set/
+├── teacher_pages/
+├── policy_pages/
+├── email_signals/
+├── student_profiles/
+└── manifest.json
+```
+
+用途：
+
+- 给 RAG、Evidence Auditor、Readiness Score 和 signal detection 做稳定回归
+- 区分“固定测试数据”和“可演示样例数据”
+- 避免 live 网页波动影响 CI
+
+约束：
+
+- 只放匿名短样本，不放真实个人资料
+- 真实网页正文不直接进测试仓库，只保留短摘要、来源元数据和年份
+- 真实邮箱 OAuth 相关用例后置到只读同步阶段
+
 ## CI 规划
 
 第一版 CI 可以简单但必须有。
@@ -374,6 +410,8 @@ workspace.example/
 - `workspace/` 是否被误提交
 - API key 模式扫描
 - Markdown 链接或格式基础检查
+
+联网来源测试不默认放进 CI。公开来源 live test 应由用户手动触发，记录 HTTP 状态、robots 结果、响应 hash、失败原因和 fallback；测试通过后才允许 connector 标记为可注册。
 
 建议文件：
 

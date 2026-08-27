@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from models import AdvisorProfile, GeneratedMaterial, MatchReport, StudentProfile, Target
 from pydantic import BaseModel, Field
 from quality.checks import profile_confirmation_issues
-from rag import KnowledgeBaseRetriever
+from rag import EvidenceBundle, KnowledgeBaseRetriever
 
 
 class EvidenceAuditResult(BaseModel):
@@ -19,6 +19,54 @@ class EvidenceAuditResult(BaseModel):
 
 class EvidenceAuditAgent:
     name = "EvidenceAuditAgent"
+
+    def audit_evidence_bundle(self, bundle: EvidenceBundle) -> EvidenceAuditResult:
+        claims: List[Dict[str, Any]] = []
+        unsupported: List[str] = []
+        needs_confirmation: List[str] = []
+
+        for claim in bundle.claims:
+            source_ids = list(claim.source_refs)
+            claims.append(
+                {
+                    "claim_type": claim.claim_type,
+                    "status": claim.status,
+                    "source_ids": source_ids,
+                    "message": claim.text or claim.claim_key,
+                }
+            )
+            if claim.status in {"unsupported", "contradicted"}:
+                unsupported.append(claim.text or f"Evidence claim unsupported: {claim.claim_key}")
+            elif claim.status == "stale":
+                message = claim.text or f"Evidence claim is stale: {claim.claim_key}"
+                unsupported.append(message)
+                needs_confirmation.append(message)
+            elif claim.status == "needs_confirmation" or claim.needs_confirmation:
+                needs_confirmation.append(
+                    claim.text or f"Evidence claim needs confirmation: {claim.claim_key}"
+                )
+
+        for conflict in bundle.conflicts:
+            message = (
+                conflict.explanation or f"Evidence conflict requires review: {conflict.claim_key}"
+            )
+            claims.append(
+                {
+                    "claim_type": "evidence_conflict",
+                    "status": "contradicted",
+                    "source_ids": conflict.evidence_refs,
+                    "message": message,
+                }
+            )
+            unsupported.append(message)
+            needs_confirmation.append(message)
+
+        return EvidenceAuditResult(
+            passed=not unsupported,
+            claims=claims,
+            unsupported_claims=list(dict.fromkeys(unsupported)),
+            needs_confirmation=list(dict.fromkeys(needs_confirmation)),
+        )
 
     def audit_contact_email(
         self,

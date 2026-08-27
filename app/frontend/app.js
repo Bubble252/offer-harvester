@@ -17,9 +17,14 @@ const state = {
   strategyStatus: null,
   templateRegistry: null,
   sourceConnectorRegistry: null,
+  selectedCustomTemplate: null,
+  pdfReadabilityReport: null,
   referencePresentations: [],
   presentationPrechecks: [],
   presentationQualityReports: [],
+  skillCatalog: [],
+  skillExecutions: [],
+  latestSkillResult: null,
   selectedMaterial: null,
 };
 
@@ -29,6 +34,7 @@ const titles = {
   advisors: "导师资料",
   targets: "申请目标",
   materials: "材料中心",
+  skills: "Skill Lab",
   report: "进度报告",
 };
 
@@ -442,7 +448,7 @@ function renderStrategy() {
 
   const templateRegistryHtml = state.templateRegistry
     ? `<div class="template-registry-list">
-        <div class="strategy-summary">模板 ${escapeHtml(String(state.templateRegistry.template_count || 0))} 个，已激活 ${escapeHtml(String(state.templateRegistry.active_count || 0))} 个。</div>
+        <div class="strategy-summary">内置模板 ${escapeHtml(String(state.templateRegistry.template_count || 0))} 个，已激活 ${escapeHtml(String(state.templateRegistry.active_count || 0))} 个；用户模板 ${escapeHtml(String(state.templateRegistry.custom_template_count || 0))} 个，已启用 ${escapeHtml(String(state.templateRegistry.custom_active_count || 0))} 个。</div>
         <div class="stack-list">
           ${(state.templateRegistry.templates || [])
             .map(
@@ -453,20 +459,31 @@ function renderStrategy() {
               </div>`
             )
             .join("")}
+          ${(state.templateRegistry.custom_templates || [])
+            .map(
+              (item) => `<div class="list-item strategy-item">
+                <div class="item-title">${escapeHtml(item.name || item.template_id)} · ${escapeHtml(item.status || "draft")}</div>
+                <div class="item-meta">${escapeHtml(item.template_type)} · 版本 ${escapeHtml(String(item.version_count || 0))} · ${item.active ? "当前启用" : "未启用"}</div>
+                <div class="item-meta">${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "模板校验通过。")}</div>
+              </div>`
+            )
+            .join("")}
         </div>
       </div>`
     : "";
 
   const sourceConnectorHtml = state.sourceConnectorRegistry
     ? `<div class="template-registry-list">
-        <div class="strategy-summary">连接器 ${escapeHtml(String(state.sourceConnectorRegistry.connector_count || 0))} 个，已激活 ${escapeHtml(String(state.sourceConnectorRegistry.active_count || 0))} 个。</div>
+        <div class="strategy-summary">连接器 ${escapeHtml(String(state.sourceConnectorRegistry.connector_count || 0))} 个，manifest 合法 ${escapeHtml(String(state.sourceConnectorRegistry.active_count || 0))} 个，可注册 ${escapeHtml(String(state.sourceConnectorRegistry.registrable_count || 0))} 个。</div>
         <div class="stack-list">
           ${(state.sourceConnectorRegistry.connectors || [])
             .map(
               (item) => `<div class="list-item strategy-item">
-                <div class="item-title">${escapeHtml(item.name || item.connector_id)} · ${item.active ? "可激活" : "需修正"}</div>
+                <div class="item-title">${escapeHtml(item.name || item.connector_id)} · ${item.registration_eligible ? "可注册" : item.refresh_state === "stale" ? "已过期" : item.refresh_state === "needs_review" ? "需复核" : item.live_test_status === "not_run" ? "待 live test" : "不可注册"}</div>
                 <div class="item-meta">${escapeHtml(item.source_type)} · ${escapeHtml(item.path)} · URL pattern ${escapeHtml(String((item.url_patterns || []).length))} 个 · 字段 ${escapeHtml(String(Object.keys(item.field_mapping || {}).length))} 个</div>
+                <div class="item-meta">live test：${escapeHtml(item.live_test_status || "not_run")} · 刷新：${escapeHtml(item.refresh_state || "not_tested")} · 下次检查 ${escapeHtml(item.next_refresh_at || "尚未安排")}</div>
                 <div class="item-meta">${escapeHtml((item.validation_issues || []).map((issue) => issue.message).join("；") || "manifest、字段映射、访问规则和测试查询通过。")}</div>
+                ${item.test_urls && item.test_urls.length ? `<button class="secondary" data-source-connector-id="${escapeHtml(item.connector_id)}">${item.refresh_due || item.refresh_state === "stale" ? "刷新公开 live test" : "运行公开 live test"}</button>` : "<div class='item-meta'>未声明公开测试 URL，只能手动粘贴兜底。</div>"}
               </div>`
             )
             .join("")}
@@ -500,6 +517,95 @@ function renderStrategy() {
     </div>
     ${registryHtml}
   `;
+  renderCustomTemplateOptions();
+}
+
+function customTemplates() {
+  return state.templateRegistry?.custom_templates || [];
+}
+
+function renderCustomTemplateOptions(selectedId = "") {
+  const select = $("customTemplateSelect");
+  if (!select) return;
+  const current = selectedId || select.value || state.selectedCustomTemplate?.template_id || "";
+  select.innerHTML = "<option value=''>新建用户模板</option>";
+  customTemplates().forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.template_id;
+    option.textContent = `${item.name || item.template_id} · ${item.status}`;
+    select.appendChild(option);
+  });
+  select.value = customTemplates().some((item) => item.template_id === current) ? current : "";
+  const selected = customTemplates().find((item) => item.template_id === select.value);
+  if (selected && selected.template_id !== state.selectedCustomTemplate?.template_id) {
+    fillCustomTemplateEditor(selected);
+  } else if (!selected && !state.selectedCustomTemplate) {
+    clearCustomTemplateEditor();
+  }
+}
+
+function fillCustomTemplateEditor(template) {
+  state.selectedCustomTemplate = template;
+  $("customTemplateName").value = template.name || "";
+  $("customTemplateType").value = template.template_type || "contact_email";
+  $("customTemplateStatus").value = template.status || "draft";
+  $("customTemplateContent").value = template.content || "";
+  $("customTemplateDescription").value = template.description || "";
+  $("customTemplateVariables").value = listToText(template.variables);
+  $("customTemplateSampleContext").value = JSON.stringify(template.sample_context || {}, null, 2);
+  $("customTemplateApplicableScenarios").value = listToText(template.applicable_scenarios);
+  $("customTemplateStyleRules").value = listToText(template.style_rules);
+  $("customTemplatePrivacyRules").value = listToText(template.privacy_rules);
+  $("customTemplateValidationMethods").value = listToText(template.validation_methods);
+  $("customTemplateManagedBlock").value = template.managed_block || "";
+  $("templateDiffView").textContent = `版本数：${template.version_count || 0} · 当前状态：${template.status || "draft"}`;
+}
+
+function clearCustomTemplateEditor() {
+  state.selectedCustomTemplate = null;
+  [
+    "customTemplateName",
+    "customTemplateContent",
+    "customTemplateDescription",
+    "customTemplateVariables",
+    "customTemplateSampleContext",
+    "customTemplateApplicableScenarios",
+    "customTemplateStyleRules",
+    "customTemplatePrivacyRules",
+    "customTemplateValidationMethods",
+    "customTemplateManagedBlock",
+  ].forEach((id) => {
+    $(id).value = "";
+  });
+  $("customTemplateType").value = "contact_email";
+  $("customTemplateStatus").value = "draft";
+  $("templateDiffView").textContent = "尚未选择模板 diff";
+}
+
+function customTemplatePayload() {
+  let sampleContext = {};
+  const rawSample = $("customTemplateSampleContext").value.trim();
+  if (rawSample) {
+    try {
+      sampleContext = JSON.parse(rawSample);
+    } catch {
+      throw new Error("样例上下文必须是合法 JSON");
+    }
+  }
+  return {
+    name: $("customTemplateName").value.trim(),
+    template_type: $("customTemplateType").value,
+    status: $("customTemplateStatus").value,
+    content: $("customTemplateContent").value,
+    description: $("customTemplateDescription").value.trim(),
+    variables: textToList($("customTemplateVariables").value),
+    sample_context: sampleContext,
+    applicable_scenarios: textToList($("customTemplateApplicableScenarios").value),
+    style_rules: textToList($("customTemplateStyleRules").value),
+    privacy_rules: textToList($("customTemplatePrivacyRules").value),
+    validation_methods: textToList($("customTemplateValidationMethods").value),
+    managed_block: $("customTemplateManagedBlock").value.trim(),
+  };
 }
 
 function renderProfile() {
@@ -816,6 +922,162 @@ function renderAll() {
   renderTargetReadiness();
   renderLifecycle();
   renderStrategy();
+  renderSkills();
+}
+
+const skillLabels = {
+  "contact-email-coach": "套磁信教练",
+  "advisor-due-diligence": "导师尽调",
+  "recommendation-letter-helper": "推荐信助手",
+  "evidence-claim-audit": "证据声明审计",
+  "source-connector-authoring": "来源连接器编写",
+  "profile-field-normalization": "画像字段规范化",
+};
+
+function skillOptionList(includeBlank = false) {
+  const options = includeBlank ? ["<option value=''>不关联申请目标</option>"] : [];
+  options.push(
+    ...state.targets.map(
+      (target) => `<option value="${escapeHtml(target.target_id)}">${escapeHtml(target.name)}</option>`
+    )
+  );
+  return options.join("");
+}
+
+function renderSkills() {
+  const productSkills = state.skillCatalog.filter((skill) => skill.category === "product");
+  const selectedId =
+    $("skillSelect").value ||
+    (productSkills[0] && productSkills[0].skill_id) ||
+    "contact-email-coach";
+  $("skillSelect").innerHTML = productSkills.length
+    ? productSkills
+        .map(
+          (skill) =>
+            `<option value="${escapeHtml(skill.skill_id)}" ${skill.skill_id === selectedId ? "selected" : ""}>${escapeHtml(skillLabels[skill.skill_id] || skill.skill_id)}</option>`
+        )
+        .join("")
+    : "<option value=''>暂无可执行 Skill</option>";
+  $("skillCatalog").innerHTML = state.skillCatalog.length
+    ? state.skillCatalog
+        .map(
+          (skill) => `<div class="skill-catalog-item ${skill.skill_id === selectedId ? "selected" : ""}">
+            <strong>${escapeHtml(skillLabels[skill.skill_id] || skill.skill_id)}</strong>
+            <span>${escapeHtml(skill.category)} · v${escapeHtml(skill.version)}</span>
+            <small>${skill.no_send ? "候选结果 · 不自动发送" : "需复核权限"}</small>
+          </div>`
+        )
+        .join("")
+    : "<div class='empty-state'>尚未加载 Skill catalog。</div>";
+  $("skillContactTarget").innerHTML = skillOptionList(false);
+  $("skillAdvisorTarget").innerHTML = skillOptionList(true);
+  $("skillRecommendationTarget").innerHTML = skillOptionList(true);
+  $("skillAdvisor").innerHTML = [
+    "<option value=''>请选择导师</option>",
+    ...state.advisors.map(
+      (advisor) =>
+        `<option value="${escapeHtml(advisor.advisor_id)}">${escapeHtml(advisor.name_zh || advisor.name_en || advisor.advisor_id)}</option>`
+    ),
+  ].join("");
+  document.querySelectorAll("[data-skill-form]").forEach((node) => {
+    node.classList.toggle("hidden", node.dataset.skillForm !== selectedId);
+  });
+  if (state.latestSkillResult) renderSkillResult(state.latestSkillResult);
+}
+
+function renderSkillResult(result) {
+  const container = $("skillResultView");
+  if (!result) {
+    container.className = "skill-result empty-state";
+    container.textContent = "选择 Skill 并填写必要信息后运行。";
+    return;
+  }
+  const output = result.output || {};
+  const material = output.material;
+  const preview = material
+    ? material.content
+    : output.summary || JSON.stringify(output, null, 2);
+  const refs = (result.truth_source_refs || []).map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("");
+  const tags = (result.risk_tags || []).map((item) => `<span class="tag risk">${escapeHtml(item)}</span>`).join("");
+  const blocked = (result.blocked_reasons || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  container.className = "skill-result";
+  container.innerHTML = `
+    <div class="skill-result-head">
+      <div>
+        <strong>${escapeHtml(skillLabels[result.skill_id] || result.skill_id)}</strong>
+        <span class="candidate-badge">${escapeHtml(result.candidate_status || result.status)}</span>
+      </div>
+      <div class="button-row compact-actions">
+        <button class="secondary" data-copy-skill-result>复制</button>
+        <button class="secondary" data-download-skill-result>下载</button>
+      </div>
+    </div>
+    <p class="item-meta">候选结果，不会自动发送、提交或覆盖可信资料。</p>
+    ${blocked ? `<ul class="skill-blocked">${blocked}</ul>` : ""}
+    <div class="tag-row">${refs || "<span class='item-meta'>暂无证据引用</span>"}${tags}</div>
+    <pre class="document-view skill-preview">${escapeHtml(preview)}</pre>
+  `;
+}
+
+function selectedSkillPayload() {
+  const skillId = $("skillSelect").value;
+  if (skillId === "contact-email-coach") {
+    return {
+      target_id: $("skillContactTarget").value,
+      mode: $("skillContactMode").value,
+    };
+  }
+  if (skillId === "advisor-due-diligence") {
+    return {
+      advisor_id: $("skillAdvisor").value,
+      target_id: $("skillAdvisorTarget").value,
+    };
+  }
+  return {
+    target_id: $("skillRecommendationTarget").value,
+    mode: "request_and_packet",
+    recommender_name: $("skillRecommenderName").value.trim(),
+    relationship: $("skillRecommenderRelationship").value.trim(),
+  };
+}
+
+async function runSelectedSkill() {
+  const skillId = $("skillSelect").value;
+  if (!skillId) return toast("暂无可执行 Skill");
+  try {
+    const result = await api(`/api/skills/${encodeURIComponent(skillId)}/run`, {
+      method: "POST",
+      body: JSON.stringify(selectedSkillPayload()),
+    });
+    state.latestSkillResult = result;
+    state.skillExecutions = [result, ...state.skillExecutions.filter((item) => item.execution_id !== result.execution_id)];
+    renderSkillResult(result);
+    toast(result.status === "blocked" ? "Skill 缺少必要资料" : "候选结果已生成");
+  } catch (error) {
+    toast(`Skill 运行失败：${error.message}`);
+  }
+}
+
+async function copySkillResult() {
+  const material = state.latestSkillResult && state.latestSkillResult.output && state.latestSkillResult.output.material;
+  const text = material ? material.content : JSON.stringify(state.latestSkillResult?.output || {}, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("候选结果已复制");
+  } catch {
+    toast("复制失败，请手动选择文本");
+  }
+}
+
+function downloadSkillResult() {
+  const material = state.latestSkillResult && state.latestSkillResult.output && state.latestSkillResult.output.material;
+  const text = material ? material.content : JSON.stringify(state.latestSkillResult?.output || {}, null, 2);
+  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${state.latestSkillResult?.skill_id || "skill-result"}-candidate.md`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 async function refresh() {
@@ -840,6 +1102,8 @@ async function refresh() {
       state.referencePresentations,
       state.presentationPrechecks,
       state.presentationQualityReports,
+      state.skillCatalog,
+      state.skillExecutions,
     ] = await Promise.all([
       api("/api/advisors"),
       api("/api/advisor-sources"),
@@ -855,9 +1119,17 @@ async function refresh() {
       api("/api/reference-presentations"),
       api("/api/presentation-prechecks"),
       api("/api/presentation-quality-reports"),
+      api("/api/skills").then((payload) => payload.skills || []),
+      api("/api/skill-executions"),
     ]);
     const triageReports = await api("/api/target-triage");
     const expansionReports = await api("/api/profile-expansion");
+    const [templateRegistry, sourceConnectorRegistry] = await Promise.all([
+      api("/api/template-registry/status"),
+      api("/api/source-connectors/status"),
+    ]);
+    state.templateRegistry = templateRegistry;
+    state.sourceConnectorRegistry = sourceConnectorRegistry;
     state.triageReport = triageReports.slice(-1)[0] || null;
     state.profileExpansionReport = expansionReports.slice(-1)[0] || null;
     renderAll();
@@ -1256,6 +1528,7 @@ async function checkTemplateRegistry() {
       message: `${result.activation_policy} ${result.privacy_policy}`,
     };
     renderStrategy();
+    renderCustomTemplateOptions();
   } catch (error) {
     toast(`模板 registry 检查失败：${error.message}`);
   }
@@ -1272,6 +1545,125 @@ async function checkSourceConnectors() {
     renderStrategy();
   } catch (error) {
     toast(`来源连接器检查失败：${error.message}`);
+  }
+}
+
+async function saveCustomTemplate() {
+  try {
+    const payload = customTemplatePayload();
+    const existingId = state.selectedCustomTemplate?.template_id;
+    const template = existingId
+      ? await api(`/api/templates/${encodeURIComponent(existingId)}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        })
+      : await api("/api/templates", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+    await checkTemplateRegistry();
+    renderCustomTemplateOptions(template.template_id);
+    toast("模板已保存");
+  } catch (error) {
+    toast(`模板保存失败：${error.message}`);
+  }
+}
+
+async function toggleCustomTemplateLifecycle() {
+  const templateId = $("customTemplateSelect").value || state.selectedCustomTemplate?.template_id;
+  if (!templateId) return toast("请先选择一个用户模板");
+  const nextStatus = $("customTemplateStatus").value;
+  try {
+    const template = await api(`/api/templates/${encodeURIComponent(templateId)}/lifecycle`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    await checkTemplateRegistry();
+    renderCustomTemplateOptions(template.template_id);
+    toast("模板状态已更新");
+  } catch (error) {
+    toast(`模板状态更新失败：${error.message}`);
+  }
+}
+
+async function showCustomTemplateDiff() {
+  const templateId = $("customTemplateSelect").value || state.selectedCustomTemplate?.template_id;
+  if (!templateId) return toast("请先选择一个用户模板");
+  try {
+    const diff = await api(`/api/templates/${encodeURIComponent(templateId)}/diff`);
+    $("templateDiffView").textContent = diff.diff_text || diff.summary || "没有差异";
+  } catch (error) {
+    toast(`查看 diff 失败：${error.message}`);
+  }
+}
+
+async function checkPdfReadability() {
+  const file = $("pdfReadabilityFile").files[0];
+  if (!file) return toast("请先选择 PDF 文件");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("expected_fields", $("pdfReadabilityFields").value || "");
+  if (state.selectedMaterial?.material_id) {
+    form.append("material_id", state.selectedMaterial.material_id);
+  }
+  try {
+    const report = await api("/api/pdf/readability-check", { method: "POST", body: form });
+    state.pdfReadabilityReport = report;
+    renderPdfReadabilityReport(report);
+    toast(report.readable ? "PDF 可读性检查通过" : "PDF 需要复核");
+    await refresh();
+  } catch (error) {
+    toast(`PDF 检查失败：${error.message}`);
+  }
+}
+
+function renderPdfReadabilityReport(report) {
+  const view = $("pdfReadabilityView");
+  if (!view) return;
+  if (!report) {
+    view.innerHTML = "";
+    return;
+  }
+  const issues = (report.issues || [])
+    .map((issue) => `<li>${escapeHtml(issue.severity)}：${escapeHtml(issue.message)}</li>`)
+    .join("");
+  const suggestions = (report.suggestions || [])
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("");
+  view.innerHTML = `<div class="quality-summary ${report.readable ? "low" : "medium"}">
+    <strong>PDF ${report.readable ? "可读" : "需复核"}</strong>
+    <div class="item-meta">${escapeHtml(report.filename || "")} · ${escapeHtml(String(report.page_count || 0))} 页 · 文本层 ${report.text_layer_detected ? "有" : "无"}</div>
+    <ul>${issues || "<li>未发现阻断问题。</li>"}</ul>
+    ${suggestions ? `<div class="item-meta">建议</div><ul>${suggestions}</ul>` : ""}
+  </div>`;
+}
+
+async function runSourceConnectorLiveTest(connectorId) {
+  const connector = (state.sourceConnectorRegistry?.connectors || []).find(
+    (item) => item.connector_id === connectorId
+  );
+  const url = connector?.test_urls?.[0];
+  const query = connector?.test_queries?.[0];
+  if (!connector || !url || !query) {
+    return toast("该 connector 没有可执行的公开测试 URL 或查询词");
+  }
+  if (!window.confirm(`确认访问公开 URL 并遵守 robots.txt / ToS？\n${url}`)) return;
+  try {
+    const result = await api(`/api/source-connectors/${encodeURIComponent(connectorId)}/live-test`, {
+      method: "POST",
+      body: JSON.stringify({ url, query, tos_acknowledged: true }),
+    });
+    state.sourceConnectorRegistry = await api("/api/source-connectors/status");
+    state.strategyStatus = {
+      title: "来源连接器 live test",
+      message: result.registration_eligible
+        ? `${connector.name} 已通过公开页面测试，可以注册。`
+        : `${connector.name} 未通过测试：${result.error || "请改用手动粘贴兜底。"}`,
+    };
+    renderStrategy();
+    toast(result.registration_eligible ? "live test 通过" : "live test 未通过");
+  } catch (error) {
+    toast(`live test 失败：${error.message}`);
   }
 }
 
@@ -1333,8 +1725,46 @@ $("profileExpandBtn").addEventListener("click", generateProfileExpansion);
 $("gapPlanBtn").addEventListener("click", generateGapPlan);
 $("templateRegistryBtn").addEventListener("click", checkTemplateRegistry);
 $("sourceConnectorBtn").addEventListener("click", checkSourceConnectors);
+$("saveTemplateBtn").addEventListener("click", saveCustomTemplate);
+$("activateTemplateBtn").addEventListener("click", toggleCustomTemplateLifecycle);
+$("archiveTemplateBtn").addEventListener("click", async () => {
+  $("customTemplateStatus").value = "archived";
+  await toggleCustomTemplateLifecycle();
+});
+$("diffTemplateBtn").addEventListener("click", showCustomTemplateDiff);
+$("customTemplateSelect").addEventListener("change", () => {
+  const template = customTemplates().find((item) => item.template_id === $("customTemplateSelect").value);
+  if (template) fillCustomTemplateEditor(template);
+  else clearCustomTemplateEditor();
+});
+$("customTemplateFile").addEventListener("change", async () => {
+  const file = $("customTemplateFile").files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("template_type", $("customTemplateType").value || "contact_email");
+  form.append("name", $("customTemplateName").value || file.name.replace(/\.[^.]+$/, ""));
+  form.append("description", $("customTemplateDescription").value || "");
+  try {
+    const template = await api("/api/templates/upload", { method: "POST", body: form });
+    await checkTemplateRegistry();
+    renderCustomTemplateOptions(template.template_id);
+    toast("模板文件已导入");
+  } catch (error) {
+    toast(`模板导入失败：${error.message}`);
+  } finally {
+    $("customTemplateFile").value = "";
+  }
+});
+$("pdfReadabilityBtn").addEventListener("click", checkPdfReadability);
 $("saveAdvisorEditBtn").addEventListener("click", saveAdvisorEdit);
 $("cancelAdvisorEditBtn").addEventListener("click", hideAdvisorEditor);
+$("refreshSkillsBtn").addEventListener("click", refresh);
+$("skillSelect").addEventListener("change", () => {
+  state.latestSkillResult = null;
+  renderSkills();
+});
+$("runSkillBtn").addEventListener("click", runSelectedSkill);
 
 $("advisorList").addEventListener("click", (event) => {
   const sourceId = event.target.dataset.sourceId;
@@ -1362,6 +1792,11 @@ $("emailSignalView").addEventListener("click", (event) => {
   if (rejectId) decideEmailSignal(rejectId, "reject");
 });
 $("strategyView").addEventListener("click", (event) => {
+  const connectorId = event.target.dataset.sourceConnectorId;
+  if (connectorId) {
+    runSourceConnectorLiveTest(connectorId);
+    return;
+  }
   const targetId = event.target.dataset.strategyTargetId;
   if (!targetId) return;
   $("targetSelect").value = targetId;
@@ -1373,6 +1808,10 @@ $("strategyView").addEventListener("click", (event) => {
 $("generatedList").addEventListener("click", (event) => {
   const materialId = event.target.dataset.materialId;
   if (materialId) showMaterial(materialId);
+});
+$("skillResultView").addEventListener("click", (event) => {
+  if (event.target.dataset.copySkillResult !== undefined) copySkillResult();
+  if (event.target.dataset.downloadSkillResult !== undefined) downloadSkillResult();
 });
 
 refresh();

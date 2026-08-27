@@ -1,0 +1,18 @@
+{
+  "profile_id": "student_fixture_03",
+  "name": "匿名学生 3",
+  "education": "某大学软件工程相关专业",
+  "gpa": "3.91/4.00",
+  "rank": "前 5%",
+  "research_interests": ["机器学习系统", "高效推理"],
+  "projects": ["分布式训练实验平台"],
+  "publications": ["课程项目技术报告"],
+  "competitions": ["校级优秀项目"],
+  "skills": ["Python", "Linux", "分布式训练"],
+  "risks": ["研究方向仍在收敛"],
+  "confirmation_map": {
+    "gpa": "confirmed",
+    "rank": "confirmed",
+    "research_interests": "unconfirmed"
+  }
+}

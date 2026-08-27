@@ -7,6 +7,7 @@ sys.path.insert(0, str(ROOT / "app" / "backend"))
 
 import main as backend_main  # noqa: E402
 from agents import run_contact_email_workflow  # noqa: E402
+from memory import LocalMemoryManager  # noqa: E402
 from models import (  # noqa: E402
     AdvisorSource,
     ApplicationArchiveRequest,
@@ -21,9 +22,24 @@ from models import (  # noqa: E402
     MaterialVersion,
     PipelineSyncRequest,
     PresentationGenerationRequest,
+    RAGSearchHit,
     Target,
 )
-from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever  # noqa: E402
+from rag import (  # noqa: E402
+    ApiEmbeddingProvider,
+    ChromaVectorStore,
+    Claim,
+    EvidenceBundle,
+    HashEmbeddingProvider,
+    KnowledgeBaseIndex,
+    KnowledgeBaseRetriever,
+    LexicalReranker,
+    PrivacyAwareEmbeddingProvider,
+    SqliteVectorStore,
+    VectorRecord,
+    build_evidence_bundle,
+    detect_conflicts,
+)
 from services import build_profile_from_text, make_match, parse_advisor_profile  # noqa: E402
 from storage import Workspace  # noqa: E402
 
@@ -77,6 +93,66 @@ def test_rag_indexes_manual_knowledge_student_docs_and_advisor_sources(tmp_path)
     assert "#" in policy_hits[0].evidence_ref
 
 
+def test_retrieval_persists_evidence_bundle_with_lineage(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="某学院预推免通知",
+            text="2026 年预推免报名截止日期为 9 月 10 日，申请材料包括成绩单和中文简历。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+
+    retrieval = KnowledgeBaseRetriever(workspace).search("预推免 截止日期 成绩单", limit=3)
+
+    assert retrieval.evidence_bundle is not None
+    bundle = retrieval.evidence_bundle
+    assert bundle.bundle_id
+    assert bundle.snapshots
+    assert bundle.snapshots[0].snapshot_id == bundle.snapshot_ids[0]
+    assert bundle.retrieval_refs == [hit.evidence_ref for hit in retrieval.hits]
+    assert bundle.snapshot_ids
+    assert bundle.lineages[0].source_id == retrieval.hits[0].source_id
+    assert bundle.claims[0].source_refs[0] == retrieval.hits[0].evidence_ref
+    assert workspace.read("evidence_bundles", bundle.bundle_id)["bundle_id"] == bundle.bundle_id
+
+
+def test_evidence_bundle_detects_explicit_claim_conflicts():
+    first = {
+        "source_id": "src_policy_a",
+        "chunk_id": "chunk_a",
+        "source_kind": "policy",
+        "title": "A 学院通知",
+        "score": 0.9,
+        "confidence": 0.9,
+        "snippet": "截止日期为 9 月 10 日。",
+        "evidence_ref": "src_policy_a#chunk_a",
+    }
+    second = {
+        **first,
+        "source_id": "src_policy_b",
+        "chunk_id": "chunk_b",
+        "title": "B 学院通知",
+        "snippet": "截止日期为 9 月 20 日。",
+        "evidence_ref": "src_policy_b#chunk_b",
+    }
+    hits = [RAGSearchHit(**first), RAGSearchHit(**second)]
+    bundle = build_evidence_bundle("截止日期", hits)
+    bundle.claims[0].claim_key = "deadline:target_demo"
+    bundle.claims[0].value = "2026-09-10"
+    bundle.claims[1].claim_key = "deadline:target_demo"
+    bundle.claims[1].value = "2026-09-20"
+    bundle.conflicts = detect_conflicts(bundle.claims, bundle.links)
+
+    assert bundle.conflicts
+    assert bundle.conflicts[0].claim_key == "deadline:target_demo"
+
+
 def test_contact_email_workflow_adds_rag_evidence_refs(tmp_path):
     workspace = Workspace(str(tmp_path))
     index = KnowledgeBaseIndex(workspace)
@@ -117,7 +193,73 @@ def test_contact_email_workflow_adds_rag_evidence_refs(tmp_path):
     )
 
     assert any("#chunk_" in item for item in result.material.evidence)
-    assert any(event.event_type == "retrieval_completed" for event in result.events)
+    retrieval_event = next(
+        event for event in result.events if event.event_type == "retrieval_completed"
+    )
+    assert retrieval_event.payload["evidence_bundle_id"]
+    assert retrieval_event.payload["claim_count"] >= 1
+    graph_event = next(
+        event
+        for event in result.events
+        if event.agent_name == "EvidenceGraph" and event.event_type == "audit_completed"
+    )
+    assert graph_event.payload["bundle_claim_count"] >= retrieval_event.payload["claim_count"]
+    saved_bundle = workspace.read(
+        "evidence_bundles",
+        retrieval_event.payload["evidence_bundle_id"],
+    )
+    assert saved_bundle["audit_ref"] == result.agent_run.run_id
+    assert saved_bundle["snapshots"]
+
+
+def test_contact_email_endpoint_records_audit_feedback_loop(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+
+    profile = build_profile_from_text("匿名学生\n某大学计算机学院\n项目：多模态论文问答系统")
+    target = Target(name="某大学李四教授课题组")
+    workspace.write("profiles", dump(profile), "profile_id")
+    workspace.write("targets", dump(target), "target_id")
+
+    payload = backend_main.generate_contact_email(target.target_id)
+
+    feedback_loop = payload["feedback_loop"]
+    assert feedback_loop is not None
+    assert feedback_loop.feedback_memory_ids
+    assert feedback_loop.procedural_candidate_ids
+    assert LocalMemoryManager(workspace).search("", kinds=["feedback"])
+    assert workspace.list("procedural_candidates")
+
+
+def test_evidence_bundle_audit_feedback_endpoint_persists_memory(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+    backend_main.rag_index = KnowledgeBaseIndex(workspace)
+    backend_main.rag_retriever = KnowledgeBaseRetriever(workspace)
+    bundle = EvidenceBundle(
+        query="推免申请材料",
+        retrieval_refs=["policy_old#chunk_1"],
+        claims=[
+            Claim(
+                claim_key="policy_materials",
+                claim_type="policy_fact",
+                text="旧年度推免申请材料说明。",
+                status="stale",
+                source_refs=["policy_old#chunk_1"],
+                needs_confirmation=True,
+            )
+        ],
+    )
+    backend_main.rag_retriever.evidence_store.save(bundle)
+
+    payload = backend_main.audit_evidence_bundle_feedback(bundle.bundle_id)
+
+    assert payload["evidence_bundle"].audit_status == "needs_review"
+    assert payload["feedback_loop"].feedback_memory_ids
+    assert LocalMemoryManager(workspace).search("", kinds=["feedback"])
+    assert workspace.read("evidence_bundles", bundle.bundle_id)["audit_ref"]
 
 
 def test_rag_blocks_expired_policy_by_default_but_can_return_historical(tmp_path):
@@ -186,6 +328,304 @@ def test_rag_excludes_rejected_student_documents(tmp_path):
 
     assert allowed_hits
     assert not blocked_hits
+
+
+def test_rag_rebuild_persists_vectors_and_hybrid_scores(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace, embedding_provider=HashEmbeddingProvider(dimension=32))
+    source = index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="2026 推免流程",
+            text="2026 年推免申请流程包括网上报名、材料审核和面试确认。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+
+    manifest = index.rebuild()
+    assert manifest["index_version"] == "hybrid-json-v1"
+    assert manifest["embedding_dimension"] == 32
+    assert workspace.rag_vectors_path().exists()
+
+    hits = (
+        KnowledgeBaseRetriever(
+            workspace,
+            embedding_provider=HashEmbeddingProvider(dimension=32),
+            reranker=LexicalReranker(),
+        )
+        .search("推免申请流程", source_kinds=["policy"])
+        .hits
+    )
+    assert hits[0].source_id == source.source_id
+    assert hits[0].content_hash.startswith("sha256:")
+    assert hits[0].keyword_score >= 0
+    assert hits[0].vector_score > 0
+    assert hits[0].rerank_score > 0
+    assert "vector=" in hits[0].retrieval_explanation
+
+
+def test_sqlite_storage_persists_fts_and_local_vectors(tmp_path):
+    store = SqliteVectorStore(tmp_path / "rag.sqlite3")
+    store.replace(
+        [
+            VectorRecord(
+                chunk_id="chunk_deadline",
+                source_id="policy_a",
+                vector=[1.0, 0.0],
+                text="报名截止日期为 2026 年 9 月 10 日。",
+                metadata={"source_kind": "policy", "embedding_route": "local"},
+            ),
+            VectorRecord(
+                chunk_id="chunk_research",
+                source_id="advisor_a",
+                vector=[0.0, 1.0],
+                text="导师研究方向是多模态学习。",
+                metadata={"source_kind": "advisor_source", "embedding_route": "local"},
+            ),
+        ],
+        index_version="test-sqlite-v1",
+    )
+
+    text_hits = store.search_text("截止日期")
+    vector_hits = store.search([1.0, 0.0], metadata_filter={"source_kind": "policy"})
+
+    assert text_hits[0].chunk_id == "chunk_deadline"
+    assert vector_hits[0].chunk_id == "chunk_deadline"
+    assert store.records()[0].text
+
+
+def test_sqlite_index_and_retriever_use_same_evidence_contract(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace, storage_backend="sqlite")
+    source = index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="SQLite 政策样本",
+            text="推免报名截止日期为 2026 年 9 月 10 日。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    manifest = index.rebuild()
+    retrieval = KnowledgeBaseRetriever(
+        workspace,
+        storage_backend="sqlite",
+    ).search("报名截止日期", source_kinds=["policy"])
+
+    assert manifest["storage_backend"] == "sqlite"
+    assert workspace.rag_sqlite_path().exists()
+    assert retrieval.hits[0].source_id == source.source_id
+    assert retrieval.evidence_bundle is not None
+
+
+def test_chroma_adapter_supports_injected_collection_without_dependency():
+    class FakeCollection:
+        def __init__(self):
+            self.items = {}
+
+        def get(self, include=None):
+            return {"ids": list(self.items)}
+
+        def delete(self, ids):
+            for item_id in ids:
+                self.items.pop(item_id, None)
+
+        def add(self, ids, embeddings, documents, metadatas):
+            for item_id, vector, document, metadata in zip(ids, embeddings, documents, metadatas):
+                self.items[item_id] = (vector, document, metadata)
+
+        def query(self, query_embeddings, n_results, include, where=None):
+            query = query_embeddings[0]
+            candidates = []
+            for item_id, (vector, _, metadata) in self.items.items():
+                if where and not _fake_where_matches(metadata, where):
+                    continue
+                distance = sum((left - right) ** 2 for left, right in zip(query, vector))
+                candidates.append((distance, item_id, metadata))
+            candidates.sort()
+            selected = candidates[:n_results]
+            return {
+                "ids": [[item_id for _, item_id, _ in selected]],
+                "distances": [[distance for distance, _, _ in selected]],
+                "metadatas": [[metadata for _, _, metadata in selected]],
+            }
+
+    store = ChromaVectorStore(FakeCollection())
+    store.replace(
+        [
+            VectorRecord(
+                chunk_id="chunk_a",
+                source_id="source_a",
+                vector=[1.0, 0.0],
+                text="公开政策",
+                metadata={"source_kind": "policy"},
+            ),
+        ],
+        index_version="test-chroma-v1",
+    )
+
+    hits = store.search([1.0, 0.0], metadata_filter={"source_kind": "policy"})
+
+    assert hits[0].chunk_id == "chunk_a"
+    assert hits[0].source_id == "source_a"
+
+
+def test_chroma_backend_falls_back_to_json_when_adapter_missing(tmp_path, monkeypatch):
+    def raise_missing(*args, **kwargs):
+        raise RuntimeError("chromadb not available")
+
+    monkeypatch.setattr("rag.index.ChromaVectorStore.from_path", raise_missing)
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace, storage_backend="chroma")
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="Chroma fallback policy",
+            text="公开政策说明需要保留本地回退。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    manifest = index.rebuild()
+
+    assert manifest["requested_storage_backend"] == "chroma"
+    assert manifest["storage_backend"] == "json"
+    assert manifest["storage_fallback_reason"]
+    assert workspace.rag_vectors_path().exists()
+
+
+def test_privacy_embedding_router_never_sends_student_text_to_public_provider(tmp_path):
+    public_calls = []
+
+    def public_embed(texts):
+        public_calls.extend(texts)
+        return [[0.0, 1.0] for _ in texts]
+
+    router = PrivacyAwareEmbeddingProvider(
+        local_provider=HashEmbeddingProvider(dimension=2),
+        public_provider=ApiEmbeddingProvider(
+            model_name="public-api",
+            dimension=2,
+            embed_fn=public_embed,
+        ),
+        allow_external_public=True,
+    )
+    workspace = Workspace(str(tmp_path))
+    workspace.save_user_document(
+        "匿名学生\n项目：私有研究经历。".encode("utf-8"),
+        "resume.txt",
+        category="resumes",
+        source_type="local_upload",
+        trusted=True,
+        confirmed=False,
+    )
+    index = KnowledgeBaseIndex(
+        workspace,
+        embedding_provider=router,
+        storage_backend="sqlite",
+    )
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="公开政策",
+            text="公开报名截止日期为 9 月 10 日。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+    retriever = KnowledgeBaseRetriever(
+        workspace,
+        embedding_provider=router,
+        storage_backend="sqlite",
+    )
+    public_hits = retriever.search(
+        "公开报名截止日期",
+        source_kinds=["policy"],
+        allow_external_public_query=True,
+    ).hits
+
+    assert public_calls
+    assert all("私有研究经历" not in text for text in public_calls)
+    records = SqliteVectorStore(workspace.rag_sqlite_path()).records()
+    assert any(item.metadata["embedding_route"] == "local" for item in records)
+    assert any(item.metadata["embedding_route"] == "external_public" for item in records)
+    assert public_hits
+
+
+def _fake_where_matches(metadata, where):
+    if "$and" in where:
+        return all(_fake_where_matches(metadata, item) for item in where["$and"])
+    for key, condition in where.items():
+        if "$eq" in condition and metadata.get(key) != condition["$eq"]:
+            return False
+        if "$in" in condition and metadata.get(key) not in condition["$in"]:
+            return False
+    return True
+
+
+def test_rag_falls_back_to_bm25_when_vector_provider_fails(tmp_path):
+    class BrokenEmbeddingProvider(HashEmbeddingProvider):
+        def embed_query(self, query):
+            raise RuntimeError("vector service unavailable")
+
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(workspace)
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="报名通知",
+            text="本年度推免报名通知说明，网上报名截止日期为 9 月 10 日，请在截止前完成材料提交。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+    index.rebuild()
+
+    hits = (
+        KnowledgeBaseRetriever(
+            workspace,
+            embedding_provider=BrokenEmbeddingProvider(),
+        )
+        .search("报名截止日期", source_kinds=["policy"])
+        .hits
+    )
+    assert hits
+    assert hits[0].keyword_score > 0
+    assert hits[0].vector_score == 0
+    assert hits[0].score > 0
+
+
+def test_rag_rebuild_records_bm25_fallback_when_embedding_batch_fails(tmp_path):
+    class BrokenBatchEmbeddingProvider(HashEmbeddingProvider):
+        def embed_texts(self, texts):
+            raise RuntimeError("embedding batch unavailable")
+
+    workspace = Workspace(str(tmp_path))
+    index = KnowledgeBaseIndex(
+        workspace,
+        embedding_provider=BrokenBatchEmbeddingProvider(),
+    )
+    index.add_source(
+        KnowledgeBaseSourceCreate(
+            source_kind="policy",
+            title="推免流程说明",
+            text="本通知说明本年度推免申请流程。申请人需要先完成网上报名，再提交成绩单、个人陈述和科研材料，学校完成材料审核后统一安排面试确认，具体时间以学院后续通知为准。",
+            valid_for_year=2026,
+            trusted=True,
+            confirmed=True,
+        )
+    )
+
+    manifest = index.rebuild()
+    assert manifest["vector_status"] == "fallback_bm25"
+    assert index.load_chunks()
 
 
 def test_web_supplement_upload_only_creates_preview(tmp_path):
@@ -389,6 +829,42 @@ Date: 2026-08-23
     assert approved.status == "approved"
     assert saved_application["status"] == "offer"
     assert workspace.list("application_archives")
+
+
+def test_memory_endpoints_write_confirm_search_and_create_promotion(tmp_path):
+    workspace = Workspace(str(tmp_path))
+    backend_main.workspace = workspace
+
+    memory = backend_main.create_memory_candidate(
+        backend_main.MemoryWriteRequest(
+            kind="fact",
+            scope="student:demo",
+            key="student.award",
+            value={"award": "校级优秀学生"},
+            source_ref="doc_awards#1",
+            confidence=0.8,
+        )
+    )
+    assert memory.status == "candidate"
+    assert backend_main.list_memory(q="student.award", include_candidates=False) == []
+
+    confirmed = backend_main.confirm_memory(memory.memory_id)
+    assert confirmed.status == "confirmed"
+    assert backend_main.list_memory(q="student.award", include_candidates=False)[0].memory_id == (
+        memory.memory_id
+    )
+
+    promotion = backend_main.create_memory_promotion_candidate(
+        confirmed.memory_id,
+        backend_main.MemoryPromotionRequest(
+            target="profile",
+            reason="用户确认奖项可以进入学生画像",
+        ),
+    )
+    assert promotion.status == "candidate"
+    assert backend_main.list_memory_promotion_candidates(target="profile")[0].candidate_id == (
+        promotion.candidate_id
+    )
 
 
 def test_stage16_strategy_endpoints_persist_reports(tmp_path):

@@ -8,6 +8,7 @@
   "version": "0.1.0",
   "description": "用于描述导师主页、教师主页或实验室个人页如何映射到 AdvisorProfile 字段。",
   "url_patterns": [
+    "https://*/info/*",
     "https://*/faculty/*",
     "https://*/teacher/*",
     "https://*/people/*",
@@ -41,6 +42,10 @@
     "教授 招生 硕士 直博",
     "实验室 代表论文 项目"
   ],
+  "test_urls": [
+    "https://air.tsinghua.edu.cn/info/1046/1201.htm"
+  ],
+  "refresh_interval_days": 7,
   "fallback": "保存 URL、抓取失败原因和手动粘贴正文；无法确认身份时 identity_confirmed=false。",
   "output_scope": "workspace_or_fork"
 }

@@ -5,10 +5,69 @@ import os
 import re
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+class LLMProvider(Protocol):
+    name: str
+    model: str
+
+    def json(self, messages: List[Dict[str, str]], *, timeout: int = 45) -> Dict[str, Any]: ...
+
+
+@dataclass(frozen=True)
+class OpenAICompatibleLLMProvider:
+    """OpenAI-compatible chat/responses client without adding a vendor SDK."""
+
+    model: str
+    base_url: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    wire_api: str = "chat"
+    name: str = "openai-compatible"
+
+    def json(self, messages: List[Dict[str, str]], *, timeout: int = 45) -> Dict[str, Any]:
+        if not self.model:
+            raise RuntimeError("LLM model is not configured")
+        wire_api = (self.wire_api or "chat").lower()
+        if wire_api == "responses":
+            endpoint = api_endpoint(self.base_url, "/responses")
+            instructions = "\n".join(
+                message["content"] for message in messages if message["role"] == "system"
+            )
+            user_input = "\n\n".join(
+                message["content"] for message in messages if message["role"] != "system"
+            )
+            payload = {
+                "model": self.model,
+                "instructions": instructions,
+                "input": user_input,
+                "temperature": 0.1,
+                "text": {"format": {"type": "json_object"}},
+            }
+            data = request_json(endpoint, payload, self.api_key, timeout)
+            return parse_json_text(response_output_text(data))
+
+        endpoint = api_endpoint(self.base_url, "/chat/completions")
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+        }
+        data = request_json(endpoint, payload, self.api_key, timeout)
+        content = data["choices"][0]["message"]["content"]
+        return parse_json_text(content)
+
+
+@dataclass(frozen=True)
+class LocalOpenAICompatibleLLMProvider(OpenAICompatibleLLMProvider):
+    """Named local LLM adapter for Ollama, LM Studio, Xinference, or llama.cpp server."""
+
+    name: str = "local-openai-compatible"
 
 
 def redact_secret(value: str) -> str:
@@ -31,7 +90,10 @@ def load_local_env(path: Path = PROJECT_ROOT / ".env") -> None:
 
 def llm_configured() -> bool:
     load_local_env()
-    return bool(os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_MODEL"))
+    return bool(
+        (os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_MODEL"))
+        or (os.environ.get("LOCAL_LLM_BASE_URL") and os.environ.get("LOCAL_LLM_MODEL"))
+    )
 
 
 def api_endpoint(base_url: str, path: str) -> str:
@@ -82,43 +144,31 @@ def response_output_text(data: Dict[str, Any]) -> str:
     return data["choices"][0]["message"]["content"]
 
 
-def llm_json(messages: List[Dict[str, str]], timeout: int = 45) -> Dict[str, Any]:
+def configured_llm_provider() -> LLMProvider:
     load_local_env()
+    local_base_url = os.environ.get("LOCAL_LLM_BASE_URL", "").strip()
+    local_model = os.environ.get("LOCAL_LLM_MODEL", "").strip()
+    if local_base_url and local_model:
+        return LocalOpenAICompatibleLLMProvider(
+            model=local_model,
+            base_url=local_base_url,
+            api_key=os.environ.get("LOCAL_LLM_API_KEY", ""),
+            wire_api=os.environ.get("LOCAL_LLM_WIRE_API", "chat"),
+        )
     api_key = os.environ.get("OPENAI_API_KEY", "")
     model = os.environ.get("OPENAI_MODEL", "")
-    base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-    wire_api = (os.environ.get("OPENAI_WIRE_API") or "chat").lower()
     if not api_key or not model:
         raise RuntimeError("LLM is not configured")
+    return OpenAICompatibleLLMProvider(
+        model=model,
+        base_url=os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1",
+        api_key=api_key,
+        wire_api=os.environ.get("OPENAI_WIRE_API") or "chat",
+    )
 
-    if wire_api == "responses":
-        endpoint = api_endpoint(base_url, "/responses")
-        instructions = "\n".join(
-            message["content"] for message in messages if message["role"] == "system"
-        )
-        user_input = "\n\n".join(
-            message["content"] for message in messages if message["role"] != "system"
-        )
-        payload = {
-            "model": model,
-            "instructions": instructions,
-            "input": user_input,
-            "temperature": 0.1,
-            "text": {"format": {"type": "json_object"}},
-        }
-        data = request_json(endpoint, payload, api_key, timeout)
-        return parse_json_text(response_output_text(data))
 
-    endpoint = api_endpoint(base_url, "/chat/completions")
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"},
-    }
-    data = request_json(endpoint, payload, api_key, timeout)
-    content = data["choices"][0]["message"]["content"]
-    return parse_json_text(content)
+def llm_json(messages: List[Dict[str, str]], timeout: int = 45) -> Dict[str, Any]:
+    return configured_llm_provider().json(messages, timeout=timeout)
 
 
 def extract_advisor_profile_with_llm(source_text: str) -> Optional[Dict[str, Any]]:

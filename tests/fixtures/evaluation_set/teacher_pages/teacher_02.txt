@@ -1,0 +1,9 @@
+source_kind: teacher_page
+title: 某大学教师主页样本 B
+source_url: https://example.edu/faculty/b
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+公开主页摘要：研究方向包括自然语言处理、知识增强生成和科研智能体。
+招生信息摘要：关注严谨证据链、系统实现和可解释分析的申请者优先。

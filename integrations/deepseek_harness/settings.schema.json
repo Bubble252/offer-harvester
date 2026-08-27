@@ -1,0 +1,60 @@
+{
+  "title": "Offer Harvester DSH Integration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "apiBaseUrl": {
+      "type": "string",
+      "format": "uri",
+      "default": "http://127.0.0.1:8000",
+      "description": "Offer Harvester FastAPI base URL."
+    },
+    "pluginToken": {
+      "type": "string",
+      "format": "password",
+      "writeOnly": true,
+      "description": "Optional for local loopback. Required when the server uses token mode. Do not persist it in public configuration."
+    },
+    "privacyMode": {
+      "type": "string",
+      "enum": [
+        "metadata_only",
+        "private"
+      ],
+      "default": "metadata_only",
+      "description": "Use private only when the server explicitly permits remote private data."
+    },
+    "requestTimeoutMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 20000,
+      "description": "Per-call timeout in milliseconds."
+    },
+    "enabledTools": {
+      "type": "array",
+      "uniqueItems": true,
+      "default": [
+        "draft_contact_email",
+        "advisor_due_diligence",
+        "recommendation_letter_helper",
+        "audit_material"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "draft_contact_email",
+          "advisor_due_diligence",
+          "recommendation_letter_helper",
+          "audit_material"
+        ]
+      }
+    },
+    "workspaceLabel": {
+      "type": "string",
+      "description": "Optional display-only label. It never selects a filesystem path."
+    }
+  },
+  "required": [
+    "apiBaseUrl"
+  ]
+}

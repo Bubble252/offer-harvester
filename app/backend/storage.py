@@ -61,16 +61,27 @@ class Workspace:
             "reference_presentations",
             "presentation_prechecks",
             "presentation_quality_reports",
+            "presentation_slide_versions",
             "reports",
             "readiness_scores",
             "target_triage_reports",
             "profile_expansion_candidates",
+            "ocr_extraction_reports",
             "gap_plans",
+            "memory",
+            "procedural_candidates",
+            "evidence_bundles",
             "template_registry",
+            "templates",
             "source_connectors",
+            "source_connector_live_tests",
+            "pdf_readability_reports",
+            "skill_executions",
             "sync_runs",
             "knowledge_base",
             "rag_index",
+            "public_kb",
+            "rl",
         ]:
             (self.root / name).mkdir(exist_ok=True)
         for name in USER_DOCUMENT_CATEGORIES:
@@ -119,6 +130,27 @@ class Workspace:
         )
         return manifest
 
+    def template_workspace_dir(self) -> Path:
+        return self.root / "templates"
+
+    def template_workspace_manifest_path(self) -> Path:
+        return self.template_workspace_dir() / "manifest.json"
+
+    def template_workspace_template_dir(self, template_id: str) -> Path:
+        return self.template_workspace_dir() / template_id
+
+    def read_template_workspace_manifest(self) -> Dict[str, Any]:
+        path = self.template_workspace_manifest_path()
+        if not path.exists():
+            return {"templates": []}
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def write_template_workspace_manifest(self, manifest: Dict[str, Any]) -> Dict[str, Any]:
+        self.template_workspace_manifest_path().write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return manifest
+
     def knowledge_base_dir(self) -> Path:
         return self.root / "knowledge_base"
 
@@ -133,6 +165,15 @@ class Workspace:
 
     def rag_chunks_path(self) -> Path:
         return self.rag_index_dir() / "chunks.jsonl"
+
+    def rag_vectors_path(self) -> Path:
+        return self.rag_index_dir() / "vectors.jsonl"
+
+    def rag_sqlite_path(self) -> Path:
+        return self.rag_index_dir() / "rag.sqlite3"
+
+    def rag_chroma_dir(self) -> Path:
+        return self.rag_index_dir() / "chroma"
 
     def rag_index_manifest_path(self) -> Path:
         return self.rag_index_dir() / "manifest.json"

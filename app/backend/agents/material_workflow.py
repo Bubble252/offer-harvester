@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from feedback_loop import FeedbackLoopResult, record_evidence_audit_feedback
 from models import (
     AdvisorProfile,
     AgentRun,
@@ -15,7 +16,7 @@ from models import (
 )
 from pydantic import BaseModel, Field
 from quality import audit_material
-from rag import KnowledgeBaseRetriever, evidence_refs
+from rag import EvidenceBundle, KnowledgeBaseRetriever, attach_audit_claims, evidence_refs
 
 from agents.base import dump_model, finish_agent_run, make_agent_run, make_material_version
 from agents.evidence_audit_agent import EvidenceAuditAgent, EvidenceAuditResult
@@ -30,6 +31,8 @@ class MaterialWorkflowResult(BaseModel):
     draft: GeneratedMaterial
     review: MaterialReviewResult
     evidence_audit: EvidenceAuditResult
+    evidence_bundle: Optional[EvidenceBundle] = None
+    feedback_loop: Optional[FeedbackLoopResult] = None
     revision: GeneratedMaterial
     versions: List[MaterialVersion] = Field(default_factory=list)
     events: List[WorkflowEvent] = Field(default_factory=list)
@@ -42,6 +45,7 @@ def run_contact_email_workflow(
     advisor: Optional[AdvisorProfile],
     match: Optional[MatchReport],
     retriever: Optional[KnowledgeBaseRetriever] = None,
+    workspace=None,
 ) -> MaterialWorkflowResult:
     agent_run = make_agent_run(profile, target, advisor, match)
     recorder = WorkflowEventRecorder(agent_run)
@@ -60,10 +64,12 @@ def run_contact_email_workflow(
     recorder.record("draft_started", status="started", agent_name=draft_agent.name)
     draft = draft_agent.draft_contact_email(profile, target, advisor, match)
     retrieval_hits = []
+    evidence_bundle = None
     if retriever:
         query = _contact_email_retrieval_query(profile, target, advisor)
         retrieval = retriever.search(query, limit=6, profile=profile)
         retrieval_hits = retrieval.hits
+        evidence_bundle = retrieval.evidence_bundle
         draft.evidence = list(dict.fromkeys(draft.evidence + evidence_refs(retrieval_hits)))
         recorder.record(
             "retrieval_completed",
@@ -72,6 +78,9 @@ def run_contact_email_workflow(
                 "query": query,
                 "hit_count": len(retrieval_hits),
                 "evidence_refs": evidence_refs(retrieval_hits),
+                "evidence_bundle_id": evidence_bundle.bundle_id if evidence_bundle else "",
+                "claim_count": len(evidence_bundle.claims) if evidence_bundle else 0,
+                "conflict_count": len(evidence_bundle.conflicts) if evidence_bundle else 0,
                 "rebuilt": retrieval.rebuilt,
             },
         )
@@ -128,6 +137,24 @@ def run_contact_email_workflow(
             "needs_confirmation_count": len(audit.needs_confirmation),
         },
     )
+    if evidence_bundle and retriever:
+        evidence_bundle = attach_audit_claims(
+            evidence_bundle,
+            audit.claims,
+            audit_ref=agent_run.run_id,
+            passed=audit.passed,
+        )
+        retriever.evidence_store.save(evidence_bundle)
+        recorder.record(
+            "audit_completed",
+            agent_name="EvidenceGraph",
+            payload={
+                "evidence_bundle_id": evidence_bundle.bundle_id,
+                "bundle_audit_status": evidence_bundle.audit_status,
+                "bundle_claim_count": len(evidence_bundle.claims),
+                "bundle_conflict_count": len(evidence_bundle.conflicts),
+            },
+        )
 
     revision = GeneratedMaterial(**dump_model(draft))
     final_version = make_material_version(
@@ -140,6 +167,16 @@ def run_contact_email_workflow(
         ],
     )
     quality = audit_material(revision, profile, advisor)
+    feedback_loop = None
+    if workspace:
+        feedback_loop = record_evidence_audit_feedback(
+            workspace,
+            audit,
+            bundle=evidence_bundle,
+            material=revision,
+            quality=quality,
+            run_id=agent_run.run_id,
+        )
     recorder.record(
         "quality_completed",
         payload={
@@ -174,6 +211,8 @@ def run_contact_email_workflow(
         draft=draft,
         review=review,
         evidence_audit=audit,
+        evidence_bundle=evidence_bundle,
+        feedback_loop=feedback_loop,
         revision=revision,
         versions=[draft_version, final_version],
         events=recorder.events,

@@ -137,8 +137,9 @@ h2 {
 .brand-mark {
   width: 34px;
   height: 34px;
-  border-radius: 6px;
-  object-fit: cover;
+  border-radius: 4px;
+  background: #fff;
+  object-fit: contain;
 }
 
 .brand strong,
@@ -509,6 +510,14 @@ h2 {
   font-size: 15px;
 }
 
+.subsurface {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f9fbfc;
+}
+
 .document-view {
   min-height: 440px;
   margin: 0;
@@ -665,6 +674,99 @@ h2 {
   min-height: 96px;
 }
 
+.skill-lab-layout {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.42fr) minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 16px;
+}
+
+.skill-catalog {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.skill-catalog-item {
+  display: grid;
+  gap: 5px;
+  min-height: 82px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid #d3a326;
+  background: #fff;
+}
+
+.skill-catalog-item.selected {
+  border-color: #1c4e80;
+  background: #f0f6fb;
+}
+
+.skill-catalog-item span,
+.skill-catalog-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.skill-workbench {
+  min-width: 0;
+}
+
+.skill-form {
+  margin-top: 12px;
+}
+
+.skill-actions {
+  justify-content: flex-start;
+  margin-top: 18px;
+}
+
+.skill-result {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.skill-result.empty-state {
+  margin-top: 18px;
+}
+
+.skill-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.candidate-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 3px 7px;
+  border: 1px solid #d3a326;
+  border-radius: 4px;
+  color: #795600;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.skill-blocked {
+  margin: 10px 0;
+  padding-left: 18px;
+  color: var(--red);
+  font-size: 13px;
+}
+
+.tag.risk {
+  border-color: #e6c7c3;
+  background: #fff3f2;
+  color: #9c2d20;
+}
+
+.skill-preview {
+  min-height: 260px;
+  margin-top: 12px;
+}
+
 .template-registry-list {
   margin-top: 12px;
 }
@@ -709,7 +811,8 @@ h2 {
   .split-form,
   .material-layout,
   .two-columns,
-  .strategy-grid {
+  .strategy-grid,
+  .skill-lab-layout {
     grid-template-columns: 1fr;
   }
 

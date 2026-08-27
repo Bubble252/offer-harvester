@@ -1,0 +1,17 @@
+{
+  "profile_id": "student_fixture_02",
+  "name": "匿名学生 2",
+  "education": "某大学人工智能相关专业",
+  "gpa": "3.74/4.00",
+  "rank": "前 15%",
+  "research_interests": ["科研智能体", "知识增强生成"],
+  "projects": ["科研文献整理工具"],
+  "publications": [],
+  "competitions": [],
+  "skills": ["Python", "FastAPI", "向量检索"],
+  "risks": ["比赛经历较少"],
+  "confirmation_map": {
+    "gpa": "confirmed",
+    "projects": "needs_review"
+  }
+}

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>保研硕博申请工作台</title>
+    <title>Offer Harvester | 保研硕博申请工作台</title>
     <link rel="icon" type="image/png" href="/static/assets/logo.png" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -11,10 +11,10 @@
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <img class="brand-mark" src="/static/assets/logo.png" alt="Grad Apply Workflow logo" />
+          <img class="brand-mark" src="/static/assets/logo.png" alt="Offer Harvester logo" />
           <div>
-            <strong>申请工作台</strong>
-            <span>保研硕博申请</span>
+            <strong>Offer Harvester</strong>
+            <span>保研硕博申请工作台</span>
           </div>
         </div>
         <nav class="nav-list" aria-label="工作区导航">
@@ -23,6 +23,7 @@
           <button class="nav-item" data-view="advisors">导师资料</button>
           <button class="nav-item" data-view="targets">申请目标</button>
           <button class="nav-item" data-view="materials">材料中心</button>
+          <button class="nav-item" data-view="skills">Skill Lab</button>
           <button class="nav-item" data-view="report">进度报告</button>
         </nav>
         <div class="sidebar-note">
@@ -302,6 +303,70 @@
               <button id="templateRegistryBtn" class="secondary">检查模板骨架</button>
               <button id="sourceConnectorBtn" class="secondary">检查连接器骨架</button>
             </div>
+            <div class="subsurface">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h3>自定义模板</h3>
+                  <p>支持 Markdown / 纯文本编辑、版本记录和启停切换。</p>
+                </div>
+              </div>
+              <label for="customTemplateSelect">已有模板</label>
+              <select id="customTemplateSelect"></select>
+              <div class="editor-grid">
+                <div>
+                  <label for="customTemplateName">名称</label>
+                  <input id="customTemplateName" type="text" />
+                </div>
+                <div>
+                  <label for="customTemplateType">类型</label>
+                  <select id="customTemplateType">
+                    <option value="contact_email">套磁邮件</option>
+                    <option value="personal_statement">个人陈述</option>
+                    <option value="research_proposal">研究计划</option>
+                    <option value="interview_qa">面试问答</option>
+                    <option value="application_summary">申请摘要</option>
+                    <option value="ppt_reference">PPT 参考模板</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="customTemplateStatus">状态</label>
+                  <select id="customTemplateStatus">
+                    <option value="draft">草稿</option>
+                    <option value="validated">已验证</option>
+                    <option value="active">启用</option>
+                    <option value="disabled">停用</option>
+                    <option value="archived">归档</option>
+                  </select>
+                </div>
+              </div>
+              <label for="customTemplateFile">导入模板文件</label>
+              <input id="customTemplateFile" type="file" accept=".md,.txt" />
+              <label for="customTemplateContent">模板正文</label>
+              <textarea id="customTemplateContent" rows="12" placeholder="支持 {{name}} 或 ${name} 占位符。"></textarea>
+              <label for="customTemplateDescription">说明</label>
+              <textarea id="customTemplateDescription" rows="2"></textarea>
+              <label for="customTemplateVariables">变量列表</label>
+              <textarea id="customTemplateVariables" rows="2" placeholder="name&#10;advisor_name"></textarea>
+              <label for="customTemplateSampleContext">样例上下文 JSON</label>
+              <textarea id="customTemplateSampleContext" rows="4" placeholder='{"name":"匿名学生","advisor_name":"张教授"}'></textarea>
+              <label for="customTemplateApplicableScenarios">适用场景</label>
+              <textarea id="customTemplateApplicableScenarios" rows="2"></textarea>
+              <label for="customTemplateStyleRules">风格规则</label>
+              <textarea id="customTemplateStyleRules" rows="2"></textarea>
+              <label for="customTemplatePrivacyRules">隐私规则</label>
+              <textarea id="customTemplatePrivacyRules" rows="2"></textarea>
+              <label for="customTemplateValidationMethods">验证方式</label>
+              <textarea id="customTemplateValidationMethods" rows="2"></textarea>
+              <label for="customTemplateManagedBlock">托管块</label>
+              <textarea id="customTemplateManagedBlock" rows="2"></textarea>
+              <div class="button-row compact-actions">
+                <button id="saveTemplateBtn">保存模板</button>
+                <button id="activateTemplateBtn" class="secondary">切换启用</button>
+                <button id="archiveTemplateBtn" class="secondary">归档</button>
+                <button id="diffTemplateBtn" class="secondary">查看 diff</button>
+              </div>
+              <pre id="templateDiffView" class="document-view">尚未选择模板 diff</pre>
+            </div>
             <div id="strategyView"></div>
           </section>
           <section class="surface lifecycle-surface">
@@ -380,6 +445,22 @@
                 </div>
                 <div id="referencePptView"></div>
               </div>
+              <div class="subsurface">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <h3>PDF 可读性检查</h3>
+                    <p>用于未来导出简历、个人陈述和研究计划的质量校验。</p>
+                  </div>
+                </div>
+                <label for="pdfReadabilityFile">PDF 文件</label>
+                <input id="pdfReadabilityFile" type="file" accept=".pdf" />
+                <label for="pdfReadabilityFields">关键字段</label>
+                <input id="pdfReadabilityFields" type="text" value="name,email,school,project,gpa" />
+                <div class="button-row compact-actions">
+                  <button id="pdfReadabilityBtn" class="secondary">检查 PDF</button>
+                </div>
+                <div id="pdfReadabilityView"></div>
+              </div>
               <div class="stack-list" id="generatedList"></div>
               <div id="presentationTaskView"></div>
             </section>
@@ -407,6 +488,65 @@
               <button id="generateReportBtn">生成报告</button>
             </div>
             <pre id="reportView" class="document-view">尚未生成报告</pre>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="skills">
+          <section class="surface">
+            <div class="section-heading">
+              <div>
+                <h2>Skill Lab</h2>
+                <p>所有结果均为候选内容，不会自动发送邮件、提交申请或覆盖可信资料。</p>
+              </div>
+              <button id="refreshSkillsBtn" class="secondary-button">刷新 Skill</button>
+            </div>
+            <div class="skill-lab-layout">
+              <div class="skill-catalog" id="skillCatalog"></div>
+              <div class="skill-workbench">
+                <label for="skillSelect">选择 Skill</label>
+                <select id="skillSelect"></select>
+
+                <div class="skill-form" data-skill-form="contact-email-coach">
+                  <label for="skillContactTarget">申请目标</label>
+                  <select id="skillContactTarget"></select>
+                  <label for="skillContactMode">工作模式</label>
+                  <select id="skillContactMode">
+                    <option value="new">新写</option>
+                    <option value="rewrite">改写</option>
+                    <option value="advisor_alignment">按导师方向强化</option>
+                    <option value="reduce_exaggeration">降低夸大</option>
+                    <option value="follow_up">生成 follow-up</option>
+                  </select>
+                </div>
+
+                <div class="skill-form hidden" data-skill-form="advisor-due-diligence">
+                  <label for="skillAdvisor">导师</label>
+                  <select id="skillAdvisor"></select>
+                  <label for="skillAdvisorTarget">关联申请目标（可选）</label>
+                  <select id="skillAdvisorTarget"></select>
+                </div>
+
+                <div class="skill-form hidden" data-skill-form="recommendation-letter-helper">
+                  <label for="skillRecommendationTarget">申请目标（可选）</label>
+                  <select id="skillRecommendationTarget"></select>
+                  <div class="editor-grid">
+                    <div>
+                      <label for="skillRecommenderName">推荐人</label>
+                      <input id="skillRecommenderName" placeholder="例如：课程教师" />
+                    </div>
+                    <div>
+                      <label for="skillRecommenderRelationship">关系</label>
+                      <input id="skillRecommenderRelationship" placeholder="例如：科研指导教师" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="button-row skill-actions">
+                  <button id="runSkillBtn">生成候选结果</button>
+                </div>
+                <div id="skillResultView" class="skill-result empty-state">选择 Skill 并填写必要信息后运行。</div>
+              </div>
+            </div>
           </section>
         </section>
       </main>

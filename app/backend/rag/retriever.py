@@ -10,7 +10,11 @@ from models import RAGChunk, RAGSearchHit, StudentProfile
 from storage import Workspace
 
 from rag.chunking import tokenize
+from rag.embeddings import EmbeddingProvider, HashEmbeddingProvider
+from rag.evidence_graph import EvidenceBundle, LocalEvidenceGraphStore, build_evidence_bundle
 from rag.index import KnowledgeBaseIndex
+from rag.reranker import NoopReranker, Reranker
+from rag.vector_store import VectorStore
 
 
 @dataclass
@@ -18,11 +22,28 @@ class RetrievalResult:
     query: str
     hits: List[RAGSearchHit]
     rebuilt: bool = False
+    evidence_bundle: Optional[EvidenceBundle] = None
 
 
 class KnowledgeBaseRetriever:
-    def __init__(self, workspace: Workspace):
-        self.index = KnowledgeBaseIndex(workspace)
+    def __init__(
+        self,
+        workspace: Workspace,
+        *,
+        embedding_provider: EmbeddingProvider | None = None,
+        reranker: Reranker | None = None,
+        vector_store: VectorStore | None = None,
+        storage_backend: str = "json",
+    ):
+        self.embedding_provider = embedding_provider or HashEmbeddingProvider()
+        self.index = KnowledgeBaseIndex(
+            workspace,
+            embedding_provider=self.embedding_provider,
+            vector_store=vector_store,
+            storage_backend=storage_backend,
+        )
+        self.reranker = reranker or NoopReranker()
+        self.evidence_store = LocalEvidenceGraphStore(workspace)
 
     def search(
         self,
@@ -35,6 +56,7 @@ class KnowledgeBaseRetriever:
         as_of_year: Optional[int] = None,
         profile: Optional[StudentProfile] = None,
         auto_rebuild: bool = True,
+        allow_external_public_query: bool = False,
     ) -> RetrievalResult:
         query = query.strip()
         if not query:
@@ -59,8 +81,35 @@ class KnowledgeBaseRetriever:
             )
             and not _is_rejected_student_chunk(chunk, profile)
         ]
-        hits = rank_chunks(query, filtered)[: max(limit, 0)]
-        return RetrievalResult(query=query, hits=hits, rebuilt=rebuilt)
+        try:
+            hits = rank_hybrid_chunks(
+                query,
+                filtered,
+                vector_store=self.index.vector_store,
+                embedding_provider=self.embedding_provider,
+                reranker=self.reranker,
+                limit=limit,
+                source_kinds=source_kinds,
+                allow_external_public_query=allow_external_public_query,
+            )
+        except (OSError, RuntimeError, ValueError):
+            # A broken or missing vector adapter must never block evidence retrieval.
+            hits = rank_chunks(query, filtered)[: max(limit, 0)]
+        bundle = build_evidence_bundle(
+            query,
+            hits,
+            query_plan={
+                "retrieval": "hybrid",
+                "source_kinds": source_kinds or [],
+                "limit": limit,
+                "include_unconfirmed": include_unconfirmed,
+                "include_historical": include_historical,
+                "as_of_year": as_of_year,
+                "allow_external_public_query": allow_external_public_query,
+            },
+        )
+        self.evidence_store.save(bundle)
+        return RetrievalResult(query=query, hits=hits, rebuilt=rebuilt, evidence_bundle=bundle)
 
 
 def rank_chunks(query: str, chunks: Iterable[RAGChunk]) -> List[RAGSearchHit]:
@@ -90,25 +139,147 @@ def rank_chunks(query: str, chunks: Iterable[RAGChunk]) -> List[RAGSearchHit]:
         if total <= 0:
             continue
         hits.append(
-            RAGSearchHit(
-                source_id=chunk.source_id,
-                chunk_id=chunk.chunk_id,
-                source_kind=chunk.source_kind,
-                source_subtype=chunk.source_subtype,
-                title=chunk.title,
-                url=chunk.url,
-                fetched_at=chunk.fetched_at,
-                valid_for_year=chunk.valid_for_year,
-                score=round(total, 4),
-                confidence=round(min(1.0, total / 6.0), 4),
-                snippet=make_snippet(chunk.text, query_terms),
-                evidence_ref=f"{chunk.source_id}#{chunk.chunk_id}",
-                needs_confirmation=not chunk.confirmed,
-                historical=historical,
-                metadata=chunk.metadata,
-            )
+            _make_hit(chunk, total, keyword_score=total, vector_score=0.0, query_terms=query_terms)
         )
     return sorted(hits, key=lambda hit: hit.score, reverse=True)
+
+
+def rank_hybrid_chunks(
+    query: str,
+    chunks: Iterable[RAGChunk],
+    *,
+    vector_store,
+    embedding_provider: EmbeddingProvider,
+    reranker: Reranker,
+    limit: int,
+    source_kinds: Optional[List[str]] = None,
+    allow_external_public_query: bool = False,
+) -> List[RAGSearchHit]:
+    chunks = list(chunks)
+    if not chunks:
+        return []
+    keyword_hits = {
+        hit.chunk_id: hit
+        for hit in _rank_text_index(
+            query, chunks, vector_store=vector_store, limit=max(limit * 8, 20)
+        )
+    }
+    query_model_filter = None
+    if hasattr(embedding_provider, "embed_query_for_sources"):
+        query_embedding = embedding_provider.embed_query_for_sources(
+            query,
+            source_kinds or [],
+            allow_external=allow_external_public_query,
+        )
+        query_vector = query_embedding.vector
+        query_model_filter = {
+            "model_name": query_embedding.model_name,
+            "model_version": query_embedding.model_version,
+            "embedding_route": query_embedding.route,
+        }
+    else:
+        query_vector = embedding_provider.embed_query(query)
+    vector_hits = {
+        item.chunk_id: item
+        for item in vector_store.search(
+            query_vector,
+            limit=max(limit * 8, 20),
+            metadata_filter=query_model_filter,
+        )
+    }
+    if not vector_hits:
+        return list(keyword_hits.values())[: max(limit, 0)]
+
+    candidates = []
+    chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
+    max_keyword = max((hit.score for hit in keyword_hits.values()), default=1.0)
+    for chunk_id in set(keyword_hits) | set(vector_hits):
+        chunk = chunk_by_id.get(chunk_id)
+        if not chunk:
+            continue
+        keyword_score = keyword_hits.get(chunk_id).score if chunk_id in keyword_hits else 0.0
+        vector_score = max(vector_hits.get(chunk_id).score, 0.0) if chunk_id in vector_hits else 0.0
+        combined = 0.58 * (keyword_score / max_keyword) + 0.42 * max(vector_score, 0.0)
+        if combined <= 0:
+            continue
+        hit = _make_hit(
+            chunk,
+            combined,
+            keyword_score=keyword_score,
+            vector_score=vector_score,
+            query_terms=tokenize(query),
+        )
+        hit.retrieval_explanation = (
+            f"keyword={keyword_score:.3f}; vector={vector_score:.3f}; reranker=pending"
+        )
+        candidates.append(hit)
+    reranked = reranker.rerank(query, candidates)
+    for hit in reranked:
+        hit.score = round(hit.rerank_score or hit.score, 4)
+        hit.confidence = round(min(1.0, hit.score), 4)
+    return reranked[: max(limit, 0)]
+
+
+def _rank_text_index(
+    query: str,
+    chunks: List[RAGChunk],
+    *,
+    vector_store,
+    limit: int,
+) -> List[RAGSearchHit]:
+    chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
+    try:
+        text_results = vector_store.search_text(query, limit=limit)
+    except (AttributeError, OSError, RuntimeError, ValueError):
+        return rank_chunks(query, chunks)
+    hits = []
+    query_terms = tokenize(query)
+    for result in text_results:
+        chunk = chunk_by_id.get(result.chunk_id)
+        if not chunk:
+            continue
+        hits.append(
+            _make_hit(
+                chunk,
+                result.score,
+                keyword_score=result.score,
+                vector_score=0.0,
+                query_terms=query_terms,
+            )
+        )
+    return hits or rank_chunks(query, chunks)
+
+
+def _make_hit(
+    chunk: RAGChunk,
+    total: float,
+    *,
+    keyword_score: float,
+    vector_score: float,
+    query_terms: List[str],
+) -> RAGSearchHit:
+    historical = bool(chunk.valid_for_year and chunk.valid_for_year < current_year())
+    return RAGSearchHit(
+        source_id=chunk.source_id,
+        chunk_id=chunk.chunk_id,
+        source_kind=chunk.source_kind,
+        source_subtype=chunk.source_subtype,
+        title=chunk.title,
+        url=chunk.url,
+        fetched_at=chunk.fetched_at,
+        content_hash=chunk.content_hash,
+        valid_for_year=chunk.valid_for_year,
+        score=round(total, 4),
+        keyword_score=round(keyword_score, 4),
+        vector_score=round(vector_score, 4),
+        rerank_score=round(total, 4),
+        confidence=round(min(1.0, total / 6.0), 4),
+        snippet=make_snippet(chunk.text, query_terms),
+        evidence_ref=f"{chunk.source_id}#{chunk.chunk_id}",
+        needs_confirmation=not chunk.confirmed,
+        historical=historical,
+        metadata=chunk.metadata,
+    )
 
 
 def _is_relevant_year(

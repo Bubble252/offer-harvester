@@ -1,0 +1,18 @@
+{
+  "profile_id": "student_fixture_05",
+  "name": "匿名学生 5",
+  "education": "某大学电子信息相关专业",
+  "gpa": "3.79/4.00",
+  "rank": "前 12%",
+  "research_interests": ["数据挖掘", "图学习"],
+  "projects": ["知识图谱课程项目"],
+  "publications": [],
+  "competitions": ["创新创业比赛"],
+  "skills": ["Python", "数据分析", "图算法"],
+  "risks": ["项目描述不够具体"],
+  "confirmation_map": {
+    "gpa": "confirmed",
+    "rank": "confirmed",
+    "projects": "needs_review"
+  }
+}

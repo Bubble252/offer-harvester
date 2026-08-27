@@ -1,6 +1,6 @@
 # Demo Walkthrough
 
-这份说明用于快速展示 Grad Apply Workflow 的核心闭环：从学生资料、导师来源、申请目标，到匹配分析、材料审查、PPTX 生成、申请生命周期和进度报告。
+这份说明用于快速展示 Offer Harvester 的核心闭环：从学生资料、导师来源、申请目标，到匹配分析、材料审查、PPTX 生成、申请生命周期和进度报告。
 
 演示数据来自 `workspace.demo/` 的匿名样例。学生信息为虚构匿名资料；导师来源使用公开网页摘要和来源链接。真实学生资料、API key、真实套磁邮件和个人隐私数据不应进入 Git。
 
@@ -160,6 +160,25 @@ RAG 会覆盖三类知识：
 - 保研推免常识：推免流程、常见材料、院校政策、申请截止日期、面试准备 FAQ
 
 截止日期、政策和流程类信息必须记录来源 URL、适用年份和更新时间。过期信息只能作为历史参考，不能直接作为当前申请建议。
+
+## Source Connector Live Test
+
+来源连接器页面现在区分三种状态：
+
+- manifest 合法：字段映射、访问规则和 fallback 已通过静态校验
+- live test 通过：用户确认遵守 robots/ToS，公开测试 URL 返回可读取页面
+- 可注册：只有 live test 通过后才会出现
+
+live test 只保存 URL、HTTP 状态、内容类型、响应大小、响应 hash、robots 状态和失败原因，不保存网页正文。网络失败或规则不允许时，继续使用手动粘贴正文兜底。
+
+通过后的 connector 默认 7 天后进入 `stale`，不再显示为可注册；用户可以在策略面板手动刷新，也可以运行：
+
+```bash
+python tools/refresh_source_connectors.py --list-due
+python tools/refresh_source_connectors.py --connector-id advisor_homepage_generic_zh --url https://example.edu/faculty/a --ack-tos
+```
+
+模板 registry 还支持用户模板的 Markdown/纯文本编辑、版本 diff 和启停状态管理。PDF 可读性检查位于材料中心，只检查已有 PDF，不负责生成 PDF；扫描件会提示 `needs_ocr`。
 
 ## Release Polish 说明
 

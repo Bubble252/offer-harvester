@@ -3,17 +3,20 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agents import AdvisorExtractionAgent, MatchAnalysisAgent, run_contact_email_workflow
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from agents.evidence_audit_agent import EvidenceAuditAgent
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
+from feedback_loop import record_evidence_audit_feedback, record_material_edit_feedback
 from lifecycle import (
     apply_email_signal_candidate,
     build_application_archive,
@@ -25,7 +28,8 @@ from lifecycle import (
     should_generate_follow_up,
     update_outcome,
 )
-from llm_client import llm_configured
+from llm_client import llm_configured, load_local_env
+from memory import MEMORY_KINDS, LocalMemoryManager, MemoryKind, PromotionTarget
 from models import (
     AdvisorProfile,
     AdvisorProfileUpdate,
@@ -40,6 +44,9 @@ from models import (
     BatchTriageRequest,
     CommunicationDraft,
     CommunicationDraftRequest,
+    CustomTemplateCreateRequest,
+    CustomTemplateRecord,
+    CustomTemplateUpdateRequest,
     EmailSignalCandidate,
     EmailSignalDecisionRequest,
     EmailSignalImportRequest,
@@ -50,7 +57,10 @@ from models import (
     KnowledgeBaseSourceCreate,
     MatchReport,
     MaterialQualityReport,
+    MaterialVersion,
+    OcrExtractionReport,
     OutcomeUpdate,
+    PdfReadabilityReport,
     PipelineSyncRequest,
     PipelineSyncResult,
     PresentationGenerationRequest,
@@ -60,17 +70,29 @@ from models import (
     ProfileExpansionReport,
     ReadinessScoreReport,
     ReferencePresentationRecord,
+    SourceConnectorLiveTestRequest,
+    SourceConnectorLiveTestResult,
     SourceConnectorRegistryStatus,
     StudentProfile,
     Target,
     TargetCreate,
+    TemplateDiffReport,
     TemplateRegistryStatus,
     UserDocumentManifest,
     now_iso,
 )
+from ocr_adapter import build_ocr_extraction_report
+from pdf_readability import inspect_pdf_bytes
+from plugin_auth import documented_plugin_scopes, require_plugin_scope
 from presentation_quality import build_presentation_quality_report, save_reference_presentation
+from pydantic import BaseModel, Field
 from quality import audit_material
-from rag import KnowledgeBaseIndex, KnowledgeBaseRetriever
+from rag import (
+    KnowledgeBaseIndex,
+    KnowledgeBaseRetriever,
+    configured_embedding_provider_from_env,
+    configured_reranker_from_env,
+)
 from services import (
     build_profile_from_text,
     build_readiness_score_report,
@@ -81,21 +103,91 @@ from services import (
     make_interview_questions,
     make_ppt_outline,
 )
-from source_connector_registry import scan_source_connector_registry
+from skill_execution import (
+    MaterialAuditRequest,
+    SkillExecutionRequest,
+    execute_material_audit,
+    execute_product_skill,
+)
+from skill_registry import get_skill_catalog_item, list_skill_catalog
+from source_connector_registry import (
+    merge_live_test_results,
+    run_source_connector_live_test,
+    scan_source_connector_registry,
+)
 from storage import Workspace
 from strategy import (
     build_batch_triage_report,
     build_gap_plan,
     build_profile_expansion_report,
 )
-from template_registry import scan_template_registry
+from template_registry import (
+    create_custom_template,
+    get_custom_template,
+    get_custom_template_diff,
+    scan_template_registry,
+    set_custom_template_status,
+    update_custom_template,
+)
 
 from integrations.presentation_engine import LocalPptxAdapter, PresentationRequest
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = APP_ROOT / "frontend"
+load_local_env()
 
-app = FastAPI(title="Grad Apply Workflow", version="0.1.0")
+APP_NAME = "Offer Harvester"
+APP_VERSION = "0.2.0-rc.1"
+OPENAPI_TAGS = [
+    {
+        "name": "Application",
+        "description": "Health checks and the local web application shell.",
+    },
+    {
+        "name": "Profile",
+        "description": "Local student documents, profile fields, and confirmation state.",
+    },
+    {
+        "name": "Advisors and targets",
+        "description": "Public advisor sources, advisor profiles, and application targets.",
+    },
+    {
+        "name": "Materials",
+        "description": "Candidate materials, review workflows, editable PPTX, and downloads.",
+    },
+    {
+        "name": "Evidence and RAG",
+        "description": "Knowledge sources, retrieval, evidence bundles, and readiness reports.",
+    },
+    {
+        "name": "Memory and feedback",
+        "description": "Governed memory, promotion candidates, and feedback records.",
+    },
+    {
+        "name": "Workflow operations",
+        "description": "Templates, source connectors, PDF/OCR prechecks, and application lifecycle.",
+    },
+    {
+        "name": "Skills",
+        "description": "Portable and productized Skill catalog and candidate-only execution.",
+    },
+    {
+        "name": "Integrations",
+        "description": "Controlled external-agent and pipeline integration endpoints.",
+    },
+]
+
+app = FastAPI(
+    title=APP_NAME,
+    version=APP_VERSION,
+    description=(
+        "A local-first graduate application workspace. Generated outputs are candidates: "
+        "the application retains evidence audit, confirmation, privacy routing, and no-send controls."
+    ),
+    openapi_tags=OPENAPI_TAGS,
+    contact={"name": "Offer Harvester maintainers"},
+    license_info={"name": "MIT", "identifier": "MIT"},
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -105,16 +197,78 @@ app.add_middleware(
 )
 workspace = Workspace(os.environ.get("WORKSPACE_DIR") or str(PROJECT_ROOT / "workspace"))
 ppt_adapter = LocalPptxAdapter()
-rag_index = KnowledgeBaseIndex(workspace)
-rag_retriever = KnowledgeBaseRetriever(workspace)
+rag_storage_backend = os.environ.get("RAG_STORAGE_BACKEND", "json").strip().lower() or "json"
+rag_embedding_provider = configured_embedding_provider_from_env()
+rag_reranker = configured_reranker_from_env()
+rag_index = KnowledgeBaseIndex(
+    workspace,
+    embedding_provider=rag_embedding_provider,
+    storage_backend=rag_storage_backend,
+)
+rag_retriever = KnowledgeBaseRetriever(
+    workspace,
+    embedding_provider=rag_embedding_provider,
+    reranker=rag_reranker,
+    storage_backend=rag_storage_backend,
+)
 
 
 def dump(model):
     return model.model_dump() if hasattr(model, "model_dump") else model.dict()
 
 
+class MemoryWriteRequest(BaseModel):
+    kind: MemoryKind
+    key: str
+    value: Dict[str, Any] = Field(default_factory=dict)
+    scope: str = "workspace"
+    source_ref: str = ""
+    source_refs: List[str] = Field(default_factory=list)
+    authority: str = "user"
+    confidence: float = 0.0
+    retention: str = "long_term"
+    sensitivity: Literal["low", "medium", "high"] = "medium"
+    notes: str = ""
+    negative: bool = False
+    blocked_patterns: List[str] = Field(default_factory=list)
+
+
+class MemoryTransitionRequest(BaseModel):
+    reason: str = ""
+
+
+class MemoryPromotionRequest(BaseModel):
+    target: PromotionTarget
+    reason: str = ""
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MaterialEditFeedbackRequest(BaseModel):
+    before_version_id: str
+    after_version_id: str
+    accepted: bool = True
+    evidence_refs: List[str] = Field(default_factory=list)
+
+
+def memory_manager() -> LocalMemoryManager:
+    return LocalMemoryManager(workspace)
+
+
+def _validate_memory_kind(kind: str) -> MemoryKind:
+    if kind not in MEMORY_KINDS:
+        raise HTTPException(status_code=400, detail=f"Unsupported memory kind: {kind}")
+    return kind
+
+
 def latest_profile() -> Optional[StudentProfile]:
     item = workspace.latest("profiles")
+    return StudentProfile(**item) if item else None
+
+
+def profile_for_id(profile_id: str) -> Optional[StudentProfile]:
+    if not profile_id:
+        return None
+    item = workspace.read("profiles", profile_id)
     return StudentProfile(**item) if item else None
 
 
@@ -162,6 +316,48 @@ def application_for_target(target: Target) -> ApplicationRecord:
 def latest_match(target_id: str):
     matches = [item for item in workspace.list("matches") if item["target_id"] == target_id]
     return MatchReport(**matches[-1]) if matches else None
+
+
+def resolve_skill_context(payload: SkillExecutionRequest):
+    target = get_target_or_404(payload.target_id) if payload.target_id else None
+    advisor = get_advisor_or_404(payload.advisor_id) if payload.advisor_id else None
+    if target and target.advisor_id:
+        target_advisor = advisor_for_target(target)
+        if advisor and target_advisor and advisor.advisor_id != target_advisor.advisor_id:
+            raise HTTPException(status_code=400, detail="advisor_id does not belong to target_id")
+        advisor = advisor or target_advisor
+    return latest_profile(), target, advisor, latest_match(target.target_id) if target else None
+
+
+def execute_skill_or_400(skill_id: str, payload: SkillExecutionRequest):
+    try:
+        profile, target, advisor, match = resolve_skill_context(payload)
+        return execute_product_skill(
+            skill_id,
+            payload,
+            workspace=workspace,
+            profile=profile,
+            target=target,
+            advisor=advisor,
+            match=match,
+            retriever=rag_retriever,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown skill: {skill_id}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def execute_material_audit_or_400(payload: MaterialAuditRequest):
+    try:
+        return execute_material_audit(
+            payload,
+            workspace=workspace,
+            profile=latest_profile(),
+            retriever=rag_retriever,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def materials_for_target(target_id: str, material_ids: Optional[list[str]] = None):
@@ -233,6 +429,82 @@ def health():
 @app.get("/api/llm/status")
 def llm_status():
     return {"configured": llm_configured()}
+
+
+@app.get("/api/memory/summary")
+def get_memory_summary():
+    return memory_manager().summarize()
+
+
+@app.get("/api/memory")
+def list_memory(
+    q: str = "",
+    kind: str = "",
+    scope: str = "",
+    include_candidates: bool = True,
+    include_rejected: bool = False,
+    include_historical: bool = False,
+    include_negative: bool = False,
+):
+    kinds = [_validate_memory_kind(kind)] if kind else None
+    scopes = [scope] if scope else None
+    return memory_manager().search(
+        q,
+        kinds=kinds,
+        scopes=scopes,
+        include_candidates=include_candidates,
+        include_rejected=include_rejected,
+        include_historical=include_historical,
+        include_negative=include_negative,
+    )
+
+
+@app.post("/api/memory")
+def create_memory_candidate(payload: MemoryWriteRequest):
+    return memory_manager().write_candidate(**dump(payload))
+
+
+@app.post("/api/memory/{memory_id}/confirm")
+def confirm_memory(memory_id: str):
+    try:
+        return memory_manager().confirm(memory_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Memory record not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/memory/{memory_id}/reject")
+def reject_memory(memory_id: str, payload: MemoryTransitionRequest = MemoryTransitionRequest()):
+    try:
+        return memory_manager().reject(memory_id, reason=payload.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Memory record not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/memory/{memory_id}/promotion-candidates")
+def create_memory_promotion_candidate(memory_id: str, payload: MemoryPromotionRequest):
+    try:
+        return memory_manager().create_promotion_candidate(
+            memory_id,
+            target=payload.target,
+            reason=payload.reason,
+            payload=payload.payload or None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Memory record not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/memory-promotion-candidates")
+def list_memory_promotion_candidates(status: str = "", target: str = ""):
+    return memory_manager().promotion_candidates(
+        status=status or None,
+        target=target or None,
+    )
 
 
 @app.post("/api/profile/upload")
@@ -516,6 +788,7 @@ def generate_contact_email(target_id: str):
         advisor_for_target(target),
         latest_match(target_id),
         retriever=rag_retriever,
+        workspace=workspace,
     )
     for version in result.versions:
         workspace.write("material_versions", dump(version), "version_id")
@@ -530,6 +803,7 @@ def generate_contact_email(target_id: str):
         "draft": result.draft,
         "review": result.review,
         "evidence_audit": result.evidence_audit,
+        "feedback_loop": result.feedback_loop,
         "revision": result.revision,
         "events": result.events,
         "agent_run": result.agent_run,
@@ -571,6 +845,11 @@ def list_generated():
     return workspace.list("generated")
 
 
+@app.get("/api/procedural-candidates")
+def list_procedural_candidates():
+    return workspace.list("procedural_candidates")
+
+
 @app.get("/api/agent-runs")
 def list_agent_runs():
     return workspace.list("agent_runs")
@@ -582,6 +861,71 @@ def list_agent_run_events(run_id: str):
     if not run:
         raise HTTPException(status_code=404, detail="Agent run not found")
     return [event for event in workspace.list("workflow_events") if event.get("run_id") == run_id]
+
+
+@app.get("/api/skills")
+def list_skills(category: str = ""):
+    try:
+        return {"skills": list_skill_catalog(category=category)}
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/skills/{skill_id}")
+def get_skill(skill_id: str):
+    try:
+        return get_skill_catalog_item(skill_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/skill-executions")
+def list_skill_executions(skill_id: str = ""):
+    items = workspace.list("skill_executions")
+    if skill_id:
+        items = [item for item in items if item.get("skill_id") == skill_id]
+    return items
+
+
+@app.post("/api/skills/{skill_id}/run")
+def run_skill(skill_id: str, payload: SkillExecutionRequest):
+    return execute_skill_or_400(skill_id, payload)
+
+
+@app.get("/api/plugin/status")
+def plugin_status():
+    return {
+        "plugin_auth_mode": os.environ.get("OFFER_HARVESTER_PLUGIN_AUTH_MODE", "local"),
+        "configured_scopes": list(documented_plugin_scopes()),
+        "remote_private_data_enabled": os.environ.get(
+            "OFFER_HARVESTER_PLUGIN_ALLOW_REMOTE_PRIVATE", ""
+        )
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"},
+        "no_send": True,
+    }
+
+
+@app.post("/api/plugin/skills/{skill_id}/run")
+def run_plugin_skill(skill_id: str, payload: SkillExecutionRequest, request: Request):
+    try:
+        item = get_skill_catalog_item(skill_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
+    required_scope = (
+        "advisor:report" if item.get("skill_id") == "advisor-due-diligence" else "skill:run"
+    )
+    require_plugin_scope(request, required_scope)
+    return execute_skill_or_400(skill_id, payload)
+
+
+@app.post("/api/plugin/materials/audit")
+def audit_plugin_material(payload: MaterialAuditRequest, request: Request):
+    require_plugin_scope(request, "material:audit")
+    return execute_material_audit_or_400(payload)
 
 
 @app.get("/api/generated/{material_id}")
@@ -602,6 +946,25 @@ def download_generated_material(material_id: str):
         item["content"],
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/generated/{material_id}/edit-feedback")
+def create_material_edit_feedback(material_id: str, payload: MaterialEditFeedbackRequest):
+    before = workspace.read("material_versions", payload.before_version_id)
+    after = workspace.read("material_versions", payload.after_version_id)
+    if not before or not after:
+        raise HTTPException(status_code=404, detail="Material version not found")
+    before_version = MaterialVersion(**before)
+    after_version = MaterialVersion(**after)
+    if before_version.material_id != material_id or after_version.material_id != material_id:
+        raise HTTPException(status_code=400, detail="Material versions do not belong to material")
+    return record_material_edit_feedback(
+        workspace,
+        before_version,
+        after_version,
+        accepted=payload.accepted,
+        evidence_refs=payload.evidence_refs,
     )
 
 
@@ -633,6 +996,7 @@ def search_rag(
     include_unconfirmed: bool = True,
     include_historical: bool = False,
     as_of_year: Optional[int] = None,
+    allow_external_public_query: bool = False,
 ):
     source_kinds = [source_kind] if source_kind else None
     return rag_retriever.search(
@@ -642,7 +1006,34 @@ def search_rag(
         include_unconfirmed=include_unconfirmed,
         include_historical=include_historical,
         as_of_year=as_of_year,
+        allow_external_public_query=allow_external_public_query,
     )
+
+
+@app.get("/api/rag/evidence-bundles")
+def list_evidence_bundles():
+    return workspace.list("evidence_bundles")
+
+
+@app.get("/api/rag/evidence-bundles/{bundle_id}")
+def get_evidence_bundle(bundle_id: str):
+    bundle = workspace.read("evidence_bundles", bundle_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Evidence bundle not found")
+    return bundle
+
+
+@app.post("/api/rag/evidence-bundles/{bundle_id}/audit-feedback")
+def audit_evidence_bundle_feedback(bundle_id: str):
+    bundle = rag_retriever.evidence_store.get(bundle_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Evidence bundle not found")
+    audit = EvidenceAuditAgent().audit_evidence_bundle(bundle)
+    feedback = record_evidence_audit_feedback(workspace, audit, bundle=bundle)
+    bundle.audit_status = "passed" if audit.passed else "needs_review"
+    bundle.audit_ref = feedback.feedback_memory_ids[0] if feedback.feedback_memory_ids else ""
+    rag_retriever.evidence_store.save(bundle)
+    return {"audit": audit, "feedback_loop": feedback, "evidence_bundle": bundle}
 
 
 @app.get("/api/readiness-score")
@@ -723,16 +1114,207 @@ def create_gap_plan(payload: GapPlanRequest) -> GapPlan:
 
 @app.get("/api/template-registry/status")
 def get_template_registry_status() -> TemplateRegistryStatus:
-    status = scan_template_registry(PROJECT_ROOT)
+    status = scan_template_registry(PROJECT_ROOT, workspace.root)
     workspace.write("template_registry", dump(status), "registry_id")
     return status
+
+
+@app.post("/api/templates")
+def create_template(payload: CustomTemplateCreateRequest) -> CustomTemplateRecord:
+    try:
+        record = create_custom_template(workspace, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.post("/api/templates/upload")
+async def upload_template(
+    file: UploadFile = File(...),
+    template_type: str = Form("contact_email"),
+    name: str = Form(""),
+    description: str = Form(""),
+) -> CustomTemplateRecord:
+    filename = file.filename or "custom-template.md"
+    if Path(filename).suffix.lower() not in {".md", ".txt"}:
+        raise HTTPException(status_code=400, detail="自定义文本模板只支持 .md 或 .txt。")
+    content = (await file.read()).decode("utf-8", errors="replace")
+    payload = CustomTemplateCreateRequest(
+        name=name.strip() or Path(filename).stem,
+        template_type=template_type,
+        description=description,
+        content=content,
+    )
+    try:
+        record = create_custom_template(workspace, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.get("/api/templates/{template_id}")
+def get_template(template_id: str) -> CustomTemplateRecord:
+    try:
+        return get_custom_template(workspace, template_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/api/templates/{template_id}")
+def edit_template(
+    template_id: str,
+    payload: CustomTemplateUpdateRequest,
+) -> CustomTemplateRecord:
+    try:
+        record = update_custom_template(workspace, template_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.patch("/api/templates/{template_id}/lifecycle")
+def change_template_lifecycle(template_id: str, payload: dict) -> CustomTemplateRecord:
+    try:
+        record = set_custom_template_status(workspace, template_id, str(payload.get("status", "")))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_template_registry_status()
+    return record
+
+
+@app.get("/api/templates/{template_id}/diff")
+def diff_template_versions(
+    template_id: str,
+    from_version_id: str = "",
+    to_version_id: str = "",
+) -> TemplateDiffReport:
+    try:
+        return get_custom_template_diff(workspace, template_id, from_version_id, to_version_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/source-connectors/status")
 def get_source_connector_status() -> SourceConnectorRegistryStatus:
     status = scan_source_connector_registry(PROJECT_ROOT)
+    live_tests = [
+        SourceConnectorLiveTestResult(**item)
+        for item in workspace.list("source_connector_live_tests")
+    ]
+    status = merge_live_test_results(status, live_tests)
     workspace.write("source_connectors", dump(status), "registry_id")
     return status
+
+
+@app.post("/api/source-connectors/{connector_id}/live-test")
+def run_source_connector_test(
+    connector_id: str,
+    payload: SourceConnectorLiveTestRequest,
+) -> SourceConnectorLiveTestResult:
+    result = run_source_connector_live_test(
+        PROJECT_ROOT,
+        connector_id,
+        payload.url,
+        query=payload.query,
+        tos_acknowledged=payload.tos_acknowledged,
+    )
+    workspace.write("source_connector_live_tests", dump(result), "result_id")
+    return result
+
+
+@app.post("/api/source-connectors/{connector_id}/refresh")
+def refresh_source_connector(
+    connector_id: str,
+    payload: SourceConnectorLiveTestRequest,
+) -> SourceConnectorLiveTestResult:
+    """Manually rerun a bounded public connector test after refresh is due."""
+    return run_source_connector_test(connector_id, payload)
+
+
+@app.get("/api/source-connectors/live-tests")
+def list_source_connector_live_tests() -> List[SourceConnectorLiveTestResult]:
+    return [
+        SourceConnectorLiveTestResult(**item)
+        for item in workspace.list("source_connector_live_tests")
+    ]
+
+
+@app.post("/api/pdf/readability-check")
+async def check_pdf_readability(
+    file: UploadFile = File(...),
+    expected_fields: str = Form("name,email"),
+    material_id: str = Form(""),
+) -> PdfReadabilityReport:
+    content = await file.read()
+    fields = [item.strip() for item in expected_fields.split(",") if item.strip()]
+    report = inspect_pdf_bytes(content, file.filename or "document.pdf", fields)
+    report.material_id = material_id
+    workspace.write("pdf_readability_reports", dump(report), "report_id")
+    if material_id:
+        quality_items = [
+            MaterialQualityReport(**item)
+            for item in workspace.list("quality_reports")
+            if item.get("material_id") == material_id
+        ]
+        if quality_items:
+            quality = quality_items[-1]
+            quality.pdf_readability_report_id = report.report_id
+            quality.checks.append(
+                {
+                    "name": "pdf_readability",
+                    "passed": report.readable,
+                    "message": (
+                        "PDF 可读性检查通过。" if report.readable else "PDF 需要人工复核或 OCR。"
+                    ),
+                    "report_id": report.report_id,
+                    "needs_ocr": report.needs_ocr,
+                    "issues": [issue.message for issue in report.issues],
+                }
+            )
+            if not report.readable:
+                quality.passed = False
+                quality.risk_level = "high" if report.needs_ocr else "medium"
+            workspace.write("quality_reports", dump(quality), "quality_id")
+    return report
+
+
+@app.get("/api/pdf/readability-reports")
+def list_pdf_readability_reports() -> List[PdfReadabilityReport]:
+    return [PdfReadabilityReport(**item) for item in workspace.list("pdf_readability_reports")]
+
+
+@app.post("/api/ocr/precheck")
+async def run_ocr_precheck(
+    file: UploadFile = File(...),
+    expected_fields: str = Form(""),
+    material_id: str = Form(""),
+    profile_id: str = Form(""),
+    manual_text: str = Form(""),
+) -> OcrExtractionReport:
+    fields = [item.strip() for item in expected_fields.split(",") if item.strip()]
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="OCR source file is required")
+    try:
+        return build_ocr_extraction_report(
+            workspace,
+            content,
+            file.filename or "ocr_source",
+            expected_fields=fields,
+            material_id=material_id,
+            manual_text=manual_text,
+            profile=profile_for_id(profile_id) or latest_profile(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/ocr/reports")
+def list_ocr_reports() -> List[OcrExtractionReport]:
+    return [OcrExtractionReport(**item) for item in workspace.list("ocr_extraction_reports")]
 
 
 @app.get("/api/reference-presentations")
@@ -1080,4 +1662,72 @@ def index():
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
+def configure_openapi_routes() -> None:
+    """Attach stable category metadata without changing the local API behavior."""
+
+    route_groups = [
+        ("/api/plugin", "Integrations"),
+        ("/api/pipeline-sync", "Integrations"),
+        ("/api/skills", "Skills"),
+        ("/api/skill-executions", "Skills"),
+        ("/api/memory", "Memory and feedback"),
+        ("/api/memory-promotion-candidates", "Memory and feedback"),
+        ("/api/procedural-candidates", "Memory and feedback"),
+        ("/api/agent-runs", "Memory and feedback"),
+        ("/api/profile", "Profile"),
+        ("/api/user-documents", "Profile"),
+        ("/api/advisor-sources", "Advisors and targets"),
+        ("/api/advisors", "Advisors and targets"),
+        ("/api/advisor", "Advisors and targets"),
+        ("/api/targets", "Advisors and targets"),
+        ("/api/applications", "Workflow operations"),
+        ("/api/application-archives", "Workflow operations"),
+        ("/api/communications", "Workflow operations"),
+        ("/api/email", "Workflow operations"),
+        ("/api/templates", "Workflow operations"),
+        ("/api/source-connectors", "Workflow operations"),
+        ("/api/pdf", "Workflow operations"),
+        ("/api/ocr", "Workflow operations"),
+        ("/api/email-sync", "Workflow operations"),
+        ("/api/email-signals", "Workflow operations"),
+        ("/api/template-registry", "Workflow operations"),
+        ("/api/reference-presentations", "Workflow operations"),
+        ("/api/presentation-prechecks", "Materials"),
+        ("/api/presentation-quality-reports", "Materials"),
+        ("/api/presentation", "Materials"),
+        ("/api/generated", "Materials"),
+        ("/api/tasks", "Materials"),
+        ("/api/knowledge-base", "Evidence and RAG"),
+        ("/api/rag", "Evidence and RAG"),
+        ("/api/readiness-score", "Evidence and RAG"),
+        ("/api/target-triage", "Evidence and RAG"),
+        ("/api/profile-expansion", "Evidence and RAG"),
+        ("/api/gap-plans", "Evidence and RAG"),
+        ("/api/report", "Evidence and RAG"),
+        ("/api/llm", "Application"),
+        ("/api/health", "Application"),
+        ("/", "Application"),
+    ]
+    summaries = {
+        "Application": "Inspect local application availability and runtime status.",
+        "Profile": "Read or update local profile evidence and confirmation state.",
+        "Advisors and targets": "Work with public advisor sources and local application targets.",
+        "Materials": "Generate, review, inspect, or download candidate application materials.",
+        "Evidence and RAG": "Manage evidence sources, retrieval, and readiness analysis.",
+        "Memory and feedback": "Inspect governed memory and workflow feedback records.",
+        "Workflow operations": "Operate local workflow support features and candidate signals.",
+        "Skills": "Discover or execute bounded, candidate-only Skills.",
+        "Integrations": "Use controlled external integration endpoints.",
+    }
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        for prefix, tag in route_groups:
+            if route.path == prefix or route.path.startswith(f"{prefix}/"):
+                route.tags = [tag]
+                route.summary = route.summary or summaries[tag]
+                break
+
+
+configure_openapi_routes()
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

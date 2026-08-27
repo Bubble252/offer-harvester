@@ -1,0 +1,9 @@
+source_kind: teacher_page
+title: 某大学教师主页样本 D
+source_url: https://example.edu/faculty/d
+fetched_at: 2026-08-23T00:00:00+08:00
+valid_for_year: 2026
+trusted: true
+
+公开主页摘要：研究方向包括视觉语言模型、图文对齐和多模态评测。
+招生信息摘要：偏好项目经历完整、能清楚说明方法与结果边界的申请者。

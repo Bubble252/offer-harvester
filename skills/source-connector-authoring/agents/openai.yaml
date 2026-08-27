@@ -1,0 +1,4 @@
+interface:
+  display_name: "Source Connector Authoring"
+  short_description: "Design safe source connectors with testable access policies."
+  default_prompt: "Use $source-connector-authoring to design a source connector manifest."

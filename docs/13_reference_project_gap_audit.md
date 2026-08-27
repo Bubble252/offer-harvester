@@ -92,23 +92,27 @@ workspace/application_archives/
 - 每个模板有 manifest，记录类型、适用场景、变量、风格规则、限制和验证方式
 - 激活模板通过 managed block 或配置引用，不改写原始协议
 - 模板必须通过样例渲染或格式检查后才能启用
+- 当前已补充用户模板上传、Markdown/纯文本在线编辑、版本 diff 和 draft/validated/active/disabled/archived 生命周期
+- 用户模板只保存到本地 `workspace/templates/`，不进入 Git；PPTX 参考模板只做上传和元数据管理
 
 ### 来源连接器生成器
 
 参考 `/add-portal`：
 
 - 为学校官网、学院通知页、导师主页、招生系统生成 source connector
-- 每个 connector 记录 URL 模式、字段映射、访问限制、robots/ToS 提醒、测试查询
-- live test 通过后才注册
+- 每个 connector 记录 URL 模式、字段映射、访问限制、robots/ToS 提醒、测试查询和公开测试 URL
+- live test 通过后才标记为可注册；manifest 合法不等于 live test 已通过
 - 生成器输出留在用户 workspace 或 fork，不作为主项目默认内置爬虫
+- 当前已支持默认 7 天到期检测、API 手动刷新和命令行刷新；不启动常驻后台调度器
 
 ### PDF / 文档可读性验证
 
-参考 `/apply` 的 PDF 编译和 ATS text layer 检查：
+参考 `/apply` 的 PDF 编译和 ATS text layer 检查；当前已提供轻量 PDF 可读性检查器：
 
-- 如果未来导出 PDF 简历、个人陈述或研究计划，应检查页数、文本层、乱码、阅读顺序和关键字段可抽取性
-- 检查失败时返回可操作修复建议
-- 该能力后置于 PDF 导出，不影响当前 Markdown/PPTX MVP
+- 检查 PDF 结构、页数、文本层、潜在空白页和关键字段可抽取性
+- 无文本层的扫描件标记 `needs_ocr`，暂不引入 PaddleOCR
+- 检查报告保存到本地 workspace，并可回写材料质量报告
+- 该能力仍后置于 PDF 导出，不影响当前 Markdown/PPTX MVP
 
 ## PPTAgent 可继续借鉴
 
