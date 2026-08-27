@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -11,6 +12,16 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from agents import AdvisorExtractionAgent, MatchAnalysisAgent, run_contact_email_workflow
 from agents.evidence_audit_agent import EvidenceAuditAgent
+from email_connectors import (
+    EmailConnectorError,
+    KeyringCredentialStore,
+    configure_qq_imap,
+    disconnect_email_connector,
+    email_connector_status,
+    gmail_authorization_complete,
+    gmail_authorization_start,
+    sync_email_signal_candidates,
+)
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -20,7 +31,6 @@ from feedback_loop import record_evidence_audit_feedback, record_material_edit_f
 from lifecycle import (
     apply_email_signal_candidate,
     build_application_archive,
-    email_signal_sync_status,
     generate_communication_draft,
     import_email_signal_candidates,
     pipeline_sync_status,
@@ -42,11 +52,17 @@ from models import (
     ApplicationUpdate,
     BatchTriageReport,
     BatchTriageRequest,
+    BrowserEvidenceCandidate,
+    BrowserEvidenceCaptureRequest,
     CommunicationDraft,
     CommunicationDraftRequest,
     CustomTemplateCreateRequest,
     CustomTemplateRecord,
     CustomTemplateUpdateRequest,
+    EmailConnectorAuthorizationStart,
+    EmailConnectorQQConfigureRequest,
+    EmailConnectorStatus,
+    EmailConnectorSyncRequest,
     EmailSignalCandidate,
     EmailSignalDecisionRequest,
     EmailSignalImportRequest,
@@ -196,6 +212,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 workspace = Workspace(os.environ.get("WORKSPACE_DIR") or str(PROJECT_ROOT / "workspace"))
+email_credential_store = KeyringCredentialStore()
 ppt_adapter = LocalPptxAdapter()
 rag_storage_backend = os.environ.get("RAG_STORAGE_BACKEND", "json").strip().lower() or "json"
 rag_embedding_provider = configured_embedding_provider_from_env()
@@ -928,6 +945,59 @@ def audit_plugin_material(payload: MaterialAuditRequest, request: Request):
     return execute_material_audit_or_400(payload)
 
 
+@app.post("/api/plugin/browser/evidence-candidates")
+def create_browser_evidence_candidate(
+    payload: BrowserEvidenceCaptureRequest,
+    request: Request,
+) -> BrowserEvidenceCandidate:
+    require_plugin_scope(request, "advisor:report")
+    if not payload.source_url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Browser evidence requires an http(s) URL")
+    selected_text = payload.selected_text.strip()
+    if not selected_text:
+        raise HTTPException(
+            status_code=400, detail="Browser evidence requires selected public text"
+        )
+    source_hash = hashlib.sha256(
+        "\n".join([payload.source_url.strip(), payload.page_title.strip(), selected_text]).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    candidate = BrowserEvidenceCandidate(
+        source_url=payload.source_url.strip(),
+        page_title=payload.page_title.strip(),
+        selected_text_excerpt=selected_text[:1200],
+        source_hash=f"sha256:{source_hash}",
+        analysis_summary=(
+            "Browser capture saved as unverified evidence candidate. Match it to an advisor and "
+            "run source-grounded due diligence before treating any claim as fact."
+        ),
+        risk_tags=["unverified_browser_capture"],
+    )
+    workspace.write("browser_evidence_candidates", dump(candidate), "candidate_id")
+    workspace.write(
+        "workflow_events",
+        {
+            "event_id": f"browser_capture_{candidate.candidate_id}",
+            "kind": "browser_evidence_candidate",
+            "candidate_id": candidate.candidate_id,
+            "source_hash": candidate.source_hash,
+            "no_send": True,
+            "requires_user_confirmation": True,
+            "created_at": now_iso(),
+        },
+        "event_id",
+    )
+    return candidate
+
+
+@app.get("/api/browser-evidence-candidates", tags=["Integrations"])
+def list_browser_evidence_candidates() -> List[BrowserEvidenceCandidate]:
+    return [
+        BrowserEvidenceCandidate(**item) for item in workspace.list("browser_evidence_candidates")
+    ]
+
+
 @app.get("/api/generated/{material_id}")
 def get_generated_material(material_id: str):
     item = workspace.read("generated", material_id)
@@ -1565,7 +1635,14 @@ def create_communication_draft(
 
 @app.post("/api/email-sync/status")
 def get_email_sync_status(provider: str = "unknown") -> EmailSignalSyncResult:
-    result = email_signal_sync_status(provider)
+    status = email_connector_status(workspace, provider, email_credential_store)
+    result = EmailSignalSyncResult(
+        provider=status.provider,
+        configured=status.configured,
+        read_only=True,
+        message=status.message,
+        connector_mode="readonly_connector",
+    )
     workspace.write(
         "sync_runs",
         {
@@ -1576,6 +1653,140 @@ def get_email_sync_status(provider: str = "unknown") -> EmailSignalSyncResult:
         "sync_id",
     )
     return result
+
+
+@app.get("/api/email-connectors/{provider}/status", tags=["Workflow operations"])
+def get_email_connector_status(provider: str) -> EmailConnectorStatus:
+    return email_connector_status(workspace, provider, email_credential_store)
+
+
+@app.post("/api/email-connectors/gmail/authorize", tags=["Workflow operations"])
+def start_gmail_authorization() -> EmailConnectorAuthorizationStart:
+    try:
+        result = gmail_authorization_start(workspace)
+    except EmailConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    workspace.write(
+        "sync_runs",
+        {
+            "sync_id": f"gmail_authorize_{now_iso().replace(':', '').replace('+', '_')}",
+            "kind": "gmail_oauth_start",
+            "read_only": True,
+            "created_at": now_iso(),
+        },
+        "sync_id",
+    )
+    return result
+
+
+@app.get(
+    "/api/email-connectors/gmail/callback",
+    response_class=PlainTextResponse,
+    tags=["Workflow operations"],
+)
+def complete_gmail_authorization(state: str = "", code: str = "", error: str = "") -> str:
+    if error:
+        return f"Gmail authorization was cancelled or denied: {error}"
+    if not state or not code:
+        raise HTTPException(status_code=400, detail="Gmail callback requires state and code")
+    try:
+        result = gmail_authorization_complete(
+            workspace,
+            state=state,
+            code=code,
+            credential_store=email_credential_store,
+        )
+    except EmailConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    workspace.write(
+        "sync_runs",
+        {
+            "sync_id": f"gmail_authorize_complete_{now_iso().replace(':', '').replace('+', '_')}",
+            "kind": "gmail_oauth_complete",
+            "provider": "gmail",
+            "read_only": True,
+            "configured": result.configured,
+            "created_at": now_iso(),
+        },
+        "sync_id",
+    )
+    return (
+        "Gmail read-only connection completed. Return to Offer Harvester and run a manual sync. "
+        "No email was sent, changed, or written to the application tracker."
+    )
+
+
+@app.post("/api/email-connectors/qq/configure", tags=["Workflow operations"])
+def configure_qq_connector(
+    payload: EmailConnectorQQConfigureRequest,
+) -> EmailConnectorStatus:
+    try:
+        result = configure_qq_imap(
+            workspace,
+            account=payload.account,
+            authorization_code=payload.authorization_code,
+            host=payload.host,
+            credential_store=email_credential_store,
+        )
+    except EmailConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    workspace.write(
+        "sync_runs",
+        {
+            "sync_id": f"qq_configure_{now_iso().replace(':', '').replace('+', '_')}",
+            "kind": "qq_imap_configure",
+            "provider": "qq",
+            "read_only": True,
+            "configured": result.configured,
+            "created_at": now_iso(),
+        },
+        "sync_id",
+    )
+    return result
+
+
+@app.post("/api/email-connectors/{provider}/sync", tags=["Workflow operations"])
+def sync_connected_email(
+    provider: Literal["gmail", "qq"],
+    payload: EmailConnectorSyncRequest,
+) -> EmailSignalSyncResult:
+    if payload.provider != provider:
+        raise HTTPException(status_code=400, detail="Provider path and payload must match")
+    targets = [Target(**item) for item in workspace.list("targets")]
+    applications = [ApplicationRecord(**item) for item in workspace.list("applications")]
+    advisors = [AdvisorProfile(**item) for item in workspace.list("advisors")]
+    try:
+        result = sync_email_signal_candidates(
+            workspace,
+            provider=provider,
+            targets=targets,
+            applications=applications,
+            advisors=advisors,
+            credential_store=email_credential_store,
+            max_messages=payload.max_messages,
+            query=payload.query,
+            mailbox_filter=payload.mailbox_filter,
+        )
+    except EmailConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    workspace.write(
+        "sync_runs",
+        {
+            "sync_id": f"email_connector_sync_{provider}_{now_iso().replace(':', '').replace('+', '_')}",
+            "kind": "email_connector_sync",
+            **dump(result),
+        },
+        "sync_id",
+    )
+    return result
+
+
+@app.delete("/api/email-connectors/{provider}", tags=["Workflow operations"])
+def disconnect_connected_email(provider: Literal["gmail", "qq"]) -> EmailConnectorStatus:
+    try:
+        return disconnect_email_connector(workspace, provider, email_credential_store)
+    except EmailConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/email-signals")

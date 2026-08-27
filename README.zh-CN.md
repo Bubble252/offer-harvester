@@ -26,7 +26,7 @@ Offer Harvester 是一个本地优先、以证据治理为核心的保研 / 硕�
 - 运行 `drafter -> reviewer -> evidence auditor` 材料工作流，并输出质量报告。
 - 使用本地兜底 adapter 生成可编辑 16:9 PPTX。
 - 对学生资料、导师来源、生成材料和政策知识做轻量 RAG 检索。
-- 从粘贴邮件文本中识别导师回复、面试、补材料、拒信、offer、waitlist 等候选信号，并且只在用户确认后写入 tracker。
+- 从粘贴文本或手动同步的只读 Gmail/QQ 邮件中识别导师回复、面试、补材料、拒信、offer、waitlist 等候选信号，并且只在用户确认后写入 tracker。
 - 提供 Skill Lab，包含三个可审阅且 no-send 的产品化 Skill。
 
 ## 产品化 Skill
@@ -94,6 +94,7 @@ make demo
 - [贡献指南](docs/operations/contributing.zh-CN.md)
 - [发布指南](docs/operations/release.zh-CN.md)
 - [Skills 指南](docs/guides/skills.zh-CN.md)
+- [只读邮件连接器](docs/guides/email-connectors.zh-CN.md)
 - [DeepSeek Harness 指南](docs/guides/deepseek-harness.zh-CN.md)
 - [NOTICE](NOTICE)
 - [CONTRIBUTING](CONTRIBUTING.md) | [中文](CONTRIBUTING.zh-CN.md)
@@ -125,7 +126,8 @@ MVP 不依赖外部 LLM 或重模型依赖即可运行。
 - OpenAI-compatible LLM provider，用于增强抽取或生成。
 - PPTAgent runtime，用于未来参考模板学习和高级单页编辑。
 - Vision / OCR provider，用于未来扫描件或 PPT 视觉检查。
-- Gmail / QQ OAuth、Notion / 飞书同步，用于未来真实外部集成。
+- Gmail OAuth 和 QQ IMAP 的只读候选导入；不发信、不删信、不改标签，也不自动更新 tracker。
+- Notion / 飞书同步仍属于未来外部集成。
 - DeepSeek Harness 是可选的外部 Agent adapter，只调用受控 candidate API，不是运行主应用的必需依赖。
 - MongoDB、Redis、Chroma、reranker、PaddleOCR、K8s 等基础设施，只在本地文件方案达到限制后评估。
 

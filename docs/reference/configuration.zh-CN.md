@@ -63,6 +63,18 @@ Provider key 都是运行时 secret。启用 provider 前，应确认该适配�
 回环开发使用 `local`，远程插件使用 `token`。除非已经审查隐私路由和部署，否则保持
 `OFFER_HARVESTER_PLUGIN_ALLOW_REMOTE_PRIVATE=false`。
 
+## 只读邮件连接器
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `EMAIL_CREDENTIAL_SERVICE` | `offer-harvester.email` | Gmail/QQ 凭据使用的系统 keyring service 名称 |
+| `GMAIL_OAUTH_CLIENT_ID` | 空 | 本地 Gmail OAuth client ID |
+| `GMAIL_OAUTH_CLIENT_SECRET` | 空 | 本地 Gmail OAuth client secret（该 client 需要时） |
+| `GMAIL_OAUTH_REDIRECT_URI` | 本地 callback | Gmail 只读授权使用的本地回调地址 |
+
+Gmail token 和 QQ 授权码只保存在系统 keyring，不进入 workspace 或 Git。详见
+[只读邮件连接器](../guides/email-connectors.zh-CN.md)。
+
 ## 代理与下载
 
 `HTTP_PROXY` 和 `HTTPS_PROXY` 可以指向经过允许的本地代理或软件包镜像。凭据必须通过

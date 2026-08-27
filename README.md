@@ -26,7 +26,7 @@ Local-first, evidence-governed workspace for recommendation-based graduate appli
 - Runs a `drafter -> reviewer -> evidence auditor` material workflow with quality reports.
 - Builds an editable 16:9 PPTX through the local fallback adapter.
 - Supports lightweight RAG over student documents, advisor sources, generated materials, and policy knowledge.
-- Identifies pasted email signals such as replies, interviews, material requests, rejections, offers, and waitlists, then writes them only after user confirmation.
+- Identifies pasted or manually synced read-only Gmail/QQ email signals such as replies, interviews, material requests, rejections, offers, and waitlists, then writes them only after user confirmation.
 - Provides a Skill Lab for three reviewable, no-send product Skills.
 
 ## Product Skills
@@ -95,6 +95,7 @@ Student profile
 - [Contribution Guide](docs/operations/contributing.md)
 - [Release Guide](docs/operations/release.md)
 - [Skills Guide](docs/guides/skills.md)
+- [Read-Only Mail Connectors](docs/guides/email-connectors.md)
 - [DeepSeek Harness Guide](docs/guides/deepseek-harness.md)
 - [NOTICE](NOTICE)
 - [CONTRIBUTING](CONTRIBUTING.md) | [中文](CONTRIBUTING.zh-CN.md)
@@ -126,7 +127,8 @@ Optional or future capabilities remain behind adapter boundaries:
 - OpenAI-compatible LLM providers for enhanced extraction or drafting.
 - PPTAgent runtime for future reference-template learning and advanced slide editing.
 - Vision / OCR providers for future scanned documents or visual PPT checks.
-- Gmail / QQ OAuth and Notion / Feishu sync for future real external integrations.
+- Read-only Gmail OAuth and QQ IMAP candidate import; no send, delete, label mutation, or automatic tracker update.
+- Notion / Feishu sync remains a future external integration.
 - DeepSeek Harness is an optional external-agent adapter; it calls controlled candidate-only APIs and is not required to run the app.
 - MongoDB, Redis, Chroma, reranker, PaddleOCR, or K8s only after local-first limits are reached.
 

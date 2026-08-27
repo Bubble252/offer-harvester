@@ -52,6 +52,8 @@ class Workspace:
             "application_archives",
             "communications",
             "email_signal_candidates",
+            "email_connections",
+            "browser_evidence_candidates",
             "generated",
             "material_versions",
             "quality_reports",

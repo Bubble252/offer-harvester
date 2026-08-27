@@ -34,7 +34,7 @@ generated OpenAPI schema. Run `python tools/check_openapi_contract.py` after API
 | Materials | `/api/targets/*/materials/*`, `/api/generated`, `/api/tasks` | Candidate materials and PPTX tasks |
 | Evidence and RAG | `/api/knowledge-base`, `/api/rag`, `/api/readiness-score` | Sources, search, bundles, readiness |
 | Memory and feedback | `/api/memory`, `/api/agent-runs`, `/api/procedural-candidates` | Governed memory and traces |
-| Workflow operations | `/api/templates`, `/api/source-connectors`, `/api/pdf`, `/api/ocr`, `/api/email-signals` | Local workflow support |
+| Workflow operations | `/api/templates`, `/api/source-connectors`, `/api/pdf`, `/api/ocr`, `/api/email-signals`, `/api/email-connectors` | Local workflow support and read-only mailbox candidates |
 | Skills | `/api/skills`, `/api/skill-executions` | Skill catalog and candidate execution |
 | Integrations | `/api/plugin/*`, `/api/pipeline-sync/status` | Scoped external adapters |
 
@@ -85,6 +85,27 @@ curl http://127.0.0.1:8000/api/plugin/status
 
 Remote plugin requests use a separate scoped token when the server is configured in
 `token` mode. See the [DSH guide](../guides/deepseek-harness.md).
+
+### Read-Only Mail Connector Status
+
+```bash
+curl http://127.0.0.1:8000/api/email-connectors/gmail/status
+```
+
+Gmail and QQ connector sync routes create reviewable signal candidates only. Credentials stay
+in the OS keyring; candidate approval remains the only route that can update the tracker. See
+the [mail connector guide](../guides/email-connectors.md).
+
+### Browser Evidence Candidate
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/plugin/browser/evidence-candidates \
+  -H 'Content-Type: application/json' \
+  -d '{"source_url":"https://example.edu/page","page_title":"Example","selected_text":"Public text selected by the user."}'
+```
+
+This integration route only stores unverified evidence candidates. It cannot convert page text
+into advisor facts without the normal source review path.
 
 ## Compatibility Policy
 

@@ -246,9 +246,18 @@ def import_email_signal_candidates(
     provider = provider if provider in {"gmail", "qq"} else "unknown"
     messages = _split_email_messages(raw_text)
     candidates: List[EmailSignalCandidate] = []
+    existing_hashes = {
+        item.get("source_hash", "")
+        for item in workspace.list("email_signal_candidates")
+        if item.get("source_hash", "")
+    }
+    skipped_duplicates = 0
     for message in messages:
         candidate = _candidate_from_message(provider, message, targets, advisors)
         if not candidate:
+            continue
+        if candidate.source_hash in existing_hashes:
+            skipped_duplicates += 1
             continue
         if candidate.target_id and _has_application(applications, candidate.target_id):
             candidate.status = "needs_user_confirmation"
@@ -264,8 +273,11 @@ def import_email_signal_candidates(
         configured=False,
         read_only=True,
         candidates=candidates,
+        scanned_messages=len(messages),
+        skipped_duplicates=skipped_duplicates,
         message=(
-            f"已从粘贴/导入邮件文本中识别 {len(candidates)} 条候选信号；"
+            f"已从粘贴/导入邮件文本中识别 {len(candidates)} 条候选信号"
+            f"（跳过 {skipped_duplicates} 条重复项）；"
             "需要用户确认后才会写入 tracker / archive / outcome。"
         ),
     )

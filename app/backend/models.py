@@ -416,6 +416,37 @@ class EmailSignalImportRequest(BaseModel):
     raw_text: str = ""
 
 
+class EmailConnectorAuthorizationStart(BaseModel):
+    provider: Literal["gmail"] = "gmail"
+    authorization_url: str = ""
+    redirect_uri: str = ""
+    expires_at: str = ""
+    read_only: bool = True
+
+
+class EmailConnectorQQConfigureRequest(BaseModel):
+    account: str = Field(min_length=3, max_length=320)
+    authorization_code: str = Field(min_length=1, max_length=1024)
+    host: str = "imap.qq.com"
+
+
+class EmailConnectorSyncRequest(BaseModel):
+    provider: Literal["gmail", "qq"] = "gmail"
+    max_messages: int = Field(default=10, ge=1, le=50)
+    query: str = ""
+    mailbox_filter: Literal["all", "unseen"] = "all"
+
+
+class EmailConnectorStatus(BaseModel):
+    provider: Literal["gmail", "qq", "unknown"] = "unknown"
+    configured: bool = False
+    connected: bool = False
+    read_only: bool = True
+    account_hint: str = ""
+    message: str = ""
+    updated_at: str = Field(default_factory=now_iso)
+
+
 class EmailSignalDecisionRequest(BaseModel):
     user_note: str = ""
     apply_to_outcome: bool = True
@@ -428,7 +459,30 @@ class EmailSignalSyncResult(BaseModel):
     read_only: bool = True
     candidates: List[EmailSignalCandidate] = Field(default_factory=list)
     message: str = ""
+    scanned_messages: int = 0
+    skipped_duplicates: int = 0
+    connector_mode: str = "manual_import"
     created_at: str = Field(default_factory=now_iso)
+
+
+class BrowserEvidenceCandidate(BaseModel):
+    candidate_id: str = Field(default_factory=lambda: new_id("browser_evidence"))
+    source_url: str = ""
+    page_title: str = ""
+    selected_text_excerpt: str = ""
+    source_hash: str = ""
+    analysis_summary: str = ""
+    risk_tags: List[str] = Field(default_factory=lambda: ["unverified_browser_capture"])
+    no_send: bool = True
+    requires_user_confirmation: bool = True
+    status: Literal["candidate"] = "candidate"
+    created_at: str = Field(default_factory=now_iso)
+
+
+class BrowserEvidenceCaptureRequest(BaseModel):
+    source_url: str = Field(min_length=8, max_length=2048)
+    page_title: str = Field(default="", max_length=500)
+    selected_text: str = Field(min_length=1, max_length=12000)
 
 
 class PipelineSyncRequest(BaseModel):

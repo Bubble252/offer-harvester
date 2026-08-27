@@ -20,6 +20,7 @@
 - [推荐信助手](guides/skills/recommendation-letter-helper.zh-CN.md)：请求与事实素材包工作流。
 - [产品化 Skill 独立建库准备度](guides/skills/standalone-readiness.zh-CN.md)：未来独立仓所需的包结构、拆仓清单和校验命令。
 - [DeepSeek Harness 指南](guides/deepseek-harness.zh-CN.md)：可选的外部 Agent 适配器。
+- [只读邮件连接器](guides/email-connectors.zh-CN.md)：Gmail/QQ 候选导入、keyring 边界和人工复核。
 
 ## 产品参考
 

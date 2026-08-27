@@ -6,9 +6,17 @@ The format follows Keep a Changelog-style sections, and versions follow Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Read-only Gmail OAuth PKCE and QQ IMAP authorization-code connectors. Credentials stay in the
+  OS keyring; manual sync creates reviewable email-signal candidates and never sends, deletes, or
+  labels messages.
+- Browser evidence candidate endpoint for the Chrome/Edge Skill companion. It records only
+  user-selected public page text as unverified evidence.
+- Bilingual mail-connector, API, and configuration documentation.
+
 ### Planned
 
-- Optional real Gmail / QQ OAuth after the pasted-email signal workflow is stable.
 - Optional real PPTAgent runtime integration through `PptAgentAdapter`.
 - Optional external pipeline writeback for Notion / Feishu after privacy rules are finalized.
 
@@ -40,8 +48,9 @@ The format follows Keep a Changelog-style sections, and versions follow Semantic
 
 ### Known limits
 
-- The default application remains local-first and does not include real OAuth sync, an external
-  PPTAgent runtime, Redis workers, or a published DSH package.
+- The default application remains local-first and does not include mailbox polling, attachment
+  download, automatic mail actions, an external PPTAgent runtime, Redis workers, or a published
+  DSH package.
 - The browser workspace is Chinese-first in this release candidate; public documentation is
   bilingual.
 

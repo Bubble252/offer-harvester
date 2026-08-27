@@ -66,6 +66,18 @@ Use `local` for loopback development. Use `token` for remote plugin access. Keep
 `OFFER_HARVESTER_PLUGIN_ALLOW_REMOTE_PRIVATE=false` unless the privacy route and deployment
 are intentionally reviewed.
 
+## Read-Only Mail Connectors
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EMAIL_CREDENTIAL_SERVICE` | `offer-harvester.email` | OS keyring service name for Gmail/QQ credentials |
+| `GMAIL_OAUTH_CLIENT_ID` | empty | Local Gmail OAuth client ID |
+| `GMAIL_OAUTH_CLIENT_SECRET` | empty | Local Gmail OAuth client secret, when required by the client |
+| `GMAIL_OAUTH_REDIRECT_URI` | local callback | Local callback URL for the Gmail read-only flow |
+
+Gmail tokens and QQ authorization codes stay in the OS keyring, not the workspace or Git.
+See [Read-Only Mail Connectors](../guides/email-connectors.md).
+
 ## Proxy And Download
 
 `HTTP_PROXY` and `HTTPS_PROXY` may point to an approved local proxy or package mirror.

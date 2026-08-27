@@ -7,9 +7,16 @@
 
 ## [未发布]
 
+### 新增
+
+- 新增只读 Gmail OAuth PKCE 和 QQ IMAP 授权码连接器。凭据只保存在操作系统 keyring；手动同步只
+  创建可审查的邮件信号候选项，不会发信、删信或改标签。
+- 新增面向 Chrome/Edge Skill 伴侣扩展的浏览器证据候选接口，只记录用户选中的公开网页文本，并标记
+  为未验证证据。
+- 新增中英文邮件连接器、API 和配置文档。
+
 ### 计划中
 
-- 在粘贴邮件信号链路稳定后接入可选的 Gmail / QQ OAuth。
 - 通过 `PptAgentAdapter` 接入可选的真实 PPTAgent runtime。
 - 在隐私规则确定后接入 Notion / 飞书等外部看板单向写入。
 
@@ -35,7 +42,8 @@
 
 ### 已知限制
 
-- 默认应用仍为本地优先，不包含真实 OAuth 同步、外部 PPTAgent runtime、Redis Worker 或已发布的 DSH package。
+- 默认应用仍为本地优先，不包含邮件轮询、附件下载、自动邮件操作、外部 PPTAgent runtime、Redis Worker
+  或已发布的 DSH package。
 - 本次预发布的浏览器工作台仍以中文优先；公开文档保持中英文对等。
 
 ## [0.1.0] - 2026-08-23

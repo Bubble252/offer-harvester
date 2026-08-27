@@ -32,7 +32,7 @@ Markdown 只解释工作流和隐私边界，不替代生成的 OpenAPI schema�
 | Materials | `/api/targets/*/materials/*`、`/api/generated`、`/api/tasks` | 候选材料和 PPTX 任务 |
 | Evidence and RAG | `/api/knowledge-base`、`/api/rag`、`/api/readiness-score` | 来源、检索、证据包和准备度 |
 | Memory and feedback | `/api/memory`、`/api/agent-runs`、`/api/procedural-candidates` | 分层记忆和 trace |
-| Workflow operations | `/api/templates`、`/api/source-connectors`、`/api/pdf`、`/api/ocr`、`/api/email-signals` | 本地工作流支持 |
+| Workflow operations | `/api/templates`、`/api/source-connectors`、`/api/pdf`、`/api/ocr`、`/api/email-signals`、`/api/email-connectors` | 本地工作流和只读邮箱候选项 |
 | Skills | `/api/skills`、`/api/skill-executions` | Skill 目录和候选执行 |
 | Integrations | `/api/plugin/*`、`/api/pipeline-sync/status` | 受控外部适配器 |
 
@@ -80,6 +80,25 @@ curl http://127.0.0.1:8000/api/plugin/status
 
 服务配置为 `token` 模式时，远程插件请求需要单独的 scoped token。详见
 [DSH 指南](../guides/deepseek-harness.zh-CN.md)。
+
+### 查看只读邮件连接器状态
+
+```bash
+curl http://127.0.0.1:8000/api/email-connectors/gmail/status
+```
+
+Gmail 和 QQ 同步只创建可审查的信号候选项。凭据留在系统 keyring，只有候选项 approve
+流程才可能更新 tracker。详见[只读邮件连接器](../guides/email-connectors.zh-CN.md)。
+
+### 浏览器证据候选项
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/plugin/browser/evidence-candidates \
+  -H 'Content-Type: application/json' \
+  -d '{"source_url":"https://example.edu/page","page_title":"Example","selected_text":"用户选中的公开网页文本。"}'
+```
+
+这个集成接口只保存未验证的证据候选项。网页文本仍要经过正常来源审查，不能直接变成导师事实。
 
 ## 兼容性策略
 
