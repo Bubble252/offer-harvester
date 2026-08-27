@@ -8,10 +8,42 @@ The format follows Keep a Changelog-style sections, and versions follow Semantic
 
 ### Planned
 
-- Release polish for README, screenshots, and GitHub release notes.
 - Optional real Gmail / QQ OAuth after the pasted-email signal workflow is stable.
 - Optional real PPTAgent runtime integration through `PptAgentAdapter`.
 - Optional external pipeline writeback for Notion / Feishu after privacy rules are finalized.
+
+## [0.2.0-rc.1] - 2026-08-27
+
+### Added
+
+- Offer Harvester public documentation hub with bilingual quickstart, architecture, API,
+  configuration, security, contribution, and release guides.
+- Release candidate metadata, Makefile commands, OpenAPI categorization, API contract checks,
+  public-boundary checks, and GitHub collaboration templates.
+- Skill Lab documentation and a DeepSeek Harness adapter guide with scoped-token and no-send
+  boundaries.
+- New project logo assets optimized for GitHub README and local navigation.
+
+### Changed
+
+- Renamed the public product and API title from Grad Apply Workflow to Offer Harvester.
+- Positioned the release as `0.2.0-rc.1`, not a stable `v1.0.0` promise.
+- Centralized supported public documentation and removed historical planning reports from the
+  primary navigation.
+
+### Security
+
+- Release checks reject common public-boundary leaks such as secrets and private absolute paths
+  in supported public documentation.
+- External-agent tools remain candidate-only, no-send, and unable to write confirmed profile,
+  final material, tracker, or memory-promotion state directly.
+
+### Known limits
+
+- The default application remains local-first and does not include real OAuth sync, an external
+  PPTAgent runtime, Redis workers, or a published DSH package.
+- The browser workspace is Chinese-first in this release candidate; public documentation is
+  bilingual.
 
 ## [0.1.0] - 2026-08-23
 

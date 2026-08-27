@@ -1,5 +1,7 @@
 # Security
 
+[简体中文](SECURITY.zh-CN.md)
+
 This project handles sensitive student application materials. Do not commit:
 
 - Real resumes, transcripts, recommendation material, or contact records

@@ -3,7 +3,7 @@
 English | [简体中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="app/frontend/assets/logo.png" alt="Offer Harvester logo" width="180" />
+  <img src="docs/assets/brand/offer-harvester-logo.png" alt="Offer Harvester logo" width="180" />
 </p>
 
 <p align="center">
@@ -13,9 +13,9 @@ English | [简体中文](README.zh-CN.md)
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-2f855a" />
 </p>
 
-Local-first Web workspace for recommendation-based graduate applications. It helps students turn real profile evidence and public advisor sources into auditable target research, fit analysis, Chinese application materials, interview preparation, editable PPTX decks, and application tracking.
+Local-first, evidence-governed workspace for recommendation-based graduate applications. It turns profile evidence and public advisor sources into auditable target research, fit analysis, application materials, interview preparation, editable PPTX decks, and application tracking.
 
-The project is currently an MVP. It does not predict admission probability, does not send emails automatically, and does not replace user review.
+**Release candidate:** `0.2.0-rc.1`. The project does not predict admission probability, send emails automatically, or replace user review.
 
 ## What It Does
 
@@ -34,9 +34,10 @@ The project is currently an MVP. It does not predict admission probability, does
 ```bash
 git clone https://github.com/Bubble252/offer-harvester.git
 cd offer-harvester
-python -m pip install -r app/backend/requirements.txt
-cd app/backend
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r app/backend/requirements.txt ruff
+make run
 ```
 
 Open:
@@ -45,18 +46,15 @@ Open:
 http://127.0.0.1:8000
 ```
 
-For demo data, point the backend at `workspace.demo`:
+For reproducible synthetic demo data:
 
 ```bash
-cd app/backend
-WORKSPACE_DIR=/path/to/offer-harvester/workspace.demo uvicorn main:app --host 127.0.0.1 --port 8000
+make demo
 ```
 
-## Demo
+The local API contract is available at `http://127.0.0.1:8000/docs`; the browser workspace is at `http://127.0.0.1:8000`.
 
-Screenshot walkthrough: [docs/11_demo_walkthrough.md](docs/11_demo_walkthrough.md)
-
-Core flow:
+## Product Flow
 
 ```text
 Student profile
@@ -72,19 +70,21 @@ Student profile
 ## Documentation
 
 - [Documentation Hub](docs/README.md)
+- [Quickstart and Demo](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [HTTP API Reference](docs/reference/api.md)
+- [Configuration](docs/reference/configuration.md)
+- [Security and Privacy](docs/operations/security.md)
+- [Contribution Guide](docs/operations/contributing.md)
+- [Release Guide](docs/operations/release.md)
 - [Skills Guide](docs/guides/skills.md)
 - [DeepSeek Harness Guide](docs/guides/deepseek-harness.md)
-- [Demo Walkthrough](docs/11_demo_walkthrough.md)
-- [Open Source Readiness](docs/10_open_source_readiness.md)
-- [Release README Polish Reference](docs/14_release_readme_polish_reference.md)
-- [Reference Project Gap Audit](docs/13_reference_project_gap_audit.md)
-- [Wenshu Agent Reference](docs/12_wenshu_agent_reference.md)
 - [NOTICE](NOTICE)
-- [CONTRIBUTING](CONTRIBUTING.md)
-- [SECURITY](SECURITY.md)
+- [CONTRIBUTING](CONTRIBUTING.md) | [中文](CONTRIBUTING.zh-CN.md)
+- [SECURITY](SECURITY.md) | [中文](SECURITY.zh-CN.md)
 - [CHANGELOG](CHANGELOG.md)
 
-Early planning docs under `docs/01_*.md` through `docs/09_*.md` are local planning drafts and are ignored by Git by default.
+The historical project reports remain in the repository for traceability. The documentation hub above is the supported public documentation surface.
 
 ## Data And Privacy
 
@@ -104,7 +104,7 @@ Generated materials are drafts. Users must verify facts and send messages themse
 
 The MVP runs without external LLMs or heavy model dependencies.
 
-Optional or future capabilities are intentionally behind adapter boundaries:
+Optional or future capabilities remain behind adapter boundaries:
 
 - OpenAI-compatible LLM providers for enhanced extraction or drafting.
 - PPTAgent runtime for future reference-template learning and advanced slide editing.
@@ -117,25 +117,19 @@ The default code path does not depend on `torch`, ViT model weights, `oaib`, ext
 
 ## Development
 
-Run the standard checks before opening a pull request:
+Run the release gate before opening a pull request:
 
 ```bash
-ruff check app tests
-ruff format --check app tests
-pytest -q
-node --check app/frontend/app.js
-python -m compileall -q app integrations tests
-python tools/lint_docs.py
-python tools/security_guards.py
+make verify
 ```
 
-The project uses Conventional Commits. For feature, privacy, data model, or integration changes, include commit body sections for background, changes, verification, and boundaries.
+Use Conventional Commits. For feature, privacy, data-model, or integration changes, include commit body sections for background, changes, verification, and boundaries. See the [Contribution Guide](docs/operations/contributing.md).
 
 ## Release Notes
 
 Changes are tracked in [CHANGELOG.md](CHANGELOG.md). Release notes follow Keep a Changelog-style sections and GitHub release note grouping from [.github/release.yml](.github/release.yml).
 
-The first stable MVP tag is planned as `v0.1.0`.
+`0.2.0-rc.1` is a pre-release candidate. Do not describe it as a stable `v1.0.0` release until the release checklist and manual demo acceptance have passed.
 
 ## License
 

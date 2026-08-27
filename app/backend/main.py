@@ -14,6 +14,7 @@ from agents.evidence_audit_agent import EvidenceAuditAgent
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from feedback_loop import record_evidence_audit_feedback, record_material_edit_feedback
 from lifecycle import (
@@ -135,7 +136,58 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = APP_ROOT / "frontend"
 load_local_env()
 
-app = FastAPI(title="Grad Apply Workflow", version="0.1.0")
+APP_NAME = "Offer Harvester"
+APP_VERSION = "0.2.0-rc.1"
+OPENAPI_TAGS = [
+    {
+        "name": "Application",
+        "description": "Health checks and the local web application shell.",
+    },
+    {
+        "name": "Profile",
+        "description": "Local student documents, profile fields, and confirmation state.",
+    },
+    {
+        "name": "Advisors and targets",
+        "description": "Public advisor sources, advisor profiles, and application targets.",
+    },
+    {
+        "name": "Materials",
+        "description": "Candidate materials, review workflows, editable PPTX, and downloads.",
+    },
+    {
+        "name": "Evidence and RAG",
+        "description": "Knowledge sources, retrieval, evidence bundles, and readiness reports.",
+    },
+    {
+        "name": "Memory and feedback",
+        "description": "Governed memory, promotion candidates, and feedback records.",
+    },
+    {
+        "name": "Workflow operations",
+        "description": "Templates, source connectors, PDF/OCR prechecks, and application lifecycle.",
+    },
+    {
+        "name": "Skills",
+        "description": "Portable and productized Skill catalog and candidate-only execution.",
+    },
+    {
+        "name": "Integrations",
+        "description": "Controlled external-agent and pipeline integration endpoints.",
+    },
+]
+
+app = FastAPI(
+    title=APP_NAME,
+    version=APP_VERSION,
+    description=(
+        "A local-first graduate application workspace. Generated outputs are candidates: "
+        "the application retains evidence audit, confirmation, privacy routing, and no-send controls."
+    ),
+    openapi_tags=OPENAPI_TAGS,
+    contact={"name": "Offer Harvester maintainers"},
+    license_info={"name": "MIT", "identifier": "MIT"},
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1610,4 +1662,72 @@ def index():
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
+def configure_openapi_routes() -> None:
+    """Attach stable category metadata without changing the local API behavior."""
+
+    route_groups = [
+        ("/api/plugin", "Integrations"),
+        ("/api/pipeline-sync", "Integrations"),
+        ("/api/skills", "Skills"),
+        ("/api/skill-executions", "Skills"),
+        ("/api/memory", "Memory and feedback"),
+        ("/api/memory-promotion-candidates", "Memory and feedback"),
+        ("/api/procedural-candidates", "Memory and feedback"),
+        ("/api/agent-runs", "Memory and feedback"),
+        ("/api/profile", "Profile"),
+        ("/api/user-documents", "Profile"),
+        ("/api/advisor-sources", "Advisors and targets"),
+        ("/api/advisors", "Advisors and targets"),
+        ("/api/advisor", "Advisors and targets"),
+        ("/api/targets", "Advisors and targets"),
+        ("/api/applications", "Workflow operations"),
+        ("/api/application-archives", "Workflow operations"),
+        ("/api/communications", "Workflow operations"),
+        ("/api/email", "Workflow operations"),
+        ("/api/templates", "Workflow operations"),
+        ("/api/source-connectors", "Workflow operations"),
+        ("/api/pdf", "Workflow operations"),
+        ("/api/ocr", "Workflow operations"),
+        ("/api/email-sync", "Workflow operations"),
+        ("/api/email-signals", "Workflow operations"),
+        ("/api/template-registry", "Workflow operations"),
+        ("/api/reference-presentations", "Workflow operations"),
+        ("/api/presentation-prechecks", "Materials"),
+        ("/api/presentation-quality-reports", "Materials"),
+        ("/api/presentation", "Materials"),
+        ("/api/generated", "Materials"),
+        ("/api/tasks", "Materials"),
+        ("/api/knowledge-base", "Evidence and RAG"),
+        ("/api/rag", "Evidence and RAG"),
+        ("/api/readiness-score", "Evidence and RAG"),
+        ("/api/target-triage", "Evidence and RAG"),
+        ("/api/profile-expansion", "Evidence and RAG"),
+        ("/api/gap-plans", "Evidence and RAG"),
+        ("/api/report", "Evidence and RAG"),
+        ("/api/llm", "Application"),
+        ("/api/health", "Application"),
+        ("/", "Application"),
+    ]
+    summaries = {
+        "Application": "Inspect local application availability and runtime status.",
+        "Profile": "Read or update local profile evidence and confirmation state.",
+        "Advisors and targets": "Work with public advisor sources and local application targets.",
+        "Materials": "Generate, review, inspect, or download candidate application materials.",
+        "Evidence and RAG": "Manage evidence sources, retrieval, and readiness analysis.",
+        "Memory and feedback": "Inspect governed memory and workflow feedback records.",
+        "Workflow operations": "Operate local workflow support features and candidate signals.",
+        "Skills": "Discover or execute bounded, candidate-only Skills.",
+        "Integrations": "Use controlled external integration endpoints.",
+    }
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        for prefix, tag in route_groups:
+            if route.path == prefix or route.path.startswith(f"{prefix}/"):
+                route.tags = [tag]
+                route.summary = route.summary or summaries[tag]
+                break
+
+
+configure_openapi_routes()
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

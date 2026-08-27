@@ -10,6 +10,13 @@ DOCS = ROOT / "docs"
 REQUIRED_DOCS = [
     "10_open_source_readiness.md",
     "11_demo_walkthrough.md",
+    "getting-started.md",
+    "architecture.md",
+    "reference/api.md",
+    "reference/configuration.md",
+    "operations/security.md",
+    "operations/contributing.md",
+    "operations/release.md",
 ]
 
 REQUIRED_CODE_PATH_MARKERS = [
@@ -32,6 +39,19 @@ REQUIRED_SKILL_FILES = [
 
 PUBLIC_DOC_PAIRS = [
     ("docs/README.md", "docs/README.zh-CN.md"),
+    ("docs/getting-started.md", "docs/getting-started.zh-CN.md"),
+    ("docs/architecture.md", "docs/architecture.zh-CN.md"),
+    ("docs/reference/api.md", "docs/reference/api.zh-CN.md"),
+    (
+        "docs/reference/configuration.md",
+        "docs/reference/configuration.zh-CN.md",
+    ),
+    ("docs/operations/security.md", "docs/operations/security.zh-CN.md"),
+    (
+        "docs/operations/contributing.md",
+        "docs/operations/contributing.zh-CN.md",
+    ),
+    ("docs/operations/release.md", "docs/operations/release.zh-CN.md"),
     ("docs/guides/skills.md", "docs/guides/skills.zh-CN.md"),
     ("docs/guides/deepseek-harness.md", "docs/guides/deepseek-harness.zh-CN.md"),
     (

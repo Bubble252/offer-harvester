@@ -1,7 +1,7 @@
 [project]
-name = "grad-apply-workflow"
-version = "0.1.0"
-description = "Local-first graduate application workflow assistant."
+name = "offer-harvester"
+version = "0.2.0rc1"
+description = "Local-first, evidence-governed graduate application workflow assistant."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",

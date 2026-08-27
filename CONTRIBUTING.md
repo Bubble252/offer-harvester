@@ -1,5 +1,7 @@
 # Contributing
 
+[简体中文](CONTRIBUTING.zh-CN.md)
+
 Keep the project focused on the Chinese MVP for recommendation-based graduate applications.
 
 ## Development

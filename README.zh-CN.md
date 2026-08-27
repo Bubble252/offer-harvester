@@ -3,7 +3,7 @@
 [English](README.md) | 简体中文
 
 <p align="center">
-  <img src="app/frontend/assets/logo.png" alt="Offer Harvester logo" width="180" />
+  <img src="docs/assets/brand/offer-harvester-logo.png" alt="Offer Harvester logo" width="180" />
 </p>
 
 <p align="center">
@@ -13,9 +13,9 @@
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-2f855a" />
 </p>
 
-Grad Apply Workflow 是一个本地优先的保研 / 硕博申请 Web 工作台。它帮助学生把真实个人资料和公开导师来源转化为可审计的目标调研、匹配分析、中文申请材料、面试准备、可编辑 PPTX 和申请状态追踪。
+Offer Harvester 是一个本地优先、以证据治理为核心的保研 / 硕博申请 Web 工作台。它帮助学生把真实个人资料和公开导师来源转化为可审计的目标调研、匹配分析、申请材料、面试准备、可编辑 PPTX 和申请状态追踪。
 
-当前项目处于 MVP 阶段。它不预测录取概率，不自动发送邮件，也不能替代用户复核。
+**预发布候选版本：** `0.2.0-rc.1`。项目不预测录取概率，不自动发送邮件，也不能替代用户复核。
 
 ## 当前能做什么
 
@@ -34,9 +34,10 @@ Grad Apply Workflow 是一个本地优先的保研 / 硕博申请 Web 工作台�
 ```bash
 git clone https://github.com/Bubble252/offer-harvester.git
 cd offer-harvester
-python -m pip install -r app/backend/requirements.txt
-cd app/backend
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r app/backend/requirements.txt ruff
+make run
 ```
 
 打开：
@@ -45,18 +46,15 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 http://127.0.0.1:8000
 ```
 
-如需使用匿名 demo 数据：
+如需使用可复现的匿名 demo 数据：
 
 ```bash
-cd app/backend
-WORKSPACE_DIR=/path/to/offer-harvester/workspace.demo uvicorn main:app --host 127.0.0.1 --port 8000
+make demo
 ```
 
-## Demo
+浏览器工作台地址为 `http://127.0.0.1:8000`；本地 API 契约地址为 `http://127.0.0.1:8000/docs`。
 
-截图式教程见：[docs/11_demo_walkthrough.md](docs/11_demo_walkthrough.md)
-
-核心流程：
+## 产品主线
 
 ```text
 学生资料
@@ -72,19 +70,21 @@ WORKSPACE_DIR=/path/to/offer-harvester/workspace.demo uvicorn main:app --host 12
 ## 文档入口
 
 - [文档中心](docs/README.zh-CN.md)
+- [快速开始与 Demo](docs/getting-started.zh-CN.md)
+- [代码架构](docs/architecture.zh-CN.md)
+- [HTTP API 参考](docs/reference/api.zh-CN.md)
+- [配置说明](docs/reference/configuration.zh-CN.md)
+- [安全与隐私](docs/operations/security.zh-CN.md)
+- [贡献指南](docs/operations/contributing.zh-CN.md)
+- [发布指南](docs/operations/release.zh-CN.md)
 - [Skills 指南](docs/guides/skills.zh-CN.md)
 - [DeepSeek Harness 指南](docs/guides/deepseek-harness.zh-CN.md)
-- [Demo Walkthrough](docs/11_demo_walkthrough.md)
-- [Open Source Readiness](docs/10_open_source_readiness.md)
-- [Release README Polish Reference](docs/14_release_readme_polish_reference.md)
-- [Reference Project Gap Audit](docs/13_reference_project_gap_audit.md)
-- [Wenshu Agent Reference](docs/12_wenshu_agent_reference.md)
 - [NOTICE](NOTICE)
-- [CONTRIBUTING](CONTRIBUTING.md)
-- [SECURITY](SECURITY.md)
-- [CHANGELOG](CHANGELOG.md)
+- [CONTRIBUTING](CONTRIBUTING.md) | [中文](CONTRIBUTING.zh-CN.md)
+- [SECURITY](SECURITY.md) | [中文](SECURITY.zh-CN.md)
+- [CHANGELOG](CHANGELOG.md) | [中文](CHANGELOG.zh-CN.md)
 
-`docs/01_*.md` 到 `docs/09_*.md` 属于早期本地规划草稿，默认被 Git 忽略。
+仓库保留历史调研报告以便追溯；上面列出的文档中心入口才是持续维护的公开说明。
 
 ## 数据与隐私
 
@@ -104,7 +104,7 @@ WORKSPACE_DIR=/path/to/offer-harvester/workspace.demo uvicorn main:app --host 12
 
 MVP 不依赖外部 LLM 或重模型依赖即可运行。
 
-以下能力都作为可选或未来能力保留在 adapter 边界后：
+以下能力仍作为可选或未来能力，保留在 adapter 边界后：
 
 - OpenAI-compatible LLM provider，用于增强抽取或生成。
 - PPTAgent runtime，用于未来参考模板学习和高级单页编辑。
@@ -117,25 +117,19 @@ MVP 不依赖外部 LLM 或重模型依赖即可运行。
 
 ## 开发
 
-提交 PR 前建议运行：
+提交 PR 前运行 release gate：
 
 ```bash
-ruff check app tests
-ruff format --check app tests
-pytest -q
-node --check app/frontend/app.js
-python -m compileall -q app integrations tests
-python tools/lint_docs.py
-python tools/security_guards.py
+make verify
 ```
 
-项目采用 Conventional Commits。涉及功能、隐私、数据模型或外部集成时，commit 正文应写清背景、变更、验证和边界。
+项目采用 Conventional Commits。涉及功能、隐私、数据模型或外部集成时，commit 正文应写清背景、变更、验证和边界。详见[贡献指南](docs/operations/contributing.zh-CN.md)。
 
 ## Release Notes
 
 变更记录见 [CHANGELOG.md](CHANGELOG.md)。GitHub Release notes 使用 [.github/release.yml](.github/release.yml) 做分组。
 
-第一个 MVP release 计划为 `v0.1.0`。
+`0.2.0-rc.1` 是预发布候选版本。只有通过 release checklist 和人工 demo 验收后，才考虑标记为稳定 `v1.0.0`。
 
 ## License
 

@@ -137,8 +137,9 @@ h2 {
 .brand-mark {
   width: 34px;
   height: 34px;
-  border-radius: 6px;
-  object-fit: cover;
+  border-radius: 4px;
+  background: #fff;
+  object-fit: contain;
 }
 
 .brand strong,

@@ -4,7 +4,7 @@
 
 项目 logo：
 
-- `app/frontend/assets/logo.png`：由项目维护者从本地素材提供并纳入仓库，用作开源项目 logo。正式公开发布前需要确认该图片的版权、商用和再分发授权。
+- `docs/assets/brand/offer-harvester-logo.png` 与 `app/frontend/assets/logo.png`：由项目维护者提供并纳入仓库，用作 Offer Harvester 开源项目 logo 和本地应用图标。公开发布仅使用该维护者提供的派生资产。
 
 文档调研阶段参考过以下项目：
 
